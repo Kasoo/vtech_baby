@@ -47,7 +47,8 @@ build behave identically at the protocol level.
 
 The kit is characterised against Kalay SDK **4.3.8.1**, and `../tooling/patch_sdk.py` (and
 `extract_sdk.py`) refuse any other version. The version comes from the string each library embeds,
-`4.3.8.1-1-gc5f0edc-R2_openssl_android`; all four must agree. A version check rather than a hash check,
+`4.3.8.1-1-gc5f0edc-R2_openssl_android` in the tested builds; only the `4.3.8.1` part is checked, not
+the build suffix after it, and all four must agree. A version check rather than a hash check,
 because struct layouts change between SDK versions (4.3.6.2 → 4.3.8.1 changed the `IOTC_Connect_ByUIDEx`
 input) but builds of one version are expected to be interchangeable. For reference, the SHA-256 digests
 of the libraries tested (Kalay Mobile 2.0.0; the APKPure arm64-v8a download is byte-identical):
