@@ -1,7 +1,10 @@
-"""Config flow: SDK directory (once per HA instance), then the camera's pairing QR; reauth = fresh QR.
+"""Config flow: the SDK (uploaded once per HA instance as the Kalay Mobile app), then the camera's
+pairing QR; reauth = fresh QR.
 
-Design: HA_INTEGRATION.md §6 Phase 2. Credentials come from the pairing-QR text
-(vtech-lan-kit/docs/05-provisioning.md); the QR text itself is never stored.
+Design: HA_INTEGRATION.md §6 Phase 2. The SDK libraries are extracted from the user's upload by
+native.install_sdk (vtech-lan-kit/docs/85-ha-deployment.md); the upload itself is deleted afterwards.
+Credentials come from the pairing-QR text (vtech-lan-kit/docs/05-provisioning.md); the QR text itself is
+never stored.
 """
 from __future__ import annotations
 
@@ -11,11 +14,20 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components.file_upload import process_uploaded_file
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.helpers.selector import TextSelector, TextSelectorConfig
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.selector import (
+    FileSelector,
+    FileSelectorConfig,
+    TextSelector,
+    TextSelectorConfig,
+)
 
+from . import native
 from .const import (
     CONF_ACCOUNT,
+    CONF_APP_FILE,
     CONF_AUTHKEY,
     CONF_AV_PASSWORD,
     CONF_MAC,
@@ -23,6 +35,7 @@ from .const import (
     CONF_SDK_DIR,
     CONF_UID,
     DOMAIN,
+    KALAY_APP,
     SDK_SUBDIR,
 )
 from .manager import SdkHandle, SdkSetupError, async_load_sdk, async_probe
@@ -32,6 +45,13 @@ from .vtech_lan.errors import AuthFailed, Unlicensed, Unreachable, VtechError
 _LOG = logging.getLogger(__name__)
 
 QR_SCHEMA = vol.Schema({vol.Required(CONF_QR): TextSelector(TextSelectorConfig(multiline=True))})
+APP_SCHEMA = vol.Schema({vol.Required(CONF_APP_FILE): FileSelector(FileSelectorConfig(accept=".xapk,.apk,.apks"))})
+
+
+def _install(hass: HomeAssistant, file_id: str, sdk_dir: str) -> str:
+    """Executor job: extract the SDK from the uploaded package into sdk_dir. The upload is then deleted."""
+    with process_uploaded_file(hass, file_id) as path:
+        return native.install_sdk(str(path), sdk_dir)
 
 
 class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -43,31 +63,42 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # Step 1: the SDK, once per HA instance
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        existing = self._async_current_entries(include_ignore=False)
-        if existing and user_input is None:
-            self._sdk_dir = existing[0].data[CONF_SDK_DIR]
-            try:
-                self._handle = await async_load_sdk(self.hass, self._sdk_dir)
-            except SdkSetupError:
-                self._handle = None          # fall through to the form so the user can fix the path
-            else:
-                return await self.async_step_camera()
+        arch = await self.hass.async_add_executor_job(native.host_supported)
+        if arch is None:
+            return self.async_abort(reason="unsupported_host")
+        placeholders = {"app": KALAY_APP, "arch": arch, "abi": native.ABI_OF[arch],
+                        "required": native.SDK_VERSION, "version": "", "found": "", "error": ""}
+
+        if user_input is None:
+            # Already here: an existing camera's SDK, or the app uploaded before on this host.
+            existing = self._async_current_entries(include_ignore=False)
+            self._sdk_dir = existing[0].data[CONF_SDK_DIR] if existing else self.hass.config.path(*SDK_SUBDIR)
+            if existing or await self.hass.async_add_executor_job(native.sdk_present, self._sdk_dir):
+                try:
+                    self._handle = await async_load_sdk(self.hass, self._sdk_dir)
+                except SdkSetupError as err:
+                    _LOG.warning("the SDK in %s is not usable (%s); asking for the app again", self._sdk_dir, err)
+                else:
+                    return await self.async_step_camera()
+            return self.async_show_form(step_id="user", data_schema=APP_SCHEMA, description_placeholders=placeholders)
 
         errors: dict[str, str] = {}
-        placeholders = {"error": ""}
-        if user_input is not None:
-            self._sdk_dir = user_input[CONF_SDK_DIR].strip()
+        self._sdk_dir = self.hass.config.path(*SDK_SUBDIR)
+        try:
+            await self.hass.async_add_executor_job(_install, self.hass, user_input[CONF_APP_FILE], self._sdk_dir)
+        except native.ExtractError as err:
+            errors["base"] = _install_error(err, placeholders)
+        except (OSError, ValueError) as err:   # ValueError: the upload id is unknown or expired
+            errors["base"], placeholders["error"] = "sdk_error", str(err)
+        else:
             try:
                 self._handle = await async_load_sdk(self.hass, self._sdk_dir)
             except SdkSetupError as err:
                 errors["base"], placeholders["error"] = "sdk_error", str(err)
             else:
                 return await self.async_step_camera()
-
-        default = self._sdk_dir or self.hass.config.path(*SDK_SUBDIR)
-        return self.async_show_form(
-            step_id="user", data_schema=vol.Schema({vol.Required(CONF_SDK_DIR, default=default): str}),
-            errors=errors, description_placeholders=placeholders)
+        return self.async_show_form(step_id="user", data_schema=APP_SCHEMA, errors=errors,
+                                    description_placeholders=placeholders)
 
     # Step 2: one camera, from its pairing QR
     async def async_step_camera(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -133,6 +164,22 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOG.exception("unexpected error testing the camera connection")
             return {"base": "unknown"}
         return {}
+
+
+def _install_error(err: Exception, placeholders: dict[str, str]) -> str:
+    """Form error key for a failed SDK install, filling the placeholders it needs."""
+    if isinstance(err, native.NotAPackage):
+        return "not_a_package"
+    if isinstance(err, native.WrongArch):
+        placeholders["found"] = ", ".join(err.found) or "none"
+        return "wrong_arch"
+    if isinstance(err, native.MissingLibs):
+        return "missing_libraries"
+    if isinstance(err, native.WrongVersion):
+        placeholders["version"] = err.version
+        return "wrong_version"
+    placeholders["error"] = str(err)
+    return "sdk_error"
 
 
 def _entry_creds(creds: provision.Credentials) -> dict[str, str]:

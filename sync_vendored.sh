@@ -13,7 +13,7 @@ PKG="$HERE/custom_components/vtech_baby"
 [ $# -gt 0 ] || set -- x86_64
 
 mkdir -p "$PKG/tooling/companion"
-cp "$KIT/elfpatch.py" "$KIT/patch_sdk.py" "$PKG/tooling/"
+cp "$KIT/elfpatch.py" "$KIT/patch_sdk.py" "$KIT/extract_sdk.py" "$PKG/tooling/"
 cp "$KIT/companion/renames.txt" "$PKG/tooling/companion/"
 touch "$PKG/tooling/__init__.py"
 
@@ -28,6 +28,6 @@ dirty=$(git -C "$HERE" status --porcelain -- vtech-lan-kit/tooling | head -1)
 {
   echo "kit_tooling_commit: $rev${dirty:+ (plus uncommitted changes)}"
   echo "synced: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  (cd "$PKG" && sha256sum tooling/elfpatch.py tooling/patch_sdk.py tooling/companion/renames.txt native/*/libtk.so 2>/dev/null)
+  (cd "$PKG" && sha256sum tooling/elfpatch.py tooling/patch_sdk.py tooling/extract_sdk.py tooling/companion/renames.txt native/*/libtk.so 2>/dev/null)
 } > "$PKG/native/SOURCE"
 cat "$PKG/native/SOURCE"

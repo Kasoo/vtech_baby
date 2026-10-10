@@ -3,6 +3,8 @@
 The real `Session` runs over `FakeSdk`; only SDK preparation (`_prepare_and_load`) is patched out.
 """
 import asyncio
+import os
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -11,18 +13,20 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.vtech_baby import config_flow as cf
 from custom_components.vtech_baby import manager as mgr
+from custom_components.vtech_baby import native
 from custom_components.vtech_baby.const import (
-    CONF_ACCOUNT, CONF_AUTHKEY, CONF_AV_PASSWORD, CONF_MAC, CONF_QR, CONF_SDK_DIR, CONF_UID, DOMAIN,
-    ISSUE_UNTESTED_SDK,
+    CONF_ACCOUNT, CONF_APP_FILE, CONF_AUTHKEY, CONF_AV_PASSWORD, CONF_MAC, CONF_QR, CONF_SDK_DIR, CONF_UID, DOMAIN,
 )
 from custom_components.vtech_baby.native import Prepared
 from custom_components.vtech_baby.vtech_lan import provision
 
 from fake_sdk import FakeSdk, i32
+from test_extract import apk, bundle
 from test_provision import make_qr
 
 UID = "TESTUID0000000000001"
@@ -43,17 +47,46 @@ def fake():
 
 
 @pytest.fixture
-def tested():
-    return {"tested": True}
+def sdk():
+    """SDK state on the fake host: whether libraries are already there, which dirs fail to load, uploads."""
+    return {"present": False, "bad": set(), "installed": []}
+
+
+REAL_INSTALL = cf._install
+
+
+def upload(name):
+    """The upload id HA's file selector would give the file `name`."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
+
+
+# Uploads by name: what installing each one does.
+UPLOADS = {
+    "kalay.xapk": None,
+    "arm-only.xapk": native.WrongArch("x86_64", ["arm64-v8a", "armeabi-v7a"]),
+    "newer.xapk": native.WrongVersion("4.4.0.0", "4.3.8.1"),
+    "photo.jpg": native.NotAPackage("not an APK or app bundle"),
+    "other.apk": native.MissingLibs(["libIOTCAPIs.so"]),
+    "expired": ValueError("Invalid file_id expired"),
+}
 
 
 @pytest.fixture(autouse=True)
-def sdk_patch(fake, tested):
+def sdk_patch(fake, sdk):
     def prep(sdk_dir, lib_root):
-        if sdk_dir == "/bad":
-            raise mgr.SdkSetupError("SDK directory /bad does not exist")
-        return mgr.SdkHandle(fake, Prepared(lib_root + "/x86_64", "x86_64", tested["tested"], False))
-    with patch.object(mgr, "_prepare_and_load", prep), \
+        if sdk_dir in sdk["bad"]:
+            raise mgr.SdkSetupError(f"cannot load {sdk_dir}")
+        return mgr.SdkHandle(fake, Prepared(lib_root + "/x86_64", "x86_64", "4.3.8.1", False))
+
+    def install(hass, file_id, sdk_dir):
+        if (err := {upload(n): e for n, e in UPLOADS.items()}[file_id]) is not None:
+            raise err
+        sdk["installed"].append(sdk_dir)
+        sdk["present"] = True
+        return "4.3.8.1"
+    with patch.object(mgr, "_prepare_and_load", prep), patch.object(cf, "_install", install), \
+         patch.object(native, "host_supported", lambda: "x86_64"), \
+         patch.object(native, "sdk_present", lambda d: sdk["present"]), \
          patch.object(mgr, "RECONNECT_MIN_S", 0.05), patch.object(mgr, "RECONNECT_MAX_S", 0.1):
         yield
 
@@ -84,31 +117,88 @@ async def wait_until(cond, timeout=5.0):
 
 
 # ── Config flow ──────────────────────────────────────────────────────────────
-async def test_user_flow_creates_entry(hass: HomeAssistant):
+async def test_user_flow_creates_entry(hass: HomeAssistant, sdk):
     r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "user"
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_SDK_DIR: "/bad"})
-    assert r["errors"] == {"base": "sdk_error"}
-    assert "does not exist" in r["description_placeholders"]["error"]
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_SDK_DIR: "/sdk"})
+    assert r["description_placeholders"]["abi"] == "x86_64"
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload("kalay.xapk")})
     assert r["step_id"] == "camera"
+    sdk_dir = hass.config.path("vtech_baby", "sdk")
+    assert sdk["installed"] == [sdk_dir]
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: "garbage"})
     assert r["errors"] == {CONF_QR: "invalid_qr"}
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.CREATE_ENTRY
     assert r["title"] == "VTECH_5754_test"
-    assert r["data"] == entry_data()
+    assert r["data"] == {**entry_data(), CONF_SDK_DIR: sdk_dir}
     assert r["result"].unique_id == UID
     await hass.async_block_till_done()
     assert hass.states.get(TEMP).state == "21"
     await unload(hass, r["result"])
 
 
+@pytest.mark.parametrize(("name", "error", "placeholders"), [
+    ("arm-only.xapk", "wrong_arch", {"found": "arm64-v8a, armeabi-v7a", "arch": "x86_64"}),
+    ("newer.xapk", "wrong_version", {"version": "4.4.0.0", "required": "4.3.8.1"}),
+    ("photo.jpg", "not_a_package", {}),
+    ("other.apk", "missing_libraries", {}),
+    ("expired", "sdk_error", {"error": "Invalid file_id expired"}),
+])
+async def test_upload_errors(hass: HomeAssistant, sdk, name, error, placeholders):
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload(name)})
+    assert r["step_id"] == "user" and r["errors"] == {"base": error}
+    assert placeholders.items() <= r["description_placeholders"].items()
+    assert sdk["installed"] == []
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload("kalay.xapk")})
+    assert r["step_id"] == "camera"
+
+
+async def test_real_upload(hass: HomeAssistant, hass_client, tmp_path):
+    """Through HA's upload API: the SDK is extracted into the config dir and the upload is deleted."""
+    hass.config.config_dir = str(tmp_path / "config")
+    assert await async_setup_component(hass, "file_upload", {})
+    pkg = bundle(tmp_path / "Kalay Mobile.xapk", {"config.x86_64.apk": apk(["x86_64"])})
+    client = await hass_client()
+    with open(pkg, "rb") as f:
+        resp = await client.post("/api/file_upload", data={"file": f})
+    assert resp.status == 200
+    file_id = (await resp.json())["file_id"]
+    with patch.object(cf, "_install", REAL_INSTALL), patch.object(native._sdk, "host_arch", lambda: "x86_64"):
+        r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+        r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: file_id})
+    assert r["step_id"] == "camera"
+    sdk_dir = str(tmp_path / "config" / "vtech_baby" / "sdk")
+    assert sorted(os.listdir(sdk_dir)) == sorted(native._patch.LIBS)
+    assert native._patch.sdk_version(sdk_dir) == "4.3.8.1"
+    with pytest.raises(ValueError):             # the upload is gone
+        await hass.async_add_executor_job(REAL_INSTALL, hass, file_id, sdk_dir)
+
+
+async def test_sdk_already_uploaded_skips_upload(hass: HomeAssistant, sdk):
+    sdk["present"] = True
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert r["step_id"] == "camera"
+
+
+async def test_unusable_sdk_asks_for_the_app_again(hass: HomeAssistant, sdk):
+    sdk["present"] = True
+    sdk["bad"].add(hass.config.path("vtech_baby", "sdk"))
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert r["step_id"] == "user"
+
+
+async def test_unsupported_host(hass: HomeAssistant):
+    with patch.object(native, "host_supported", lambda: None):
+        r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert r["type"] is FlowResultType.ABORT and r["reason"] == "unsupported_host"
+
+
 @pytest.mark.parametrize(("rc", "error"), [(-13, "cannot_connect"), (-68, "invalid_auth"), (-10, "invalid_license")])
 async def test_flow_connect_errors(hass: HomeAssistant, fake, rc, error):
     fake.connect_rc = rc
     r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_SDK_DIR: "/sdk"})
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload("kalay.xapk")})
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["errors"] == {"base": error}
 
@@ -152,13 +242,6 @@ async def test_setup_wrong_auth_starts_reauth(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
     assert entry.state is ConfigEntryState.SETUP_ERROR
     assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
-
-
-async def test_untested_sdk_issue(hass: HomeAssistant, tested):
-    tested["tested"] = False
-    entry = await setup_entry(hass)
-    assert ir.async_get(hass).async_get_issue(DOMAIN, ISSUE_UNTESTED_SDK) is not None
-    await unload(hass, entry)
 
 
 async def test_pushes_update_state(hass: HomeAssistant, fake):

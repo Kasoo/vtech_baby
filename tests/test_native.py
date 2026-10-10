@@ -37,7 +37,7 @@ def snapshot(libdir):
 
 def test_fresh_patch(tmp_path):
     p = native.prepare(HOST_SDK, str(tmp_path))
-    assert p == native.Prepared(str(tmp_path / "x86_64"), "x86_64", True, False)
+    assert p == native.Prepared(str(tmp_path / "x86_64"), "x86_64", "4.3.8.1", False)
     assert sorted(os.listdir(p.libdir)) == sorted([*patch_sdk.LIBS, "libtk.so", patch_sdk.MANIFEST])
 
 
@@ -55,8 +55,46 @@ def test_changed_sdk_is_repatched_when_not_loaded(tmp_path):
     native.prepare(str(sdk), str(tmp_path / "lib"))
     with open(sdk / "libIOTCAPIs.so", "ab") as f:
         f.write(b"\0")
+    before = snapshot(str(tmp_path / "lib" / "x86_64"))
     p = native.prepare(str(sdk), str(tmp_path / "lib"))
-    assert not p.tested and not p.restart_required
+    assert p.version == "4.3.8.1" and not p.restart_required
+    assert snapshot(p.libdir)["libIOTCAPIs.so"] != before["libIOTCAPIs.so"]
+
+
+def set_version(path, version):
+    """Rewrite a library's embedded SDK version string in place (same length)."""
+    data = open(path, "rb").read()
+    old = patch_sdk.lib_version(path).encode() + b"-"
+    assert len(version) == len(old) - 1 and data.count(old) == 1
+    open(path, "wb").write(data.replace(old, version.encode() + b"-"))
+
+
+def test_sdk_version(tmp_path):
+    assert patch_sdk.sdk_version(HOST_SDK) == patch_sdk.SDK_VERSION == "4.3.8.1"
+
+
+def test_other_sdk_version_is_refused(tmp_path):
+    sdk = tmp_path / "sdk"
+    shutil.copytree(HOST_SDK, sdk)
+    for lib in patch_sdk.LIBS:
+        set_version(sdk / lib, "4.3.9.0")
+    with pytest.raises(native.PatchError, match="version 4.3.9.0; this needs version 4.3.8.1"):
+        native.prepare(str(sdk), str(tmp_path / "lib"))
+    assert not native.sdk_present(str(sdk))
+
+
+def test_mixed_sdk_versions_are_refused(tmp_path):
+    sdk = tmp_path / "sdk"
+    shutil.copytree(HOST_SDK, sdk)
+    set_version(sdk / "libAVAPIs.so", "4.3.6.2")
+    with pytest.raises(native.PatchError, match="different versions"):
+        native.prepare(str(sdk), str(tmp_path / "lib"))
+
+
+def test_sdk_present(tmp_path):
+    assert native.sdk_present(HOST_SDK)
+    assert not native.sdk_present(FOREIGN_SDK)
+    assert not native.sdk_present(str(tmp_path / "nope"))
 
 
 def test_loaded_and_unchanged(tmp_path, monkeypatch):
@@ -64,7 +102,7 @@ def test_loaded_and_unchanged(tmp_path, monkeypatch):
     fake_loaded(monkeypatch, p.libdir)
     before = snapshot(p.libdir)
     assert native.prepare(HOST_SDK, str(tmp_path)) == native.Prepared(
-        os.path.realpath(p.libdir), "x86_64", True, False)
+        os.path.realpath(p.libdir), "x86_64", "4.3.8.1", False)
     assert snapshot(p.libdir) == before
 
 

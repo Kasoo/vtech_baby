@@ -18,7 +18,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_RESTART_REQUIRED, ISSUE_UNTESTED_SDK
+from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_RESTART_REQUIRED
 from .manager import CameraManager, SdkSetupError, async_load_sdk
 from .media_server import get_server, release_camera
 
@@ -82,11 +82,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> bo
 
 
 def _sync_issues(hass: HomeAssistant, prepared) -> None:
-    if prepared.tested:
-        ir.async_delete_issue(hass, DOMAIN, ISSUE_UNTESTED_SDK)
-    else:
-        ir.async_create_issue(hass, DOMAIN, ISSUE_UNTESTED_SDK, is_fixable=False,
-                              severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_UNTESTED_SDK)
     if prepared.restart_required:
         ir.async_create_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED, is_fixable=False,
                               severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_RESTART_REQUIRED)

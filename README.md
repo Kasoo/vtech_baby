@@ -22,10 +22,26 @@ Only the RM5754HD has been tested.
 - The camera already set up with its parent unit, on the same network segment as Home Assistant.
 - Home Assistant on x86_64 Linux (the standard container or OS on a PC). Raspberry Pi and other arm64
   machines aren't supported yet.
-- The ThroughTek (TUTK) libraries the camera's protocol needs. They can't be included here, so you
-  supply them: the `x86_64` builds of `libIOTCAPIs.so`, `libAVAPIs.so`, `libNebulaAPIs.so` and
-  `libTUTKGlobalAPIs.so`. They are in the `lib/` folder of VTech's Android app;
-  `vtech-lan-kit/sdk/README.md` has the details.
+- ThroughTek's **Kalay Mobile** app for Android, as a file. The camera's protocol needs ThroughTek's
+  SDK libraries, which can't be included here, and this app contains them. You don't install the app
+  anywhere: you upload the file to Home Assistant, which keeps only the four libraries it needs.
+
+  Download exactly this from [APKPure](https://apkpure.com/kalay-mobile/com.tutk.kalaymobile/download):
+
+  | | |
+  |---|---|
+  | App | Kalay Mobile, by ThroughTek Co., Ltd. (`com.tutk.kalaymobile`) |
+  | Version | 2.0.0 (version code 87) |
+  | Variant | The one for your Home Assistant host's processor, as an XAPK file (see below) |
+
+  | Home Assistant runs on | Variant |
+  |---|---|
+  | A PC, NUC or other x86_64 machine | **x86_64** |
+  | A Raspberry Pi 4 or 5, or another 64-bit ARM machine | **arm64-v8a** (not supported yet, see above) |
+
+  The setup dialog names the variant your host needs. 32-bit systems (armeabi-v7a, x86) can't be
+  supported. Other app versions may carry a different SDK version, which won't work: the integration
+  needs SDK version 4.3.8.1, and checks the libraries' version and architecture when you upload them.
 
 ## Install
 
@@ -37,10 +53,10 @@ restart.
 
 ## Add a camera
 
-1. Copy the four libraries into a folder under your Home Assistant config directory, for example
-   `config/vtech_baby/sdk/`.
-2. Add the **VTech Baby Monitor (RM5754HD)** integration and enter that folder.
-3. On the parent unit, open the camera's **Connect Mobile Phone** QR code. Scan it with any QR reader
+1. Add the **VTech Baby Monitor (RM5754HD)** integration and upload the Kalay Mobile `.xapk` file.
+   This is only needed once: further cameras, and reinstalls on the same Home Assistant, reuse the
+   libraries already extracted (into `config/vtech_baby/sdk/`).
+2. On the parent unit, open the camera's **Connect Mobile Phone** QR code. Scan it with any QR reader
    on your phone and paste the text into Home Assistant.
 
 The camera's login changes whenever its Wi-Fi settings change. Home Assistant then asks you to scan the

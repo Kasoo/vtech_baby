@@ -3,6 +3,9 @@
   "name": "VTech Baby Monitor (RM5754HD)",
   "codeowners": [],
   "config_flow": true,
+  "dependencies": [
+    "file_upload"
+  ],
   "integration_type": "device",
   "iot_class": "local_push",
   "requirements": [],
