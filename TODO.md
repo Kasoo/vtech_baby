@@ -33,6 +33,8 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
   personal account.
 - Trim `HA_INTEGRATION.md` and the kit docs for readers outside the original setup: they still mention
   the author's NAS, live-test directories and the unpublished `camera/` notes.
+- `README.md` shows `images/device.png` by a relative path, which GitHub renders. Check whether HACS's
+  README view does too; if not, switch it to the image's full `raw.githubusercontent.com` URL.
 - Check that APKPure offers the x86_64 variant of Kalay Mobile 2.0.0 (only armeabi-v7a and arm64-v8a so
   far, 2026-10-10), as `README.md` tells users to download it. If it doesn't, find another public
   source or rethink the instructions.

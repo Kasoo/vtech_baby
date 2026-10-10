@@ -19,6 +19,7 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 | `vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
 | `tests/` | Offline tests (fake SDK, fake manager); `tests/live/` probes for a real camera. |
 | `HA_INTEGRATION.md` | The development plan and history: decisions, layout, phases, entity map, workflow, risks. |
+| `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns. |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork) and `render.sh` (needs inkscape) for `brand/`. |
 | `sync_vendored.sh` | Refreshes `tooling/` and `native/` from the kit. |
 

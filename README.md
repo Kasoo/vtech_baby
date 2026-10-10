@@ -16,6 +16,8 @@ You get one device per camera with:
 - the night-light (red, orange or yellow) and the status LED;
 - night vision, resolution, motion sensitivity, sound detection, notification interval and lullaby timer.
 
+![The camera's device page in Home Assistant](images/device.png)
+
 **NOTE: Only the RM5754HD has been tested.** VTech sells many baby monitors. Although most are likely
 built on the same platform, other models are likely to require different communication opcodes or
 encryption secrets, and may not work at all, or only partly.
