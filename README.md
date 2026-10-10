@@ -1,8 +1,11 @@
 # VTech Baby Monitor for Home Assistant
 
-A Home Assistant integration for the **VTech RM5754HD** baby monitor camera. It talks to the camera
-directly on your network, with no VTech account and no cloud.
+An **unofficial** Home Assistant integration for the **VTech RM5754HD** baby monitor camera. It is not
+made, endorsed or supported by VTech or ThroughTek, and is not affiliated with either. VTech,
+ThroughTek, TUTK, Kalay and the product names here are trademarks of their owners, used only to say
+which camera this works with. The icon is original artwork, not VTech's.
 
+It talks to the camera directly on your network, with no VTech account and no cloud.
 You get one device per camera with:
 
 - live video;
@@ -12,7 +15,7 @@ You get one device per camera with:
 - night vision, resolution, motion sensitivity, sound detection, notification interval and lullaby timer;
 - whether the parent unit is on.
 
-Only the RM5754HD has been tested. This is not made by or affiliated with VTech or ThroughTek.
+Only the RM5754HD has been tested.
 
 ## What you need
 
