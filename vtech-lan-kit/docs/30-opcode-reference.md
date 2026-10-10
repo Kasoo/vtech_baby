@@ -8,7 +8,7 @@ issuing the VTech (`0x7xx`/`0x74x`/`0x75x`/`0x73x`) GETs (see `20-ioctrl-framewo
 
 | Opcode | Name | Request payload | Reply | Semantics |
 |---|---|---|---|---|
-| `0x0ff` | `IOTYPE_INNER_SND_DATA_DELAY` | 4B, `int32` `0` | — | The first IOCtrl on every new AV channel in the vendor app's traffic. **SDK 4.3.8.1 refuses it from application code with `AV_ER_NOT_SUPPORT` (`-20033`)**; nothing depends on it (`20-ioctrl-framework.md`). The value is always `0`. No reply. |
+| `0x0ff` | `IOTYPE_INNER_SND_DATA_DELAY` | 4B, `int32` `0` | — | Conventionally the first IOCtrl on a new AV channel. **SDK 4.3.8.1 refuses it from application code with `AV_ER_NOT_SUPPORT` (`-20033`)**; nothing depends on it (`20-ioctrl-framework.md`). The value is always `0`. No reply. |
 | `0x1ff` | `IOTYPE_USER_IPCAM_START` | 8B, `word0`=channel(0) | — | Start live video. |
 | `0x2ff` | `IOTYPE_USER_IPCAM_STOP` | 8B, channel | — | Stop live video. |
 | `0x300` | `IOTYPE_USER_IPCAM_AUDIOSTART` | 8B, channel | — | Camera begins sending audio frames. |
@@ -48,7 +48,7 @@ Distinct from the night-light. This is the camera's online-status indicator ligh
 
 While the LED is enabled it is **solid green when idle and flashes green while live video is being
 streamed** (`START` … `STOP`, including a brief stream for a snapshot); while disabled it stays off in
-both cases [proven 2026-10-06, owner observation with the HA integration]. So with the LED enabled,
+both cases. So with the LED enabled,
 anyone in the room can see when the camera is being watched.
 
 ### Day/night (night-vision) mode
@@ -79,7 +79,7 @@ anyone in the room can see when the camera is being watched.
 | Opcode | Direction | Payload | Semantics |
 |---|---|---|---|
 | `0x74b` → `0x74c` | GET | 4B `0` | Reply 12B: `word0` = enable (0/1), `word1` = max threshold (°C ×10), `word2` = min threshold (°C ×10). |
-| `0x74d` | SET | 12B: `word0` enable, `word1` max (°C ×10), `word2` min (°C ×10) | Sets temperature detection. Ack `0x74e`: 4B, `1` = success; the camera also pushes `0x7ac` subtype 2. While enabled and out of range, the camera pushes `0x1fff` `0x16` (too hot) or `0x17` (too cold) (`60-event-channel.md`). **The camera quantises the thresholds [proven 2026-10-05]:** it keeps whole °F and reports °C ×10 truncated, so a write reads back changed: 265 → 266, 152 → 150, while 238 and 161 (the app's values, = 75 °F / 61 °F) round-trip unchanged. Re-read `0x74b` after a write to show what was applied. |
+| `0x74d` | SET | 12B: `word0` enable, `word1` max (°C ×10), `word2` min (°C ×10) | Sets temperature detection. Ack `0x74e`: 4B, `1` = success; the camera also pushes `0x7ac` subtype 2. While enabled and out of range, the camera pushes `0x1fff` `0x16` (too hot) or `0x17` (too cold) (`60-event-channel.md`). **The camera quantises the thresholds:** it keeps whole °F and reports °C ×10 truncated, so a write reads back changed: 265 → 266, 152 → 150, while 238 and 161 (= 75 °F / 61 °F) round-trip unchanged. Re-read `0x74b` after a write to show what was applied. |
 | `0x738` | push | 12B | Temperature notify: `int@0` °C, `int@4` °F, `int@8` **temperature state** against the `0x74d` thresholds: `0` within range, `1` above max (too hot), `2` below min (too cold). The state is evaluated whether or not temperature detection is enabled. |
 
 ### Motion detection / tracking

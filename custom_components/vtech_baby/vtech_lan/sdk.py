@@ -123,7 +123,7 @@ class Sdk:
         self._send_ioctrl = _bind(AV, "avSendIOCtrl", C.c_int, C.c_int, C.c_uint32, C.c_void_p, C.c_int)
         self._recv_ioctrl = _bind(AV, "avRecvIOCtrl", C.c_int, C.c_int, C.POINTER(C.c_uint32),
                                   C.c_void_p, C.c_int, C.c_uint32)
-        # Media (Phase 5) and talk-back (Phase 6) calls, bound now so a missing symbol fails at load.
+        # Media and talk-back calls, bound now so a missing symbol fails at load.
         self.recv_frame = _bind(AV, "avRecvFrameData2", C.c_int, C.c_int, C.c_char_p, C.c_int,
                                 C.POINTER(C.c_int), C.POINTER(C.c_int), C.c_char_p, C.c_int,
                                 C.POINTER(C.c_int), C.POINTER(C.c_int))
@@ -186,7 +186,7 @@ class Sdk:
     def session_close(self, sid: int) -> None:
         self._session_close(sid)
 
-    # ── Media (Phase 5; media.py) ──
+    # ── Media (media.py) ──
     def clean_media_buffers(self, av: int) -> None:
         """Drop buffered frames before a START, so the first frame is a keyframe (kit 40)."""
         self._clean_video(av)

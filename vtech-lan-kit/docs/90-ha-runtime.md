@@ -52,7 +52,7 @@ blocked in the SDK doesn't stall other Python threads. SDK calls must still neve
   request is "send from the caller's executor job, then await a future that the reader completes when the
   matching response opcode arrives" (reply opcode = request + 1 unless `30-opcode-reference.md` says
   otherwise).
-- **But serialise the sends themselves: one `avSendIOCtrl` per channel at a time [proven 2026-10-05].**
+- **But serialise the sends themselves: one `avSendIOCtrl` per channel at a time.**
   `avSendIOCtrl` blocks until the camera acknowledges the IOCtrl. A second send on the same channel
   while one is in progress fails with `-20021` (`AV_ER_SENDIOCTRL_ALREADY_CALLED`). Seen live when a
   keepalive GET collided with an entity re-read while the camera was slow to ack. Hold a per-session
@@ -121,7 +121,7 @@ and for the media stream. The in-process design is simpler; the out-of-process o
 - Decrypted video is H.264 and audio is G.711 A-law, 8 kHz mono (`40-media-streaming.md`,
   `50-media-decryption.md`). HA's stream pipeline wants a URL: `stream_source()` is registered with HA's
   go2rtc (a separate process, for WebRTC; it adds its own Opus transcode) and opened by the stream
-  component (HLS). Proven design (2026-10-06): mux in-process with PyAV, which ships with HA — H.264 as
+  component (HLS). The design that works: mux in-process with PyAV, which ships with HA — H.264 as
   packets with arrival timestamps, A-law re-encoded to **AAC** (go2rtc's MPEG-TS reader and HLS both take
   AAC; neither takes PCMA) — into MPEG-TS served on a **loopback-only** HTTP endpoint. Avoid an `ffmpeg`
   subprocess fed raw streams on pipes: raw elementary streams carry no timestamps, and a single blocking

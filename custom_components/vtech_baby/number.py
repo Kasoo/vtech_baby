@@ -1,4 +1,4 @@
-"""Numbers: temperature alert thresholds, °C in 0.1 steps (×10 on the wire) (HA_INTEGRATION.md §7)."""
+"""Numbers: temperature alert thresholds, °C in 0.1 steps (×10 on the wire)."""
 from __future__ import annotations
 
 from dataclasses import dataclass

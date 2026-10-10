@@ -238,9 +238,8 @@ class TUTK:
 # ─────────────────────────────────────────────────────────────────────────────
 # §3  Session bring-up — connect + authenticated AV session
 # ─────────────────────────────────────────────────────────────────────────────
-# App-wide SDK license key (TUTK_SDK_Set_License_Key). Same for every camera of this app
-# family; a small static value — a pure numeric fact, shareable under interoperability
-# exceptions (see docs/00-prerequisites.md) — so it is embedded here rather than user-supplied.
+# App-wide SDK license key (TUTK_SDK_Set_License_Key). Same for every camera of this family and
+# needed to interoperate, so it is embedded here rather than user-supplied (docs/00-prerequisites.md).
 DEFAULT_LICENSE_KEY = ("AQAAAKLYFdlSXIPi3g3PGW+mwX+kQW1343RIBJstfyQuKZSJTOU5sxwi2J67GO31RCngqq8Q"
                        "/6zl6WkQn7hfwUZEP0hbj3spI06VDkAg7AB6MS0SG+0zcieGkORtSpkxxVf+S8TflIpgEldZ"
                        "ykhsLKR+plBToQ9/3CFtgXS/n70OhxyHakx6pXGuvM9xfOsrJnSrBqLdSyHim13rWGvrws4SpZ8b")
@@ -462,7 +461,7 @@ SPEAKERSTART     = Op(0x350, "IOTYPE_USER_IPCAM_SPEAKERSTART",        _enc_chann
 SPEAKERSTOP      = Op(0x351, "IOTYPE_USER_IPCAM_SPEAKERSTOP",         _enc_channel,
                       doc="talk-back stop: int@0 = the same channel")
 SND_DATA_DELAY   = Op(0x0ff, "IOTYPE_INNER_SND_DATA_DELAY", _enc_reserved4,
-                      doc="first IOCtrl on every new AV channel in the vendor app's traffic; payload int32 0; "
+                      doc="conventionally the first IOCtrl on a new AV channel; payload int32 0; "
                           "no reply. SDK 4.3.8.1 refuses it from application code (AV_ER_NOT_SUPPORT, "
                           "-20033) and nothing depends on it; send() here ignores that rc.")
 PRE_INIT         = SND_DATA_DELAY          # former name, kept for existing callers

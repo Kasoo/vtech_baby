@@ -1,4 +1,4 @@
-"""Config flow, setup/unload, pushes, reconnect and reauth, against the fake SDK (HA_INTEGRATION.md §8.1).
+"""Config flow, setup/unload, pushes, reconnect and reauth, against the fake SDK.
 
 The real `Session` runs over `FakeSdk`; only SDK preparation (`_prepare_and_load`) is patched out.
 """
@@ -342,7 +342,7 @@ def test_mac_present(tmp_path):
     assert not mgr.mac_present("00:11:22:33:44:ff", str(tmp_path / "missing"))
 
 
-# ── Phase 3/4 entities ───────────────────────────────────────────────────────
+# ── Entities ─────────────────────────────────────────────────────────────────
 import datetime as dt
 import struct
 
@@ -518,7 +518,7 @@ async def test_reread_keeps_values_and_gives_up_on_stall(hass: HomeAssistant, fa
     await unload(hass, entry)
 
 
-# ── Phase 5: camera ──────────────────────────────────────────────────────────
+# ── Camera ───────────────────────────────────────────────────────────────────
 CAM = f"camera.{P}_live_view"
 
 

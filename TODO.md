@@ -1,18 +1,12 @@
 # TODO
 
-Development order and open protocol questions stay in `HA_INTEGRATION.md` (§6 "Status and next steps",
-§5.2, §9). This file holds the rest, and what publishing needs.
+Open protocol questions and known issues are in `AGENTS.md` ("Design notes"). This file holds the rest,
+and what publishing needs.
 
 ## Before publishing
 
 These need a decision from the owner, not just work:
 
-- **Legal review of what the repo contains.** It embeds values taken from VTech's app: the ThroughTek
-  SDK licence key (`vtech_lan/sdk.py`, kit client) and the pairing-QR AES key/IV and HKDF master key
-  (`vtech_lan/provision.py`, kit). The kit docs describe the protocol and media encryption that were
-  worked out by reverse engineering. The kit's position (`vtech-lan-kit/sdk/README.md`) is that the
-  licence key is shareable under interoperability exceptions. Check that holds where it will be
-  published, and decide whether the constants stay embedded or become user-supplied like the SDK.
 - **The name.** "VTech" in the integration name is descriptive, but check it reads as unofficial
   (the README says it isn't affiliated).
 
@@ -31,8 +25,6 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 - Check the validation workflow passes on GitHub.
 - To get into the HACS default list: a PR on `hacs/default` adding the repo to `integration`, from a
   personal account.
-- Trim `HA_INTEGRATION.md` and the kit docs for readers outside the original setup: they still mention
-  the author's NAS, live-test directories and the unpublished `camera/` notes.
 - `README.md` shows `images/device.png` by a relative path, which GitHub renders. Check whether HACS's
   README view does too; if not, switch it to the image's full `raw.githubusercontent.com` URL.
 - Check that APKPure offers the x86_64 variant of Kalay Mobile 2.0.0 (only armeabi-v7a and arm64-v8a so
@@ -58,5 +50,8 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
 ## Features
 
-- Phase 6: a `media_player` for lullabies and talk-back (`HA_INTEGRATION.md`).
+- A `media_player` for lullabies and talk-back: lullaby tracks as sources (`0x735`, volume `0x731`
+  word2, state from `0x736`, `0x7ac` subtype 1 and `0x734 @4`), and `play_media` for TTS and media URLs
+  as encrypted A-law talk-back (`40-media-streaming.md`). Sound alerts it causes must be tagged as
+  self-triggered (the manager already does this for lullabies).
 - Reading the pairing QR from a photo, not only pasted text (needs a QR decoder the HA image doesn't have).

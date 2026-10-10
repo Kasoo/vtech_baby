@@ -13,8 +13,8 @@ loaded.
   download or redistribute those binaries — including *patched* ones, which are still derived from the
   vendor binaries — though it may point the user at a public source to obtain them (`../sdk/README.md`).
   The **SDK license key, the provisioning constants and the per-camera credentials are not user-typed**:
-  the license key and provisioning constants are embedded app-wide static values (small numeric facts,
-  shareable under interoperability exceptions), and the credentials are derived from the owner's pairing
+  the license key and provisioning constants are app-wide values, needed to interoperate and embedded in
+  the package, and the credentials are derived from the owner's pairing
   QR (`05-provisioning.md`).
 - **Hosts:** 64-bit x86_64 or aarch64. On aarch64, a 4K- or 16K-page kernel.
 

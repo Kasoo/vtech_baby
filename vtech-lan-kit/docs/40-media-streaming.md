@@ -14,21 +14,21 @@ START                    0x1ff                 # begin live video
 
 Notes:
 - **Clean the SDK's receive buffers before every `START`** (`avClientCleanVideoBuf(av)`, and
-  `avClientCleanAudioBuf(av)` when audio is wanted), as the vendor app does (`com/tutk/IOTC/w.java`).
+  `avClientCleanAudioBuf(av)` when audio is wanted).
   The first frame after `START` is then a keyframe carrying SPS/PPS. Without it, a restart on the same
-  session can begin with stale P-frames from the previous run [proven 2026-10-06].
+  session can begin with stale P-frames from the previous run.
 - `STOP` (`0x2ff`) then `START` again on the same session works repeatedly; no new key exchange is needed
-  (the session master holds) [proven 2026-10-06, 15 cycles].
+  (the session master holds).
 - **`0x719` is required for full frame rate.** Without it the camera sends a ~1 fps keyframe-only
   preview; with it, ~10 fps with P-frames.
 - `SETSTREAMCTRL` persists camera-side, so resolution need not be set every session.
 - The camera caps resolution to 720p while a physical **parent handset** is active (poll `0x75a` /
   observe push `0x74f`); with the parent off it serves whatever resolution is persisted.
   The cap is applied live and lifted live: turning the handset on drops a running 1080p stream to 720p,
-  turning it off restores 1080p within seconds with no write [proven 2026-10-06]. The resolution isn't
+  turning it off restores 1080p within seconds with no write. The resolution isn't
   pushed, so re-read `0x322` after each `0x74f`. **Don't send `SETSTREAMCTRL quality=2` during the cap:**
   it is accepted, the re-read shows 720p, and after the handset goes off the camera stays at 720p — the
-  capped value seems to have replaced the stored preference [proven behaviour, mechanism inferred].
+  capped value seems to have replaced the stored preference (inferred from behaviour).
 
 ## Receiving frames
 
@@ -38,7 +38,7 @@ payload plus frame-info metadata. Audio frames are read with `avRecvAudioData`. 
 
 - **Video codec:** H.264 (Annex-B NAL units after decryption), one access unit per frame. Resolution
   1280×720 or 1920×1080 per the `SETSTREAMCTRL` quality byte. A keyframe (IDR, with SPS/PPS) every ~2 s;
-  ~11–14 fps at 1080p over the LAN [proven 2026-10-06].
+  ~11–14 fps at 1080p over the LAN.
 - **Audio codec:** `codec_id 0x8a` = **G.711 A-law, 8 kHz, mono** (in the SDK's codec enum, `0x89` is
   µ-law, `0x8a` A-law and `0x8c` PCM). Decrypted silence is `0xD5`, the A-law zero code. Frames are
   ~40 ms / 320 bytes at ~25 fps.

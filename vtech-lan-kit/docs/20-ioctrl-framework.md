@@ -35,14 +35,14 @@ messages that arrive first.
 
 ## First IOCtrl on a new AV channel
 
-**`IOTYPE_INNER_SND_DATA_DELAY`** (`0x0ff`) is seen as the **first** IOCtrl on every new AV channel in
-the vendor app's traffic, before any application command. The payload is 4 bytes, `int32` `0`, sent once
+**`IOTYPE_INNER_SND_DATA_DELAY`** (`0x0ff`) is conventionally the **first** IOCtrl on a new AV channel,
+before any application command. The payload is 4 bytes, `int32` `0`, sent once
 per channel, with no reply.
 
 **The SDK refuses it from application code:** on SDK 4.3.8.1, `avSendIOCtrl(av, 0x0ff, …)` returns
 `AV_ER_NOT_SUPPORT` (`-20033`), on both x86_64 and in Home Assistant's musl image. Every later IOCtrl, the
-live-view key exchange and streaming work without it. It is an `IOTYPE_INNER_*` (SDK-internal) type, so
-the capture most likely recorded the SDK's own internal send. A client may send it once after
+live-view key exchange and streaming work without it. It is an `IOTYPE_INNER_*` (SDK-internal) type,
+most likely sent by the SDK itself. A client may send it once after
 `avClientStartEx` and must treat `-20033` as harmless, or skip it.
 
 ## Required prep before the VTech GETs reply

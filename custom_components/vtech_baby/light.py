@@ -1,4 +1,4 @@
-"""Light: the night-light, as a colour-temperature light limited to the camera's warm presets (HA_INTEGRATION.md §7).
+"""Light: the night-light, as a colour-temperature light limited to the camera's warm presets.
 
 The camera takes a preset (0x7a2: off / yellow / orange / red) and has no brightness. The light spans
 500-2900 K; a requested temperature snaps to the nearest preset and the state reports that preset's

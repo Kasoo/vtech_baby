@@ -1,4 +1,4 @@
-"""Loopback-only HTTP server for the live view (HA_INTEGRATION.md §6 Phase 5).
+"""Loopback-only HTTP server for the live view.
 
 `camera.stream_source()` returns `http://127.0.0.1:<port>/<token>/<uid>.ts`. HA's go2rtc (WebRTC) and
 stream component (HLS) open it; each GET subscribes to the camera's LiveStream and is served MPEG-TS

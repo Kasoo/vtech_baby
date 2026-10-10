@@ -1,7 +1,7 @@
 """Config flow: the SDK (uploaded once per HA instance as the Kalay Mobile app), then the camera's
 pairing QR; reauth = fresh QR.
 
-Design: HA_INTEGRATION.md §6 Phase 2. The SDK libraries are extracted from the user's upload by
+The SDK libraries are extracted from the user's upload by
 native.install_sdk (vtech-lan-kit/docs/85-ha-deployment.md); the upload itself is deleted afterwards.
 Credentials come from the pairing-QR text (vtech-lan-kit/docs/05-provisioning.md); the QR text itself is
 never stored.

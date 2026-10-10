@@ -18,7 +18,6 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 | `vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. |
 | `vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
 | `tests/` | Offline tests (fake SDK, fake manager); `tests/live/` probes for a real camera. |
-| `HA_INTEGRATION.md` | The development plan and history: decisions, layout, phases, entity map, workflow, risks. |
 | `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns. |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork) and `render.sh` (needs inkscape) for `brand/`. |
 | `sync_vendored.sh` | Refreshes `tooling/` and `native/` from the kit. |
@@ -27,7 +26,7 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 
 | Doc | Why |
 |---|---|
-| `HA_INTEGRATION.md` | **Design authority.** §6 "Status and next steps", §7 entity map, §9 risks. |
+| "Design notes" below | Decisions, the entity map, open protocol questions and known issues. |
 | `vtech-lan-kit/docs/README.md` → `00`–`95` | **Protocol authority**: opcodes, payloads, pushes, crypto, talk-back. |
 | `vtech-lan-kit/docs/05-provisioning.md` | Credentials come from the pairing QR: UID + AV password decoded, authKey derived. |
 | `vtech-lan-kit/docs/85-ha-deployment.md`, `90-ha-runtime.md` | How the native layer ships, patches, loads, threads, fails and reconnects inside HA. Follow these; don't re-derive them. |
@@ -43,7 +42,8 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
   patched or not (`vtech-lan-kit/sdk/README.md`, `docs/85-ha-deployment.md`). `.gitignore` excludes
   `vtech-lan-kit/sdk/*/` and every `.so` except our own `libtk.so`.
 - The SDK license key and the QR/HKDF provisioning constants are app-wide values **embedded** in the
-  package (`vtech_lan/sdk.py`, `vtech_lan/provision.py`), matching the kit (a test enforces it).
+  package (`vtech_lan/sdk.py`, `vtech_lan/provision.py`), matching the kit's reference client (a test
+  enforces it). They live in code only: the docs name and describe them but never print the values.
 - Per-camera credentials (UID, AV password, derived authKey; account `admin`) come from the owner's
   **pairing QR** and live only in the config entry.
 - **Never write a real camera's credentials (or a real pairing QR) into code, tests, fixtures, docs or
@@ -60,13 +60,14 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
   - Long-lived loops run on dedicated threads, not the shared executor.
   - Pass buffers from `ctypes.create_string_buffer` with exact sizes.
 - **Reply opcodes are listed explicitly per op**, never computed as request + 1: `0x709 → 0x710` and
-  `0x729 → 0x730` break that rule (`HA_INTEGRATION.md` §5.1).
+  `0x729 → 0x730` break that rule.
 - **The kit is the spec.** If you find a protocol fact that is new or wrong, fix `vtech-lan-kit/docs/` in
   the same change.
 - **Vendored copies match the kit.** `tooling/` and `native/` are refreshed together by
-  `sync_vendored.sh`, which records the kit revision in `native/SOURCE` (`HA_INTEGRATION.md` §3.1). The
-  revision there now is from before this repo existed; the next sync replaces it.
-- **Provenance tags.** Label claims in the docs **[proven]**, **[design]** or **[verify]**.
+  `sync_vendored.sh`, which records the kit revision in `native/SOURCE`.
+- **Facts, not derivations.** The kit and the code comments state what the protocol is and how the
+  camera behaves, never how it was found: no sources, tools, captures, dates or references to private
+  notes. Where something is unknown or unconfirmed, say so in words.
 
 ### The camera is a live baby monitor
 - **Anything that makes light or sound at the camera needs the owner present.** That covers the
@@ -100,6 +101,71 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 ## Conventions
 
 - Keep `README.md` short: what it does, what you need, how to install it and add a camera.
-- Outstanding work goes in `TODO.md`; open protocol questions stay in `HA_INTEGRATION.md` §5.2 and §9.
+- Outstanding work goes in `TODO.md`; open protocol questions and known issues go in "Design notes" below.
 - Releases are GitHub releases (HACS ignores bare tags). The tag matches `version` in `manifest.json`.
 - Nothing about any particular network or deployment belongs here.
+
+## Design notes
+
+### Decisions
+- **In-process.** The SDK runs inside HA's Python process via `ctypes`; a native crash takes HA down. The
+  session layer (`vtech_lan/session.py`) sits behind one small interface so it can move into a `spawn`
+  child process later (`90-ha-runtime.md` §6) without touching entities.
+- **`vtech_lan/` is a rewrite, not a wrapper, of the reference client.** The client reads replies inline
+  and initialises the SDK per session; HA needs one reader thread per channel and one init per process.
+- **Pushes drive state** (`local_push`). GETs run on connect, after a reconnect, on the keepalive, and to
+  confirm a write.
+- **LAN-only, always.** The companion's egress policy keeps the SDK off the internet, the client sets
+  `IOTC_Set_LanSearchPort(32762)`, and `Session.connect()` refuses any session whose mode isn't LAN
+  (`NotLanDirect`). Without that, the SDK falls back to ThroughTek's relay.
+- **Several cameras share one SDK** per process (`vtech_lan.sdk.load()`, 16 AV channels); loading it again
+  with a different library dir or licence is refused.
+
+### Entity map
+
+| Entity | Platform | Write | Read / state |
+|---|---|---|---|
+| Night-light | `light`, colour temperature only, 500–2900 K: red 500, orange 1700, yellow 2900 (band edges 1100 / 2300). A request snaps to the nearest preset; brightness is fixed at 255; a plain `turn_on` restores the last colour. An unchanged result is re-sent as a forced state write so the dialog's sliders snap back. | `0x7a2` (ack `0x7a3`) | `0x7a0`; push `0x7ac` sub 0 |
+| Status LED | `switch` (wire flag inverted: 1 = off) | `0x711` (ack `0x712`) | `0x709 → 0x710`; push `0x7ac` sub 8 |
+| Night vision | `select` Auto / On / Off | `0x715` (ack `0x716`) | `0x713` |
+| Night vision active | `binary_sensor` | — | push `0x785` |
+| Resolution | `select` 1080p / 720p; 1080p refused while the parent unit is on (it would replace the stored preference) | `0x320` | `0x322`; re-read after a write and 3 s / 10 s after each `0x74f` |
+| Parent unit active | `binary_sensor` | — | `0x75a`; push `0x74f` |
+| Temperature | `sensor` °C | — | `0x733 @0`; push `0x738` |
+| Temperature state | `sensor` enum ok / too_hot / too_cold | — | push `0x738 @8` |
+| Temperature alerts | `switch` | `0x74d` (ack `0x74e`) | `0x74b`; push `0x7ac` sub 2 |
+| Temp alert above / below | 2 × `number` °C, 0.1 step (×10 on the wire) | `0x74d` | `0x74b` |
+| Motion sensitivity | `select` Off / Low / Medium / High | `0x7a6` (keeps the record flag) | `0x7a4` |
+| Sound detection | `switch` | `0x7b2` (ack `0x7b3`) | `0x7b0` |
+| Sound sensitivity | `sensor`, read-only (set on the parent handset) | — | `0x734 @16`; re-read on `0x738` |
+| Notification interval | `select` Default / 1 / 3 / 5 / 10 / 30 min / Never | `0x790` | `0x792 → 0x793` |
+| Lullaby timer | `select` 15 / 30 / 60 min / Non-stop | `0x731` word1 | `0x734 @12`; push `0x7ac` sub 0x15 |
+| Alerts | `event` motion / sound / too_hot / too_cold | — | push `0x1fff` |
+| Motion, Sound | 2 × `binary_sensor`, auto-off after the notification interval + 15 s (min 30 s) | — | push `0x1fff` |
+| Live view | `camera` (`STREAM`): loopback MPEG-TS (H.264 + AAC); snapshots from keyframes | — | media path |
+| Device | device registry | — | `0x330 → 0x331` model / vendor / firmware |
+
+Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`), `0x7ba`. Planned: a
+`media_player` for lullabies and talk-back (`TODO.md`).
+
+### Open protocol questions
+- No ack is known for `0x790` (notification interval SET): it's fire-and-forget, confirmed by re-reading
+  `0x792`.
+- What `0x321` carries when the camera refuses `quality = 2` while the parent unit is on is unknown;
+  every resolution write is confirmed by re-reading `0x322`.
+- Ack encodings differ per opcode (`0x7a3` = 1 byte `01`; `0x712` = `int@0 = 0`; `0x716` = `int@0 = 1`;
+  `0x728` = `word1 = 0`; `0x732` = `int@0 = 1`), so each op in `ops.py` has its own success check.
+- The real length of notification interval index 0 ("default"), and whether index 6 ("never") also stops
+  `0x1fff` pushes to LAN clients.
+
+### Known issues
+- **Stale credentials look like an offline camera.** After a Wi-Fi change or a re-pair the AV password
+  and authKey rotate (the UID doesn't), and a stale authKey makes the connect time out (`-13`) rather
+  than fail with `-68`. The manager counts consecutive unreachable connects while the camera's MAC is on
+  the LAN (`STALE_CREDS_FAILURES`) and then starts reauth, which asks for a fresh pairing QR.
+- **Post-connect IOCtrl stall.** Occasionally, a `0x731` write within about a minute of (re)connecting is
+  followed by ~35–40 s with no replies. The session isn't lost and recovers by itself; the cause is
+  unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. Re-reads keep their
+  previous values and stop after two timeouts, and a write during the stall fails cleanly.
+- **A native crash in the SDK or the companion kills HA.** Mitigated by exact buffers, one reader per
+  channel and gated loading (`patch_sdk()` verification, `preflight()`).

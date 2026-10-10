@@ -1,9 +1,9 @@
-"""Phase 5 spike: live-view STOP/START cycles on one session — READ-ONLY (video only, no settings changed).
+"""Live-view STOP/START cycles on one session — READ-ONLY (video only, no settings changed).
 
     cd tests/live && ./run.sh probe_restart.py [secs_per_cycle] [cycles_per_variant]
 
-The first spike saw restarts on the same session that delivered a handful of frames with no keyframe or
-SPS/PPS. The vendor app calls avClientCleanVideoBuf before every START (com/tutk/IOTC/w.java). Each
+Restarts on the same session can deliver a handful of frames with no keyframe or SPS/PPS; this checks
+whether calling avClientCleanVideoBuf before every START avoids that. Each
 variant is run for several cycles; per cycle we count frames, IDRs, SPS/PPS and the first-IDR delay.
 """
 import ctypes as C

@@ -1,12 +1,12 @@
-"""Phase 5 spike — READ-ONLY (no light, sound or setting changes; no images are kept or viewed).
+"""Live-view check — READ-ONLY (no light, sound or setting changes; no images are kept or viewed).
 
 Runs inside the HA image, on a host on the camera's LAN, via run.sh ($VTECH_LIVE_RUNNER), with vtech_lan
 shipped as a zip:
 
     cd tests/live && ./run.sh probe_stream.py [seconds] [cycles]
 
-Exercises the real vtech_lan.media.LiveStream (HA_INTEGRATION.md §6 Phase 5): snapshots with nothing
-streaming, CYCLES start/stop cycles driven by HTTP clients (the Phase 5 exit), then HA's go2rtc usage. A private go2rtc (the HA image's binary, on spare loopback
+Exercises the real vtech_lan.media.LiveStream: snapshots with nothing
+streaming, CYCLES start/stop cycles driven by HTTP clients, then HA's go2rtc usage. A private go2rtc (the HA image's binary, on spare loopback
 ports) is then given that URL the way HA's go2rtc integration does (the URL plus
 `ffmpeg:<name>#audio=opus`), and driven as HA would: a snapshot, an RTSP consumer, and an Opus consumer.
 Reports codecs, time to first output, keyframe spacing, and that everything stops cleanly.

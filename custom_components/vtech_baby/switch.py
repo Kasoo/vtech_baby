@@ -1,4 +1,4 @@
-"""Switches: status LED, temperature alerts, sound detection (HA_INTEGRATION.md §7)."""
+"""Switches: status LED, temperature alerts, sound detection."""
 from __future__ import annotations
 
 import dataclasses

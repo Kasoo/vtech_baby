@@ -1,5 +1,5 @@
 """Binary sensors: night vision active, parent unit active (pushes), and motion / sound with an
-auto-off timer driven by 0x1fff alerts (HA_INTEGRATION.md §7, Phase 4)."""
+auto-off timer driven by 0x1fff alerts."""
 from __future__ import annotations
 
 from collections.abc import Callable

@@ -59,7 +59,7 @@ class FakeCamera:
         self.fail_acks: set[int] = set()     # request opcodes to ack as failed
         self.event_pages: list[bytes] = []
         self.key_reply = None                # callable(hello) -> 0x821 payload
-        # Live view (Phase 5)
+        # Live view
         self.master: bytes | None = None
         self.streaming = self.audio_on = False
         self.cleaned = False                 # buffers cleaned since the last STOP

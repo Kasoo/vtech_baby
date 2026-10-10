@@ -1,9 +1,9 @@
 # VTech RM5754HD — LAN-local protocol documentation
 
-A clean-room description of the **LAN-local control and streaming protocol** of the **VTech RM5754HD**
-baby-monitor camera, plus a reference client and the tooling needed to talk to it from a normal Linux
-host. Everything here is stated as protocol fact; it is intended as the implementation reference for a
-Home-Assistant integration.
+Independent interoperability documentation of the **LAN-local control and streaming protocol** of the
+**VTech RM5754HD** baby-monitor camera, plus a reference client and the tooling needed to talk to it from
+a normal Linux host. Everything here is stated as protocol fact; it is intended as the implementation
+reference for a Home-Assistant integration.
 
 > NOTE: The contents of this documentation have been written targeting the **VTech RM5754HD** specifically.
 > It is untested against any other model. Other VTech cameras may partially work, but they will likely
@@ -19,7 +19,7 @@ application layer.
 
 1. **Provide the inputs.** The one input the user supplies is the **SDK libraries** for their
    architecture — the kit doesn't host the binaries but points to a public source (`docs/00-prerequisites.md`,
-   `sdk/README.md`); `python3 tooling/extract_sdk.py <app.xapk> <SDK_DIR>` takes them out of the download. The SDK **license key** is embedded in the kit (a small static fact), so no
+   `sdk/README.md`); `python3 tooling/extract_sdk.py <app.xapk> <SDK_DIR>` takes them out of the download. The SDK **license key** is embedded in the reference client, so no
    `LICENSE_KEY.txt` is needed (drop one in `VTECH_LIBDIR` only to override it). The **per-camera
    credentials** are derived offline from the owner's pairing QR (`docs/05-provisioning.md`):
    `python3 client/vtech_provision.py --image qr.jpg --env` prints the `VTECH_*` exports.

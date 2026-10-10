@@ -33,7 +33,7 @@ AV_ER_LOSED_THIS_FRAME = -20014
 AV_ER_SESSION_CLOSE_BY_REMOTE = -20015
 AV_ER_REMOTE_TIMEOUT_DISCONNECT = -20016
 AV_ER_SENDIOCTRL_ALREADY_CALLED = -20021   # another avSendIOCtrl is in progress on this channel
-AV_ER_CLEANBUF_ALREADY_CALLED = -20029     # a buffer clean is in progress on this channel [verify name]
+AV_ER_CLEANBUF_ALREADY_CALLED = -20029     # a buffer clean is in progress on this channel (name unconfirmed)
 AV_ER_ALREADY_INITIALIZED = -20031
 AV_ER_NOT_SUPPORT = -20033
 
@@ -41,7 +41,7 @@ AV_ER_NOT_SUPPORT = -20033
 NO_DATA = frozenset({AV_ER_TIMEOUT, AV_ER_DATA_NOREADY})
 #: A damaged media frame — skip it.
 BAD_FRAME = frozenset({AV_ER_INCOMPLETE_FRAME, AV_ER_LOSED_THIS_FRAME})
-#: The channel is momentarily busy — retry the send (the vendor app retries exactly these).
+#: The channel is momentarily busy — retry the send (these are the transient ones).
 SEND_BUSY = frozenset({AV_ER_SENDIOCTRL_ALREADY_CALLED, AV_ER_CLEANBUF_ALREADY_CALLED})
 
 

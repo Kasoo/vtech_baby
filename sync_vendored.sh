@@ -1,5 +1,5 @@
 #!/bin/sh
-# Refresh the vendored tooling and prebuilt companions from vtech-lan-kit/ (HA_INTEGRATION.md §3.1).
+# Refresh the vendored tooling and prebuilt companions from vtech-lan-kit/.
 #
 #   ./sync_vendored.sh [ARCH...]        ARCH: x86_64 (default) and/or aarch64
 #

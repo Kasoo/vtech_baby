@@ -119,7 +119,7 @@ class Session:
             av = check(sdk.client_start(ses, self._account, self._password, self.av_timeout_s),
                        "avClientStartEx")
         except BaseException:
-            sdk.session_close(sid)       # releases the ID from IOTC_Get_SessionID [verify]
+            sdk.session_close(sid)       # releases the ID from IOTC_Get_SessionID (unconfirmed)
             raise
         self.sid, self.av = ses, av
         self._start_thread("reader", self._read_loop)
@@ -136,7 +136,7 @@ class Session:
 
     def _send_data_delay(self) -> None:
         """0x0ff, the first IOCtrl on a new AV channel. The SDK refuses it from application code with
-        AV_ER_NOT_SUPPORT (-20033) [proven 2026-09-23, SDK 4.3.8.1]; the reference client never checked
+        AV_ER_NOT_SUPPORT (-20033) on SDK 4.3.8.1; the reference client never checked
         this rc, and every later IOCtrl works regardless. Kept (and tolerated) in case another SDK
         build accepts it."""
         try:
@@ -170,7 +170,7 @@ class Session:
     def connection_mode(self) -> str | None:
         """How the SDK reached the camera: "lan", "p2p" or "relay" (None if unknown). Without the
         companion's LAN-only policy the SDK falls back to ThroughTek's P2P/relay servers when the LAN
-        path fails [proven 2026-10-05]; connect() refuses any non-LAN session as a backstop."""
+        path fails; connect() refuses any non-LAN session as a backstop."""
         return self._mode_of(self.sid)
 
     def _mode_of(self, sid: int | None) -> str | None:

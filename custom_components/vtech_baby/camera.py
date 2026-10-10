@@ -1,4 +1,4 @@
-"""Camera: the live view (H.264 + AAC) and snapshots (HA_INTEGRATION.md §6 Phase 5, §7).
+"""Camera: the live view (H.264 + AAC) and snapshots.
 
 `stream_source()` points at the loopback media server (`media_server.py`); HA's go2rtc serves it as
 WebRTC and its stream component as HLS. Media runs only while something watches (`vtech_lan/media.py`).

@@ -1,34 +1,31 @@
 # 05 — Credential provisioning from the pairing QR
 
-The per-camera credentials needed to connect (`00-prerequisites.md`) are **not independent secrets that
-must be captured from the app or the cloud.** They are all recoverable offline from the one artifact the
-owner physically has: the parent unit's **"Camera Pairing QR Code"** (its "Connect Mobile Phone" code).
+The per-camera credentials needed to connect (`00-prerequisites.md`) can all be recovered offline from
+one thing the owner physically has: the parent unit's **"Camera Pairing QR Code"** (its "Connect Mobile
+Phone" code).
 
 - The **UID** and **AV password** are encoded in the QR.
-- The **authKey** is *derived* from the AV password by a fixed construction — it is never transmitted or
-  stored, so there is nothing to capture.
+- The **authKey** is *derived* from the AV password by a fixed construction; it is never transmitted.
 
-Everything the derivation needs beyond the QR is **app-wide static** (the same for every camera of this
-app family, non-rotating — the same class of constant as the SDK license key). Those constants are given
-below and are embedded in the reference implementation, so a user supplies **only their own pairing QR**.
+Everything the derivation needs beyond the QR is **app-wide static**: the same for every camera of this
+family, and non-rotating. Those values are embedded in the reference implementation, so a user supplies
+**only their own pairing QR**.
 
 > **What this means for an integration.** A configuration flow asks the user to scan / photograph the
-> pairing QR and derives the full credential set from it. No cloud login, no 2FA, no rooted device, no
-> live capture. Re-scanning a freshly rotated QR re-provisions — see *Rotation*, below.
+> pairing QR and derives the full credential set from it, with no cloud account. Re-scanning a freshly rotated QR re-provisions — see *Rotation*, below.
 
 The reference implementation of everything here is `../client/vtech_provision.py` (pure-Python crypto;
 reading a QR out of a photo additionally needs `pyzbar` or `opencv-python`).
 
 ## App-wide constants
 
-| Constant | Value | Role |
-|---|---|---|
-| QR AES-128 key | `853bc0248503eea465877351f3ae6fe1` | decrypts the pairing QR |
-| QR AES-128 IV  | `384ce8a20d21a518997189cf62413a0f` | decrypts the pairing QR |
-| authKey HKDF salt (master key) | `45c9d8785a856d4ee1247d91e094175c` | salts the authKey HKDF |
+| Constant | Size | Role | In the reference client |
+|---|---|---|---|
+| QR AES-128 key | 16 bytes | decrypts the pairing QR | `QR_AES_KEY` |
+| QR AES-128 IV  | 16 bytes | decrypts the pairing QR | `QR_AES_IV` |
+| authKey HKDF salt (master key) | 16 bytes | salts the authKey HKDF | `HKDF_MASTER_KEY` |
 
-These are app-family constants, not per-camera and not rotating. (A newer "v3" QR cipher set and an
-alternate "AddCamera" cipher set also exist in the same app family but are not used by this QR format.)
+They are the same for every camera and do not rotate. The values are in `../client/vtech_provision.py`.
 
 ## Pairing-QR format
 
@@ -52,7 +49,7 @@ The decrypted plaintext is a sequence of **TLV** records, each:
 
 | Type | Field |
 |---|---|
-| `2` | device name (e.g. `VTECH_5754_e147`) |
+| `2` | device name (e.g. `VTECH_5754_xxxx`) |
 | `3` | **UID** (the Kalay device identifier, `VTECH_UID`) |
 | `5` | **AV password** (`VTECH_PWD`) |
 | `7` | MAC address (6 bytes) |
@@ -99,10 +96,3 @@ password/authKey makes the connect fail (`-68` wrong authKey, or a connect timeo
 to **re-scan the current pairing QR**: the new AV password comes straight out of it and the new authKey
 falls out of the HKDF. An integration can drive this from its re-authentication flow (`90-ha-runtime.md`)
 by asking for a fresh QR rather than for typed credentials.
-
-## Clean-room note
-
-This document specifies the **format and construction** (QR framing, TLV layout, HKDF+base62) and embeds
-the **app-wide constant values** so the kit is self-sufficient. It deliberately does **not** describe how
-those app-wide constants were obtained from the vendor software; that is out of scope for this kit, as
-with the SDK libraries and license key.

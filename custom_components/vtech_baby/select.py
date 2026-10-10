@@ -1,5 +1,5 @@
 """Selects: night-vision mode, resolution, motion sensitivity, notification interval,
-lullaby timer (HA_INTEGRATION.md §7)."""
+lullaby timer."""
 from __future__ import annotations
 
 import dataclasses

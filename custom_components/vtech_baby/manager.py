@@ -1,6 +1,6 @@
 """CameraManager: owns one camera Session, keeps its state cache, reconnects, and feeds entities.
 
-Design: HA_INTEGRATION.md §6 Phase 2. Runtime rules: vtech-lan-kit/docs/90-ha-runtime.md.
+Runtime rules: vtech-lan-kit/docs/90-ha-runtime.md.
 - Every SDK call runs in the executor; pushes arrive on the session's own threads and are marshalled to
   the event loop with `call_soon_threadsafe`.
 - Pushes drive state (`local_push`); a full re-read happens on every (re)connect.
@@ -141,7 +141,7 @@ class CameraState:
 
 
 def derive_temp_state(temp_c: int, alert: ops.TempAlert) -> int:
-    """Initial temperature state before the first 0x738 push. [design] The camera's own comparison
+    """Initial temperature state before the first 0x738 push. The camera's own comparison
     (strict or not, °C or °F) is unverified; 0x738 pushes overwrite this."""
     if temp_c > alert.max_c:
         return ops.TempState.TOO_HOT
@@ -162,7 +162,7 @@ def read_state(session: Session, previous: CameraState | None = None) -> CameraS
     """All GETs. A failed read keeps the previous value (None on a first read); a lost session raises.
 
     After two timeouts in a row the rest is skipped: the camera has stopped answering for now (seen live
-    for ~35 s, cause unknown; HA_INTEGRATION.md §9), and the keepalive decides whether the session is lost.
+    for ~35 s, cause unknown; AGENTS.md, "Known issues"), and the keepalive decides whether the session is lost.
     """
     st = dataclasses.replace(previous) if previous is not None else CameraState()
     st.devinfo, st.connection_mode = session.devinfo, session.connection_mode()
@@ -243,7 +243,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         self._quality_reread: asyncio.Task | None = None
         self._closing = False
         self._lullaby_stopped = float("-inf")
-        # Phase 5: the live view follows whatever session is current; it ends when that session goes.
+        # The live view follows whatever session is current; it ends when that session goes.
         self.media = LiveStream(sdk, lambda: self.session, name=self.uid[-4:],
                                 on_running=lambda _r: hass.loop.call_soon_threadsafe(self.async_update_listeners))
 
@@ -337,7 +337,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
 
     @callback
     def _dispatch_event(self, report: ops.EventReport) -> None:
-        """Phase 4: sound alerts while a lullaby plays, or within SELF_TRIGGER_S after it stops, are
+        """Sound alerts while a lullaby plays, or within SELF_TRIGGER_S after it stops, are
         tagged self-triggered (the camera hears its own speaker)."""
         self_triggered = report.code == ops.EventCode.SOUND and (
             self.lullaby_playing or time.monotonic() - self._lullaby_stopped < SELF_TRIGGER_S)
@@ -345,7 +345,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
 
     def event_timeout_s(self) -> float:
         """How long a motion/sound binary_sensor stays on after a push: the notification interval
-        (which rate-limits the pushes) + 15 s, minimum 30 s (HA_INTEGRATION.md Phase 4)."""
+        (which rate-limits the pushes) + 15 s, minimum 30 s."""
         idx = self.data.notify_interval if self.data else None
         return max(30.0, NOTIFY_INTERVAL_S.get(idx, 60.0) + 15.0)
 
@@ -411,7 +411,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         if session is not None:
             await self.hass.async_add_executor_job(session.close)
 
-    # Commands (Phase 3 entities)
+    # Commands
     async def async_command(self, fn: Callable[..., Any], *args: Any) -> Any:
         """Run a blocking session call in the executor; map failures to HomeAssistantError."""
         session = self.session

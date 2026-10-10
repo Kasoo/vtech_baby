@@ -3,7 +3,7 @@
 Authority: vtech-lan-kit/docs/30-opcode-reference.md (plus 60-event-channel.md, 70-device-info.md).
 All payloads are little-endian.
 
-Design rules (HA_INTEGRATION.md §4, §5):
+Design rules:
 - Every op names its reply opcode explicitly. Never compute it as request + 1: `0x709 → 0x710` and
   `0x729 → 0x730` break that rule.
 - A SET's ack is checked with a per-op predicate, because ack encodings differ per opcode.
@@ -374,7 +374,7 @@ AUDIO_START = Op(0x300, "IOTYPE_USER_IPCAM_AUDIOSTART", enc_channel)
 AUDIO_STOP = Op(0x301, "IOTYPE_USER_IPCAM_AUDIOSTOP", enc_channel)
 SET_STREAM_CTRL = Op(0x320, "IOTYPE_USER_IPCAM_SETSTREAMCTRL_REQ",
                      lambda quality, ch=0: _i32(ch) + bytes([int(quality) & 0xFF, 0, 0, 0]),
-                     reply=0x321)     # reply layout (incl. a reject while the parent unit is on) is [verify]
+                     reply=0x321)     # reply layout (incl. a reject while the parent unit is on) is unknown
 GET_STREAM_CTRL = Op(0x322, "IOTYPE_USER_IPCAM_GETSTREAMCTRL_REQ", enc_channel, reply=0x323,
                      dec=_dec_byte(4, "GET_STREAM_CTRL"))
 GET_AUDIO_OUT_FORMAT = Op(0x32A, "IOTYPE_USER_IPCAM_GETAUDIOOUTFORMAT_REQ", enc_channel, reply=0x32B,
@@ -437,7 +437,7 @@ GET_DST = Op(0x729, "GET_DAYLIGHT_SAVING", enc_zero4, reply=0x730,
 SET_DST = Op(0x727, "SET_DAYLIGHT_SAVING", lambda on: _i32(0, 1 if on else 0), reply=0x728,
              ok=_ack_word_is(1, 0))
 
-# Notification interval — the SET's ack is undocumented [verify]; treat as fire-and-forget and re-read
+# Notification interval — the SET's ack is undocumented; treat as fire-and-forget and re-read
 GET_NOTIFY_INTERVAL = Op(0x792, "GET_NOTIFY_INTERVAL", enc_zero4, reply=0x793,
                          dec=_dec_word(1, "GET_NOTIFY_INTERVAL"))
 SET_NOTIFY_INTERVAL = Op(0x790, "SET_NOTIFY_INTERVAL", lambda index: _i32(0, int(index)))

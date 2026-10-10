@@ -1,6 +1,6 @@
 """The VTech RM5754HD baby-monitor integration: LAN-direct over the vendor's Kalay SDK.
 
-Design: HA_INTEGRATION.md. The SDK is loaded once per process and never unloaded; each config entry
+Design notes: AGENTS.md. The SDK is loaded once per process and never unloaded; each config entry
 owns one CameraManager (one camera session).
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ type VtechConfigEntry = ConfigEntry[CameraManager]
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def get_motion_events(call: ServiceCall) -> ServiceResponse:
-        """The camera's stored motion history (it stores only motion), newest first (Phase 4)."""
+        """The camera's stored motion history (it stores only motion), newest first."""
         entry = hass.config_entries.async_get_entry(call.data["config_entry_id"])
         if entry is None or entry.domain != DOMAIN or entry.state is not ConfigEntryState.LOADED:
             raise ServiceValidationError("not a loaded VTech baby monitor config entry")

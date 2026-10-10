@@ -1,4 +1,4 @@
-"""Event entity: camera alerts from 0x1fff — motion, sound, too_hot, too_cold (HA_INTEGRATION.md Phase 4)."""
+"""Event entity: camera alerts from 0x1fff — motion, sound, too_hot, too_cold."""
 from __future__ import annotations
 
 from homeassistant.components.event import EventEntity, EventEntityDescription

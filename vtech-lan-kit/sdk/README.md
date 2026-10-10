@@ -31,9 +31,8 @@ split APK, the whole bundle, or a zip of the four SDK libraries.
 The libraries must be SDK version `4.3.8.1` (the Android builds; the build suffix doesn't matter). The
 ones tested are listed under "Tested SDK build" below.
 
-> The SDK **license key** is a different matter: it is a small static value (a pure numeric fact,
-> shareable under interoperability exceptions), so it is **embedded in the kit**, not user-supplied. See
-> `../docs/00-prerequisites.md`.
+> The SDK **license key** is a different matter: it is an app-wide value, needed to interoperate, so the
+> reference client embeds it and the user doesn't supply it. See `../docs/00-prerequisites.md`.
 
 ## What's here: local development copies only
 

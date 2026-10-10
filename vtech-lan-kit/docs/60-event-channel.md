@@ -68,8 +68,7 @@ record: [ time : STimeDay ][ event : 1 ][ status : 1 ][ - : 1 ][ - : 1 ]
 In records, the `wday` byte and the bytes marked `-` carry no meaning: ignore them. They are not always
 zero.
 
-**Order:** records come back **newest first**, across pages (a 24 h query on 2026-09-23 returned 173
-motion records, 12:14 down to 17:03 UTC the previous day).
+**Order:** records come back **newest first**, across pages.
 
 **Mapping to the `0x1fff` push:** a motion push (`event_code` `0x01`) produces a stored record with
 `event` = `4` at the same second. **Only motion is stored.** Sound (`0x15`) and temperature (`0x16`/`0x17`)

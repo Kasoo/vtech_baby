@@ -10,3 +10,5 @@ __pycache__/
 LICENSE_KEY.txt
 .env
 .env.*
+# The author's private development journal (kept locally, never published)
+/HA_INTEGRATION.md

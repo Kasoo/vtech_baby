@@ -1,4 +1,4 @@
-"""Phase 1 live check — READ-ONLY (no light, sound or setting changes; safe without an observer).
+"""Basic live check — READ-ONLY (no light, sound or setting changes; safe without an observer).
 
 Runs inside the HA image, on a host on the camera's LAN, via run.sh ($VTECH_LIVE_RUNNER), with vtech_lan
 shipped as a zip:

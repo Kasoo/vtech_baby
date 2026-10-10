@@ -3,8 +3,8 @@
 
 Given the parent unit's **"Camera Pairing QR Code"** (the "Connect Mobile Phone"
 code), this module recovers the entire LAN-direct credential set needed to connect
-(`IOTC_Connect_ByUIDEx` + `avClientStartEx`) — **with no cloud login and no live
-capture** — and it self-heals across credential rotations (re-scan the QR).
+(`IOTC_Connect_ByUIDEx` + `avClientStartEx`) — **with no cloud login** — and it
+self-heals across credential rotations (re-scan the QR).
 
 The route (specified in `../docs/05-provisioning.md`):
 
@@ -16,8 +16,7 @@ The route (specified in `../docs/05-provisioning.md`):
     => {uid, account="admin", av_password, authkey}
 
 The three constants below (QR_AES_KEY, QR_AES_IV, HKDF_MASTER_KEY) are **app-wide
-static** — the same for every camera of this app family and non-rotating, the same
-class of constant as the TUTK SDK license key. Only the per-camera **UID** and
+static** — the same for every camera of this family and non-rotating. Only the per-camera **UID** and
 **AV password** come from the QR; the UID is stable and the AV password rotates (on a
 Wi-Fi change or an "update security key" re-pair). Because the authKey is a
 deterministic HKDF of the AV password, re-scanning the QR recovers a working set
@@ -37,7 +36,7 @@ import hmac
 from dataclasses import dataclass
 
 # --- app-wide static provisioning constants (see ../docs/05-provisioning.md) -----------
-# These are app-family constants, not per-camera and not rotating. They are embedded here
+# The same for every camera of this family, and not rotating. They are embedded here
 # so a user supplies only their own pairing QR.
 QR_AES_KEY      = bytes.fromhex("853bc0248503eea465877351f3ae6fe1")  # pairing-QR AES-128 key
 QR_AES_IV       = bytes.fromhex("384ce8a20d21a518997189cf62413a0f")  # pairing-QR AES-128 IV

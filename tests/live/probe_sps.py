@@ -1,4 +1,4 @@
-"""Phase 5: watch the video's SPS/PPS and frame rate per second — READ-ONLY on this session.
+"""Watch the video's SPS/PPS and frame rate per second — READ-ONLY on this session.
 
     cd tests/live && ./run.sh probe_sps.py [seconds]
 
