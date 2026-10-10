@@ -5,13 +5,13 @@ baby-monitor camera, plus a reference client and the tooling needed to talk to i
 host. Everything here is stated as protocol fact; it is intended as the implementation reference for a
 Home-Assistant integration.
 
-> **Scope note.** All of this is characterised against the **VTech RM5754HD** specifically. It is
-> untested against any other model; other VTech/Kalay cameras may differ in opcodes, credentials, or the
-> media crypto.
+> NOTE: The integration has been written targeting the **VTech RM5754HD** specifically. 
+> It is untested against any other model. Other VTech cameras may partially work, but they will likely
+> differ in opcodes, credentials, or the media crypto so you may see unexpected failures.
 
-The camera speaks **only** ThroughTek's Kalay P2P protocol (TUTK) — there is no RTSP/ONVIF. All control
-and telemetry is `avSendIOCtrl` / `avRecvIOCtrl` on an authenticated TUTK AV session; video and audio
-arrive on the AV frame channels and are application-layer encrypted.
+The camera speaks **only** ThroughTek's Kalay P2P protocol (TUTK). 
+All control and telemetry is `avSendIOCtrl` / `avRecvIOCtrl` on an authenticated TUTK AVsession; 
+video and audio arrive on the AV frame channels and are application-layer encrypted.
 
 ## Layout
 

@@ -175,6 +175,20 @@ async def test_real_upload(hass: HomeAssistant, hass_client, tmp_path):
         await hass.async_add_executor_job(REAL_INSTALL, hass, file_id, sdk_dir)
 
 
+async def test_untested_model_warns_then_adds(hass: HomeAssistant, fake, sdk):
+    fake.camera.model = b"BM9999"
+    sdk["present"] = True
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "untested_model"
+    assert r["description_placeholders"] == {"model": "BM9999", "tested": "VTech RM5754HD"}
+    assert not hass.config_entries.async_entries(DOMAIN)
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {})
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["data"] == {**entry_data(), CONF_SDK_DIR: hass.config.path("vtech_baby", "sdk")}
+    await hass.async_block_till_done()
+    await unload(hass, r["result"])
+
+
 async def test_sdk_already_uploaded_skips_upload(hass: HomeAssistant, sdk):
     sdk["present"] = True
     r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})

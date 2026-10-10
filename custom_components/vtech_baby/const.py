@@ -25,6 +25,11 @@ RECONNECT_MAX_S = 300.0
 # the camera's MAC is present on the LAN, assume rotated credentials and ask for a fresh QR. [verify]
 STALE_CREDS_FAILURES = 4
 
+# DEVINFO models this integration has been tested with: the RM5754HD reports "RM5754" [proven]. Setup
+# warns about any other (config_flow, step "untested_model").
+TESTED_MODELS = frozenset({"RM5754"})
+TESTED_PRODUCT = "VTech RM5754HD"
+
 # The app the user uploads the SDK libraries from (README, "What you need"). Its SDK is
 # native.SDK_VERSION, which is what's enforced; this is only shown to the user.
 KALAY_APP = "Kalay Mobile 2.0.0"

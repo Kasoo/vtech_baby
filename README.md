@@ -15,7 +15,10 @@ You get one device per camera with:
 - night vision, resolution, motion sensitivity, sound detection, notification interval and lullaby timer;
 - whether the parent unit is on.
 
-Only the RM5754HD has been tested.
+**Only the RM5754HD has been tested.** VTech sells many baby monitors, and most of them aren't built on
+the same platform: another model may not work at all, or only partly. If the camera reports a different
+model when you add it, Home Assistant warns you before adding it anyway. If you try another model,
+please report how it went.
 
 ## What you need
 
@@ -84,7 +87,7 @@ restart.
 
 ## Add a camera
 
-1. Add the **VTech Baby Monitor (RM5754HD)** integration and upload the Kalay Mobile `.xapk` file (or
+1. Add the **VTech Baby Monitor** integration and upload the Kalay Mobile `.xapk` file (or
    your zip of the SDK libraries).
    This is only needed once: further cameras, and reinstalls on the same Home Assistant, reuse the
    libraries already extracted (into `config/vtech_baby/sdk/`).

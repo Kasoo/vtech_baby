@@ -54,6 +54,7 @@ class FakeCamera:
         self.sound = 1
         self.notify = 1
         self.parent = 1
+        self.model = b"RM5754"
         self.silent: set[int] = set()        # request opcodes to ignore (no reply)
         self.fail_acks: set[int] = set()     # request opcodes to ack as failed
         self.event_pages: list[bytes] = []
@@ -73,7 +74,7 @@ class FakeCamera:
         fail = code in self.fail_acks
         w = lambda i: struct.unpack_from("<i", p, 4 * i)[0]          # noqa: E731
         if code == 0x330:
-            return [(0x331, b"RM5754".ljust(16, b"\0") + b"vtech".ljust(16, b"\0") + bytes([9, 5, 2, 4]) + bytes(20))]
+            return [(0x331, self.model.ljust(16, b"\0") + b"vtech".ljust(16, b"\0") + bytes([9, 5, 2, 4]) + bytes(20))]
         if code == 0x733:
             return [(0x734, i32(*self.params))]
         if code == 0x731:

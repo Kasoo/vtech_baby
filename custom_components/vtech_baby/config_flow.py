@@ -38,6 +38,8 @@ from .const import (
     DOMAIN,
     KALAY_APP,
     SDK_SUBDIR,
+    TESTED_MODELS,
+    TESTED_PRODUCT,
 )
 from .manager import SdkHandle, SdkSetupError, async_load_sdk, async_probe
 from .vtech_lan import provision
@@ -61,6 +63,8 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._sdk_dir: str | None = None
         self._handle: SdkHandle | None = None
+        self._model: str | None = None                    # from the connection test
+        self._pending: tuple[str, dict[str, str]] | None = None   # entry awaiting the model warning
 
     # Step 1: the SDK, once per HA instance
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -112,10 +116,23 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()      # rotated credentials: use reauth
                 errors = await self._async_test(creds)
             if not errors:
-                return self.async_create_entry(
-                    title=creds.name or f"VTech {creds.uid[-4:]}",
-                    data={CONF_SDK_DIR: self._sdk_dir, **_entry_creds(creds)})
+                self._pending = (creds.name or f"VTech {creds.uid[-4:]}",
+                                 {CONF_SDK_DIR: self._sdk_dir, **_entry_creds(creds)})
+                if (self._model or "").strip().upper() not in TESTED_MODELS:
+                    return await self.async_step_untested_model()
+                return self.async_create_entry(title=self._pending[0], data=self._pending[1])
         return self.async_show_form(step_id="camera", data_schema=QR_SCHEMA, errors=errors)
+
+    # Only after a successful connection whose model isn't one we've tested: warn, let the user go on.
+    async def async_step_untested_model(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        assert self._pending is not None
+        if user_input is not None:
+            return self.async_create_entry(title=self._pending[0], data=self._pending[1])
+        _LOG.warning("camera %s reports model %r, which this integration has not been tested with",
+                     self._pending[0], self._model)
+        return self.async_show_form(step_id="untested_model", data_schema=vol.Schema({}),
+                                    description_placeholders={"model": self._model or "unknown",
+                                                              "tested": TESTED_PRODUCT})
 
     # Reauth: a fresh QR for the same camera
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
@@ -155,7 +172,7 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOG.warning("SDK not usable: %s", err)
                 return {"base": "sdk_unavailable"}
         try:
-            await async_probe(self.hass, self._handle.sdk, _entry_creds(creds))
+            dev = await async_probe(self.hass, self._handle.sdk, _entry_creds(creds))
         except AuthFailed:
             return {"base": "invalid_auth"}
         except Unreachable:
@@ -165,6 +182,7 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
         except VtechError:
             _LOG.exception("unexpected error testing the camera connection")
             return {"base": "unknown"}
+        self._model = dev.model
         return {}
 
 

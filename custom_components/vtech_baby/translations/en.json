@@ -15,6 +15,10 @@
           "qr": "Pairing QR text"
         }
       },
+      "untested_model": {
+        "title": "Untested camera model",
+        "description": "This camera reports its model as {model}. This integration has only been tested with the {tested}, so with this camera some features may not work or may behave unexpectedly, and some may not appear at all. Submit to add it anyway, or close this dialog to cancel. If you do add it, please report how well it works, with the integration's diagnostics attached."
+      },
       "reauth_confirm": {
         "title": "Re-pair {name}",
         "description": "The camera is not accepting the stored credentials. They change whenever the camera's Wi-Fi changes or its security key is updated. Scan the current pairing QR code on the parent unit and paste its text here.",

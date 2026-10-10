@@ -1,6 +1,6 @@
 {
   "domain": "vtech_baby",
-  "name": "VTech Baby Monitor (RM5754HD)",
+  "name": "VTech Baby Monitor",
   "codeowners": [],
   "config_flow": true,
   "dependencies": [
