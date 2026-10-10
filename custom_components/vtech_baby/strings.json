@@ -142,10 +142,10 @@
     },
     "number": {
       "temperature_max": {
-        "name": "Temperature alert maximum"
+        "name": "Temp alert above"
       },
       "temperature_min": {
-        "name": "Temperature alert minimum"
+        "name": "Temp alert below"
       }
     },
     "binary_sensor": {

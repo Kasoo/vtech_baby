@@ -367,7 +367,7 @@ async def test_entities_initial_state(hass: HomeAssistant):
         f"select.{P}_motion_sensitivity": "medium", f"select.{P}_alert_interval": "1_min",
         f"select.{P}_lullaby_timer": "30_min", f"switch.{P}_status_led": "on",
         f"switch.{P}_temperature_alerts": "off", f"switch.{P}_sound_detection": "on",
-        f"number.{P}_temperature_alert_maximum": "25.0", f"number.{P}_temperature_alert_minimum": "16.0",
+        f"number.{P}_temp_alert_above": "25.0", f"number.{P}_temp_alert_below": "16.0",
         f"binary_sensor.{P}_parent_unit": "on", f"binary_sensor.{P}_motion": "off",
         f"sensor.{P}_sound_sensitivity": "medium", f"sensor.{P}_connection": "lan",
     }
@@ -394,9 +394,9 @@ async def test_writes_round_trip(hass: HomeAssistant, fake):
     assert cam.sound == 0
     await call(hass, "switch", "turn_on", f"switch.{P}_temperature_alerts")
     assert cam.temp_alert == [1, 250, 160]
-    await call(hass, "number", "set_value", f"number.{P}_temperature_alert_maximum", value=23.8)
+    await call(hass, "number", "set_value", f"number.{P}_temp_alert_above", value=23.8)
     assert cam.temp_alert == [1, 238, 160]
-    assert hass.states.get(f"number.{P}_temperature_alert_maximum").state == "23.8"  # fake: no quantising
+    assert hass.states.get(f"number.{P}_temp_alert_above").state == "23.8"  # fake: no quantising
     await unload(hass, entry)
 
 
