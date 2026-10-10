@@ -14,12 +14,17 @@ from custom_components.vtech_baby.vtech_lan.errors import UnsupportedHost
 
 SDK_ROOT = os.environ.get("VTECH_SDK_DIR",
                           os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vtech-lan-kit", "sdk"))
-HOST_SDK = os.path.join(SDK_ROOT, "x86_64")
-FOREIGN_SDK = os.path.join(SDK_ROOT, "arm64-v8a")
+try:
+    ARCH = native._sdk.host_arch()
+except UnsupportedHost:
+    ARCH = None
+FOREIGN = {"x86_64": "aarch64", "aarch64": "x86_64"}.get(ARCH)
+HOST_SDK = os.path.join(SDK_ROOT, native.ABI_OF[ARCH]) if ARCH else ""
+FOREIGN_SDK = os.path.join(SDK_ROOT, native.ABI_OF[FOREIGN]) if ARCH else ""
 
 pytestmark = pytest.mark.skipif(
-    os.uname().machine != "x86_64" or not os.path.isdir(HOST_SDK) or not os.path.isdir(FOREIGN_SDK),
-    reason="needs an x86_64 host and the development SDK (vtech-lan-kit/sdk/ or $VTECH_SDK_DIR)")
+    ARCH is None or not os.path.isdir(HOST_SDK) or not os.path.isdir(FOREIGN_SDK),
+    reason="needs an x86_64 or aarch64 host and the development SDK (vtech-lan-kit/sdk/ or $VTECH_SDK_DIR)")
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +42,7 @@ def snapshot(libdir):
 
 def test_fresh_patch(tmp_path):
     p = native.prepare(HOST_SDK, str(tmp_path))
-    assert p == native.Prepared(str(tmp_path / "x86_64"), "x86_64", "4.3.8.1", False)
+    assert p == native.Prepared(str(tmp_path / ARCH), ARCH, "4.3.8.1", False)
     assert sorted(os.listdir(p.libdir)) == sorted([*patch_sdk.LIBS, "libtk.so", patch_sdk.MANIFEST])
 
 
@@ -55,7 +60,7 @@ def test_changed_sdk_is_repatched_when_not_loaded(tmp_path):
     native.prepare(str(sdk), str(tmp_path / "lib"))
     with open(sdk / "libIOTCAPIs.so", "ab") as f:
         f.write(b"\0")
-    before = snapshot(str(tmp_path / "lib" / "x86_64"))
+    before = snapshot(str(tmp_path / "lib" / ARCH))
     p = native.prepare(str(sdk), str(tmp_path / "lib"))
     assert p.version == "4.3.8.1" and not p.restart_required
     assert snapshot(p.libdir)["libIOTCAPIs.so"] != before["libIOTCAPIs.so"]
@@ -102,7 +107,7 @@ def test_loaded_and_unchanged(tmp_path, monkeypatch):
     fake_loaded(monkeypatch, p.libdir)
     before = snapshot(p.libdir)
     assert native.prepare(HOST_SDK, str(tmp_path)) == native.Prepared(
-        os.path.realpath(p.libdir), "x86_64", "4.3.8.1", False)
+        os.path.realpath(p.libdir), ARCH, "4.3.8.1", False)
     assert snapshot(p.libdir) == before
 
 
@@ -124,7 +129,7 @@ def test_changed_companion_while_loaded_needs_restart(tmp_path, monkeypatch):
     p = native.prepare(HOST_SDK, str(tmp_path))
     fake_loaded(monkeypatch, p.libdir)
     other = tmp_path / "libtk.so"
-    shutil.copyfile(native.companion_path("x86_64"), other)
+    shutil.copyfile(native.companion_path(ARCH), other)
     with open(other, "ab") as f:
         f.write(b"\0")
     monkeypatch.setattr(native, "companion_path", lambda arch: str(other))
@@ -139,9 +144,9 @@ def test_loaded_from_elsewhere_needs_restart(tmp_path, monkeypatch):
 
 
 def test_wrong_arch_sdk(tmp_path):
-    with pytest.raises(UnsupportedHost, match="aarch64"):
+    with pytest.raises(UnsupportedHost, match=FOREIGN):
         native.prepare(FOREIGN_SDK, str(tmp_path))
-    assert not os.path.exists(tmp_path / "x86_64")
+    assert not os.path.exists(tmp_path / ARCH)
 
 
 def test_missing_companion(tmp_path, monkeypatch):

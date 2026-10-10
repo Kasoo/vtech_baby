@@ -8,15 +8,20 @@ import subprocess
 import pytest
 
 from custom_components.vtech_baby import native
+from custom_components.vtech_baby.vtech_lan.errors import UnsupportedHost
 
 SDK_DIR = os.environ.get("VTECH_SDK_DIR",
                          os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vtech-lan-kit", "sdk"))
-LIBTK = native.companion_path("x86_64")
-HOST_SDK = os.path.join(SDK_DIR, "x86_64")
+try:
+    ARCH = native._sdk.host_arch()
+except UnsupportedHost:
+    ARCH = None
+LIBTK = native.companion_path(ARCH) if ARCH else ""
+HOST_SDK = os.path.join(SDK_DIR, native.ABI_OF[ARCH]) if ARCH else ""
 ENETUNREACH = 101
 
-pytestmark = pytest.mark.skipif(os.uname().machine != "x86_64" or not os.path.isfile(LIBTK),
-                                reason="needs an x86_64 host and native/x86_64/libtk.so")
+pytestmark = pytest.mark.skipif(not os.path.isfile(LIBTK),
+                                reason="needs an x86_64 or aarch64 host and native/<arch>/libtk.so")
 
 
 @pytest.fixture(scope="module")

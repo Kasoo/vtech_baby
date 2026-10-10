@@ -35,8 +35,6 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
 ## Packaging
 
-- Build and vendor the arm64 companion (`./sync_vendored.sh aarch64`, needs podman + qemu-user), so
-  Raspberry Pi and other arm64 hosts work. Then update the README.
 - A live-test runner in this repo, so `tests/live/` doesn't depend on a script kept elsewhere.
 
 ## Testing
@@ -47,6 +45,8 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
   arriving via pushes.
 - Live view: the night-vision, resolution and reconnect cases; HLS open time; latency.
 - Other VTech models that use the same protocol.
+- arm64 on real hardware. It has only been tested under qemu; a native run adds the LL/SC atomics path,
+  16K pages and enforced PAC/BTI. A Pi 4 covers LL/SC, a Pi 5 on Raspberry Pi OS covers 16K pages.
 
 ## Features
 
