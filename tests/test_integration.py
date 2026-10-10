@@ -25,7 +25,7 @@ from custom_components.vtech_baby.const import (
 from custom_components.vtech_baby.native import Prepared
 from custom_components.vtech_baby.vtech_lan import provision
 
-from fake_sdk import FakeSdk, i32
+from fake_sdk import FakeSdk, i32, thread_client
 from test_extract import apk, bundle
 from test_provision import make_qr
 
@@ -37,7 +37,8 @@ TEMP = "sensor.vtech_5754_test_temperature"
 
 
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
+def auto_enable_custom_integrations(enable_custom_integrations, socket_enabled):
+    """Custom integrations on; sockets on (the SDK worker talks over a socket pair and a loopback port)."""
     yield
 
 
@@ -73,10 +74,12 @@ UPLOADS = {
 
 @pytest.fixture(autouse=True)
 def sdk_patch(fake, sdk):
-    def prep(sdk_dir, lib_root):
+    def prep(client, sdk_dir, lib_root):
         if sdk_dir in sdk["bad"]:
             raise mgr.SdkSetupError(f"cannot load {sdk_dir}")
-        return mgr.SdkHandle(fake, Prepared(lib_root + "/x86_64", "x86_64", "4.3.8.1", False))
+        prepared = Prepared(lib_root + "/x86_64", "x86_64", "4.3.8.1", "fp")
+        client.ensure(prepared.libdir, prepared.fingerprint)
+        return mgr.SdkHandle(client, prepared)
 
     def install(hass, file_id, sdk_dir):
         if (err := {upload(n): e for n, e in UPLOADS.items()}[file_id]) is not None:
@@ -85,6 +88,7 @@ def sdk_patch(fake, sdk):
         sdk["present"] = True
         return "4.3.8.1"
     with patch.object(mgr, "_prepare_and_load", prep), patch.object(cf, "_install", install), \
+         patch.object(mgr, "make_client", lambda on_crash: thread_client(fake, on_crash=on_crash)), \
          patch.object(native, "host_supported", lambda: "x86_64"), \
          patch.object(native, "sdk_present", lambda d: sdk["present"]), \
          patch.object(mgr, "RECONNECT_MIN_S", 0.05), patch.object(mgr, "RECONNECT_MAX_S", 0.1):
@@ -108,6 +112,21 @@ async def setup_entry(hass, **kw) -> MockConfigEntry:
 async def unload(hass, entry):
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+def worker(hass):
+    """The worker object behind the client (running on a thread in these tests)."""
+    return hass.data[mgr.DATA_CLIENT]._handle.worker
+
+
+def worker_session(hass, m):
+    """The real Session in the worker behind the manager's proxy."""
+    return worker(hass).sessions[m.session._key]
+
+
+def live(hass):
+    """The camera's LiveStream in the worker."""
+    return worker(hass).streams[UID]
 
 
 async def wait_until(cond, timeout=5.0):
@@ -508,13 +527,29 @@ async def test_get_motion_events_service(hass: HomeAssistant, fake):
 async def test_reread_keeps_values_and_gives_up_on_stall(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
     m = entry.runtime_data
-    m.session.request_timeout_s = 0.2
+    worker_session(hass, m).request_timeout_s = 0.2
     fake.camera.silent |= {0x733, 0x7A0, 0x709, 0x713, 0x322}        # camera stops answering
     await m.async_refresh()
     assert hass.states.get(TEMP).state == "21"                        # kept, not unknown
     assert hass.states.get(f"select.{P}_resolution").state == "1080p"
     assert fake.sent_codes().count(0x7A0) == 2                        # setup read + one; then gave up
     assert 0x709 not in fake.sent_codes()[-3:]
+    await unload(hass, entry)
+
+
+async def test_worker_death_reconnects_on_a_new_worker(hass: HomeAssistant, fake):
+    """The SDK worker dying (here: its socket cut) loses the session, raises a Repairs issue, and the
+    camera reconnects on a fresh worker, with Home Assistant untouched."""
+    from homeassistant.helpers import issue_registry as ir
+    entry = await setup_entry(hass)
+    client = hass.data[mgr.DATA_CLIENT]
+    first = client._handle
+    first.kill()
+    await wait_until(lambda: hass.states.get(TEMP).state == STATE_UNAVAILABLE)
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "worker_crashed")
+    assert issue is not None and issue.translation_placeholders == {"reason": "exit status 0", "count": "1"}
+    await wait_until(lambda: hass.states.get(TEMP).state == "21")
+    assert client._handle is not first and client.gen == 2
     await unload(hass, entry)
 
 
@@ -538,10 +573,10 @@ async def test_camera_entity_and_snapshot(hass: HomeAssistant, fake):
     st = hass.states.get(CAM)
     assert st.state == "idle"
     assert st.attributes["supported_features"] == CameraEntityFeature.STREAM
-    entry.runtime_data.media._grace_s = 0.2
+    live(hass)._grace_s = 0.2
     image = await async_get_image(hass, CAM)
     assert image.content_type == "image/jpeg" and image.content[:2] == b"\xff\xd8"
-    await wait_until(lambda: entry.runtime_data.media._thread is None)
+    await wait_until(lambda: live(hass)._thread is None)
     assert not fake.camera.streaming                              # started for the snapshot, stopped after
     await unload(hass, entry)
 
@@ -552,19 +587,18 @@ async def test_camera_stream_over_loopback(hass: HomeAssistant, fake, socket_ena
 
     import aiohttp
     from fake_sdk import clip, enable_live_view
-    from custom_components.vtech_baby.media_server import DATA_SERVER
     if not clip():
         pytest.skip("needs ffmpeg for the test clip")
 
     enable_live_view(fake.camera)
     entry = await setup_entry(hass)
-    media = entry.runtime_data.media
+    media = live(hass)
     media._grace_s = 0.2
     url = await camera_entity(hass).stream_source()
-    server = hass.data[DATA_SERVER]
-    assert url == f"http://127.0.0.1:{server.port}/{server.token}/{UID}.ts"
+    client = hass.data[mgr.DATA_CLIENT]
+    assert url == f"http://127.0.0.1:{client.port}/{client.token}/{UID}.ts"
     async with aiohttp.ClientSession() as http:
-        async with http.get(url.replace(server.token, "wrong")) as r:
+        async with http.get(url.replace(client.token, "wrong")) as r:
             assert r.status == 404
         data = b""
         async with http.get(url) as r:
@@ -579,15 +613,13 @@ async def test_camera_stream_over_loopback(hass: HomeAssistant, fake, socket_ena
     await wait_until(lambda: media._thread is None)                 # client gone → stopped after the grace
     assert not fake.camera.streaming and media.subscribers == 0
     await wait_until(lambda: hass.states.get(CAM).state == "idle")
-    port = server.port
     await hass.config_entries.async_reload(entry.entry_id)          # reload keeps the same URL
     await hass.async_block_till_done()
-    assert await camera_entity(hass).stream_source() == url and server.port == port
+    assert await camera_entity(hass).stream_source() == url
     await unload(hass, entry)
     async with aiohttp.ClientSession() as http:                     # unloaded camera: 404, server stays
         async with http.get(url) as r:
             assert r.status == 404
-    await server.async_stop()
 
 
 async def test_camera_without_session_has_no_source(hass: HomeAssistant, fake):
@@ -626,8 +658,6 @@ async def test_reload_while_streaming_is_prompt(hass: HomeAssistant, fake, socke
     await asyncio.wait_for(task, 10)                                 # the old stream ended for the client
     assert await camera_entity(hass).stream_source() == url
     await unload(hass, entry)
-    from custom_components.vtech_baby.media_server import DATA_SERVER
-    await hass.data[DATA_SERVER].async_stop()
 
 
 async def test_parent_unit_rereads_resolution_and_blocks_1080p(hass: HomeAssistant, fake):

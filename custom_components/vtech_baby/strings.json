@@ -185,9 +185,9 @@
     }
   },
   "issues": {
-    "restart_required": {
-      "title": "Restart Home Assistant to use the new VTech SDK",
-      "description": "The SDK libraries or the integration's companion library changed, but the old ones are already loaded and cannot be replaced while Home Assistant runs. Restart Home Assistant to apply them."
+    "worker_crashed": {
+      "title": "The VTech SDK crashed",
+      "description": "The process that runs ThroughTek's SDK for the VTech cameras stopped unexpectedly ({reason}; {count} time(s) since Home Assistant started). Home Assistant itself kept running, and the cameras reconnect with a new process. If this keeps happening, please report it with the integration's diagnostics and the Home Assistant container's log, which holds the crash details."
     }
   },
   "services": {

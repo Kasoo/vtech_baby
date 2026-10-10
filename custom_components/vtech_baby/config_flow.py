@@ -172,7 +172,7 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOG.warning("SDK not usable: %s", err)
                 return {"base": "sdk_unavailable"}
         try:
-            dev = await async_probe(self.hass, self._handle.sdk, _entry_creds(creds))
+            dev = await async_probe(self.hass, self._handle.client, _entry_creds(creds))
         except AuthFailed:
             return {"base": "invalid_auth"}
         except Unreachable:

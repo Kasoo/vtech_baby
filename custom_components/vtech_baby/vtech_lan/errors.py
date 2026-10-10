@@ -88,6 +88,10 @@ class SessionGone(VtechError):
     """An established session is gone. Tear down and reconnect."""
 
 
+class WorkerDied(SessionGone):
+    """The SDK worker process ended (a crash, or a restart), taking its sessions with it."""
+
+
 class RequestTimeout(VtechError):
     """No reply to a request within its timeout."""
 

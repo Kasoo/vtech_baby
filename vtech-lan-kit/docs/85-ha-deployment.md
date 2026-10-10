@@ -101,8 +101,9 @@ pass it directly to `TUTK_SDK_Set_License_Key`.
 - When the SDK, the companion or the tooling changes (a new integration release, or the user replacing
   the SDK files), the manifest no longer matches and `patch_sdk()` re-patches on the next setup.
 - A process that has **already loaded** the libraries keeps using them, because they are never unloaded
-  (`90-ha-runtime.md`). After a re-patch, ask for a Home Assistant restart (e.g. a repair issue) rather
-  than loading a second copy.
+  (`90-ha-runtime.md`). After a re-patch, restart that process rather than loading a second copy: the
+  whole of Home Assistant when the SDK runs in it, or just the worker when it runs out of process
+  (`90-ha-runtime.md` §6).
 
 ## Unsupported hosts
 

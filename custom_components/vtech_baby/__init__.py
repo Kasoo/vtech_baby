@@ -1,7 +1,7 @@
 """The VTech RM5754HD baby-monitor integration: LAN-direct over the vendor's Kalay SDK.
 
-Design notes: AGENTS.md. The SDK is loaded once per process and never unloaded; each config entry
-owns one CameraManager (one camera session).
+Design notes: AGENTS.md. The SDK runs in one worker process shared by all entries
+(`vtech_lan/worker.py`); each config entry owns one CameraManager (one camera session).
 """
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_RESTART_REQUIRED
 from .manager import CameraManager, SdkSetupError, async_load_sdk
-from .media_server import get_server, release_camera
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR, Platform.CAMERA, Platform.EVENT, Platform.LIGHT, Platform.NUMBER, Platform.SELECT,
@@ -58,32 +57,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> boo
         handle = await async_load_sdk(hass, entry.data[CONF_SDK_DIR])
     except SdkSetupError as err:
         raise ConfigEntryError(f"cannot prepare the VTech SDK: {err}") from err
-    _sync_issues(hass, handle.prepared)
+    # Restarts are no longer needed to switch SDKs (the worker restarts instead): drop the old issue.
+    ir.async_delete_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED)
 
     # The night-light moved from a select to a light (2026-10-06); drop the stale select entry.
     reg = er.async_get(hass)
     if old := reg.async_get_entity_id("select", DOMAIN, f"{entry.data[CONF_UID]}_night_light"):
         reg.async_remove(old)
 
-    manager = CameraManager(hass, entry, handle.sdk)
+    manager = CameraManager(hass, entry, handle.client)
     await manager.async_first_connect()
     entry.runtime_data = manager
     entry.async_on_unload(manager.async_close)
-    get_server(hass).add(manager.uid, manager.media)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> bool:
-    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if ok:
-        release_camera(hass, entry.runtime_data.uid)
-    return ok
-
-
-def _sync_issues(hass: HomeAssistant, prepared) -> None:
-    if prepared.restart_required:
-        ir.async_create_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED, is_fixable=False,
-                              severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_RESTART_REQUIRED)
-    else:
-        ir.async_delete_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED)
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

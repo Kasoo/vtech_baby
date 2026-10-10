@@ -1,7 +1,8 @@
 """Camera: the live view (H.264 + AAC) and snapshots.
 
-`stream_source()` points at the loopback media server (`media_server.py`); HA's go2rtc serves it as
-WebRTC and its stream component as HLS. Media runs only while something watches (`vtech_lan/media.py`).
+`stream_source()` points at the SDK worker's loopback HTTP server (`vtech_lan/worker.py`), which serves
+the camera's MPEG-TS; HA's go2rtc serves it as WebRTC and its stream component as HLS. Media runs only
+while something watches (`vtech_lan/media.py`).
 Snapshots decode the newest keyframe; with nothing watching, the stream starts briefly and a snapshot is
 reused for up to 60 s, so dashboard thumbnails don't keep the camera streaming. The entity's state is
 `streaming` while the camera sends video, else `idle`.
@@ -15,21 +16,19 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .entity import VtechEntity
 from .manager import CameraManager
-from .media_server import DATA_SERVER, MediaServer
 from .vtech_lan.errors import VtechError
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddConfigEntryEntitiesCallback) -> None:
-    async_add_entities([VtechCamera(entry.runtime_data, hass.data[DATA_SERVER])])
+    async_add_entities([VtechCamera(entry.runtime_data)])
 
 
 class VtechCamera(VtechEntity, Camera):
     _attr_supported_features = CameraEntityFeature.STREAM
 
-    def __init__(self, manager: CameraManager, server: MediaServer) -> None:
+    def __init__(self, manager: CameraManager) -> None:
         VtechEntity.__init__(self, manager, "live_view")
         Camera.__init__(self)
-        self._server = server
 
     @property
     def is_streaming(self) -> bool:
@@ -39,7 +38,7 @@ class VtechCamera(VtechEntity, Camera):
     async def stream_source(self) -> str | None:
         if self.coordinator.session is None:
             return None
-        return await self._server.async_url(self.coordinator.uid)
+        return self.coordinator.client.url(self.coordinator.uid)
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
         try:

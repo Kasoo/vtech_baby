@@ -20,7 +20,6 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .entity import VtechEntity
 from .manager import CameraManager
 from .vtech_lan import ops
-from .vtech_lan.session import Session
 
 # Preset -> the colour temperature reported for it (band edges fall halfway: 1100 K and 2300 K).
 KELVIN = {ops.NightLight.RED: 500, ops.NightLight.ORANGE: 1700, ops.NightLight.YELLOW: 2900}
@@ -91,7 +90,7 @@ class VtechNightLight(VtechEntity, LightEntity):
 
     async def _write(self, preset: ops.NightLight) -> None:
         before = self._preset()
-        await self.coordinator.async_command(Session.set_night_light, preset)
+        await self.coordinator.async_command(lambda s: s.set_night_light(preset))
         self.coordinator.async_patch_state(night_light=int(preset))
         if preset == before:
             self._snap_back()

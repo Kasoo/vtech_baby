@@ -1,8 +1,10 @@
-"""CameraManager: owns one camera Session, keeps its state cache, reconnects, and feeds entities.
+"""CameraManager: owns one camera session, keeps its state cache, reconnects, and feeds entities.
 
 Runtime rules: vtech-lan-kit/docs/90-ha-runtime.md.
-- Every SDK call runs in the executor; pushes arrive on the session's own threads and are marshalled to
-  the event loop with `call_soon_threadsafe`.
+- The SDK runs in a worker process (`vtech_lan/worker.py`); the manager drives it through proxies with
+  `Session`'s blocking methods. If the worker dies, its sessions are lost and reconnect like any other.
+- Every session call runs in the executor; pushes arrive on the client's reader thread and are
+  marshalled to the event loop with `call_soon_threadsafe`.
 - Pushes drive state (`local_push`); a full re-read happens on every (re)connect.
 - After a lost session or a failed connect, reconnect with backoff 10 s → 5 min.
 """
@@ -17,8 +19,10 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.config_entries import SOURCE_REAUTH
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -30,6 +34,7 @@ from .const import (
     CONF_MAC,
     CONF_UID,
     DOMAIN,
+    ISSUE_WORKER_CRASHED,
     KEEPALIVE_S,
     LIB_SUBDIR,
     NOTIFY_INTERVAL_S,
@@ -41,7 +46,6 @@ from .const import (
     STALE_CREDS_FAILURES,
 )
 from .vtech_lan import ops
-from .vtech_lan import sdk as vsdk
 from .vtech_lan.errors import (
     AuthFailed,
     NotLanDirect,
@@ -51,8 +55,8 @@ from .vtech_lan.errors import (
     Unreachable,
     VtechError,
 )
-from .vtech_lan.media import LiveStream
-from .vtech_lan.session import PARAMS_UPDATE, Push, Session
+from .vtech_lan.session import PARAMS_UPDATE, Push
+from .vtech_lan.worker_client import SessionProxy, WorkerClient
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -67,37 +71,70 @@ class SdkSetupError(Exception):
 
 @dataclass(frozen=True)
 class SdkHandle:
-    sdk: Any
+    client: WorkerClient
     prepared: native.Prepared
 
 
-def _prepare_and_load(sdk_dir: str, lib_root: str) -> SdkHandle:
+DATA_CLIENT = f"{DOMAIN}_worker"
+
+
+def get_client(hass: HomeAssistant) -> WorkerClient:
+    """The process-wide SDK worker client, stopped with Home Assistant. The worker itself starts on the
+    first `ensure()`."""
+    client: WorkerClient | None = hass.data.get(DATA_CLIENT)
+    if client is None:
+        def on_crash(reason: str, count: int) -> None:          # reader thread
+            hass.loop.call_soon_threadsafe(_crash_issue, hass, reason, count)
+
+        client = hass.data[DATA_CLIENT] = make_client(on_crash)
+
+        async def _stop(_event: Event) -> None:
+            await hass.async_add_executor_job(client.stop)
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _stop)
+    return client
+
+
+def make_client(on_crash: Callable[[str, int], None]) -> WorkerClient:
+    """Separate so tests can run the worker on a thread with a fake SDK."""
+    return WorkerClient(on_crash=on_crash)
+
+
+@callback
+def _crash_issue(hass: HomeAssistant, reason: str, count: int) -> None:
+    ir.async_create_issue(hass, DOMAIN, ISSUE_WORKER_CRASHED, is_fixable=False, is_persistent=False,
+                          severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_WORKER_CRASHED,
+                          translation_placeholders={"reason": reason, "count": str(count)})
+
+
+def _prepare_and_load(client: WorkerClient, sdk_dir: str, lib_root: str) -> SdkHandle:
     try:
         prepared = native.prepare(sdk_dir, lib_root)
-        return SdkHandle(vsdk.load(prepared.libdir), prepared)
+        client.ensure(prepared.libdir, prepared.fingerprint)
+        return SdkHandle(client, prepared)
     except (native.PatchError, VtechError, OSError) as err:
         raise SdkSetupError(str(err)) from err
 
 
 async def async_load_sdk(hass: HomeAssistant, sdk_dir: str) -> SdkHandle:
-    """Patch (cached) and load the process-wide SDK. Serialised: patching writes files."""
+    """Patch (cached) and make sure the worker runs with that SDK. Serialised: patching writes files."""
     lock = hass.data.setdefault(f"{DOMAIN}_sdk_lock", asyncio.Lock())
     async with lock:
-        return await hass.async_add_executor_job(_prepare_and_load, sdk_dir, hass.config.path(*LIB_SUBDIR))
+        return await hass.async_add_executor_job(
+            _prepare_and_load, get_client(hass), sdk_dir, hass.config.path(*LIB_SUBDIR))
 
 
-def _probe(sdk: Any, uid: str, authkey: str, password: str, account: str) -> ops.DevInfo:
-    s = Session(sdk, uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0)
+def _probe(client: WorkerClient, uid: str, authkey: str, password: str, account: str) -> ops.DevInfo:
+    s = client.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0)
     try:
         return s.connect()
     finally:
         s.close()
 
 
-async def async_probe(hass: HomeAssistant, sdk: Any, creds: dict[str, str]) -> ops.DevInfo:
+async def async_probe(hass: HomeAssistant, client: WorkerClient, creds: dict[str, str]) -> ops.DevInfo:
     """Connect once and disconnect: the config flow's credential test. Raises VtechError subclasses."""
     return await hass.async_add_executor_job(
-        _probe, sdk, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT])
+        _probe, client, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT])
 
 
 def mac_present(mac: str, arp_path: str = "/proc/net/arp") -> bool:
@@ -158,7 +195,7 @@ _READS: tuple[tuple[str, str], ...] = (
 )
 
 
-def read_state(session: Session, previous: CameraState | None = None) -> CameraState:
+def read_state(session: SessionProxy, previous: CameraState | None = None) -> CameraState:
     """All GETs. A failed read keeps the previous value (None on a first read); a lost session raises.
 
     After two timeouts in a row the rest is skipped: the camera has stopped answering for now (seen live
@@ -184,7 +221,7 @@ def read_state(session: Session, previous: CameraState | None = None) -> CameraS
     return st
 
 
-def _connect_and_read(session: Session) -> CameraState:
+def _connect_and_read(session: SessionProxy) -> CameraState:
     session.connect()
     return read_state(session)
 
@@ -231,30 +268,31 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
 
     config_entry: ConfigEntry
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, sdk: Any) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: WorkerClient) -> None:
         super().__init__(hass, _LOG, config_entry=entry, name=f"{DOMAIN} {entry.title}",
                          update_interval=None, always_update=True)
-        self.sdk = sdk
+        self.client = client
         self.uid: str = entry.data[CONF_UID]
-        self.session: Session | None = None
+        self.session: SessionProxy | None = None
         self.failures = 0                       # consecutive failed connects
         self.last_error: str | None = None
         self._reconnect: asyncio.Task | None = None
         self._quality_reread: asyncio.Task | None = None
         self._closing = False
         self._lullaby_stopped = float("-inf")
-        # The live view follows whatever session is current; it ends when that session goes.
-        self.media = LiveStream(sdk, lambda: self.session, name=self.uid[-4:],
-                                on_running=lambda _r: hass.loop.call_soon_threadsafe(self.async_update_listeners))
+        # The live view runs in the worker on this camera's current session; it ends when that session goes.
+        self.media = client.media(self.uid, on_running=lambda _r: hass.loop.call_soon_threadsafe(
+            self.async_update_listeners))
 
     # Connection lifecycle
-    def _new_session(self) -> Session:
+    def _new_session(self) -> SessionProxy:
         d = self.config_entry.data
-        s: Session
-        s = Session(self.sdk, d[CONF_UID], d[CONF_AUTHKEY], d[CONF_AV_PASSWORD], d[CONF_ACCOUNT],
-                    name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
-                    on_push=lambda p: self.hass.loop.call_soon_threadsafe(self._on_push, s, p),
-                    on_lost=lambda e: self.hass.loop.call_soon_threadsafe(self._on_lost, s, e))
+        s: SessionProxy
+        s = self.client.session(
+            d[CONF_UID], d[CONF_AUTHKEY], d[CONF_AV_PASSWORD], d[CONF_ACCOUNT], media=True,
+            name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
+            on_push=lambda p: self.hass.loop.call_soon_threadsafe(self._on_push, s, p),
+            on_lost=lambda e: self.hass.loop.call_soon_threadsafe(self._on_lost, s, e))
         return s
 
     async def _async_connect(self) -> None:
@@ -294,7 +332,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             raise HomeAssistantError(str(err)) from err
 
     @callback
-    def _on_push(self, session: Session, push: Push) -> None:
+    def _on_push(self, session: SessionProxy, push: Push) -> None:
         if session is not self.session or self.data is None:
             return                              # a stale session, or before the first full read
         if push.code == ops.EVENT_REPORT:
@@ -350,7 +388,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         return max(30.0, NOTIFY_INTERVAL_S.get(idx, 60.0) + 15.0)
 
     @callback
-    def _on_lost(self, session: Session, err: VtechError) -> None:
+    def _on_lost(self, session: SessionProxy, err: VtechError) -> None:
         if session is not self.session:
             return
         _LOG.warning("%s: session lost: %s", self.name, err)
@@ -401,7 +439,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             delay = min(delay * 2, RECONNECT_MAX_S)
 
     async def async_close(self) -> None:
-        """Unload: close this entry's session only. The SDK stays loaded and initialised."""
+        """Unload: close this entry's session and live view. The worker keeps running for other entries."""
         self._closing = True
         for task in (self._reconnect, self._quality_reread):
             if task is not None:

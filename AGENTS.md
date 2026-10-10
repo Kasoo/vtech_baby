@@ -6,8 +6,9 @@ Notes for working on this repo. User-facing docs are in `README.md`; keep that s
 
 A Home Assistant integration (domain `vtech_baby`) that controls and monitors the **VTech RM5754HD**
 baby-monitor camera **LAN-direct, with no cloud**. The camera speaks only ThroughTek's Kalay P2P
-protocol (TUTK), so the integration drives the vendor's Android SDK libraries in-process. They are
-patched at setup to load on HA's musl or glibc libc. Everything above the transport (opcodes, live-view
+protocol (TUTK), so the integration drives the vendor's Android SDK libraries, in a worker process of
+its own so a crash in them can't take Home Assistant down. They are patched at setup to load on HA's
+musl or glibc libc. Everything above the transport (opcodes, live-view
 crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 
 ## Layout
@@ -53,8 +54,15 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 
 ### Code
 - `vtech_lan/` has **no `homeassistant` imports**, so it can be unit-tested and run standalone.
-- **Runtime model** (`vtech-lan-kit/docs/90-ha-runtime.md`):
-  - Load and initialise the SDK once per process, and never unload it.
+- **The SDK only ever runs in the worker process** (`vtech_lan/worker.py`, started by
+  `vtech_lan/worker_client.py` through `_worker_main.py`). Home Assistant's process patches the libraries
+  but never loads them. The worker imports no Home Assistant code; keep it that way (`tests/test_worker.py`
+  checks).
+- **Messages between HA and the worker** are pickles over a socket pair (`vtech_lan/ipc.py`). The
+  session proxy forwards any public `Session` method by name, so a new `Session` method needs no IPC
+  change. Live-view video never crosses the socket: the worker serves it over loopback HTTP.
+- **Runtime model** (`vtech-lan-kit/docs/90-ha-runtime.md`), inside the worker:
+  - Load and initialise the SDK once per worker, and never unload it; a new SDK means a new worker.
   - Never make an SDK call on the event loop.
   - One reader thread owns `avRecvIOCtrl` for each session.
   - Long-lived loops run on dedicated threads, not the shared executor.
@@ -88,8 +96,10 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
   from the repo root. The tests that need the real SDK look in `vtech-lan-kit/sdk/<arch>/` (or
   `$VTECH_SDK_DIR`) and in `.build/<arch>/` for a patched set
   (`vtech-lan-kit/tooling/patch.sh vtech-lan-kit/sdk/x86_64 .build/x86_64`); they skip without them.
-  Run tests from the root: the package has modules named like stdlib modules (`select.py`), so never
-  put the package directory itself first on `sys.path`.
+  Run tests from the root. Platform modules are named by Home Assistant (`select.py`, `sensor.py`, ...)
+  and shadow other modules of the same name, so never put `custom_components/vtech_baby` (or
+  `vtech_lan/`) on `sys.path` ahead of the standard library; the worker refuses to start if it is there
+  at all.
 - **Live tests:** `tests/live/run.sh` runs a probe inside the real HA image on a host on the camera's
   LAN, through a runner script you supply as `$VTECH_LIVE_RUNNER` (see the script header).
   `probe_phase1.py` is read-only and safe headless; check what any other probe does first.
@@ -108,9 +118,16 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 ## Design notes
 
 ### Decisions
-- **In-process.** The SDK runs inside HA's Python process via `ctypes`; a native crash takes HA down. The
-  session layer (`vtech_lan/session.py`) sits behind one small interface so it can move into a `spawn`
-  child process later (`90-ha-runtime.md` §6) without touching entities.
+- **The SDK runs in a worker process** (`90-ha-runtime.md` §6). One worker per HA process serves every
+  camera. It is started with `subprocess` and `python -I`, and imports the package's `vtech_lan` without
+  running the integration's `__init__` (`_worker_main.py` registers the parent packages as empty
+  modules), so it holds no Home Assistant code and `vtech_lan` classes cross the IPC under their own
+  names. If it dies, every session is lost with `WorkerDied`, a Repairs issue (`worker_crashed`, not
+  persistent) records why, and the next reconnect starts a new worker. A new SDK upload restarts it too,
+  so switching SDKs no longer needs an HA restart.
+- **The live view is served by the worker** (MPEG-TS over HTTP on 127.0.0.1). HA binds the listening
+  socket once and passes it to every worker, so the URL (port and token) HA's go2rtc has registered
+  survives worker restarts and entry reloads.
 - **`vtech_lan/` is a rewrite, not a wrapper, of the reference client.** The client reads replies inline
   and initialises the SDK per session; HA needs one reader thread per channel and one init per process.
 - **Pushes drive state** (`local_push`). GETs run on connect, after a reconnect, on the keepalive, and to
@@ -167,5 +184,6 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   followed by ~35–40 s with no replies. The session isn't lost and recovers by itself; the cause is
   unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. Re-reads keep their
   previous values and stop after two timeouts, and a write during the stall fails cleanly.
-- **A native crash in the SDK or the companion kills HA.** Mitigated by exact buffers, one reader per
-  channel and gated loading (`patch_sdk()` verification, `preflight()`).
+- **A native crash in the SDK or the companion kills the worker**, and with it every camera's session
+  until the reconnect (10 s backoff). Home Assistant keeps running. The worker's stderr (the
+  container log) has the faulthandler dump of its Python threads.

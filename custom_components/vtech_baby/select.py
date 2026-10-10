@@ -15,11 +15,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .entity import VtechEntity
 from .manager import CameraManager, CameraState
 from .vtech_lan import ops
-from .vtech_lan.session import Session
 
 
 async def _night_vision(m: CameraManager, v: int) -> None:
-    await m.async_command(Session.set_night_vision, ops.NightVisionMode(v))
+    await m.async_command(lambda s: s.set_night_vision(ops.NightVisionMode(v)))
     m.async_patch_state(night_vision=v)
 
 
@@ -31,11 +30,11 @@ async def _quality(m: CameraManager, v: int) -> None:
         raise HomeAssistantError("The parent unit is on, so the camera is limited to 720p; it returns to "
                                  "its 1080p setting when the parent unit is switched off")
     # Show what the camera actually applied.
-    m.async_patch_state(quality=int(await m.async_command(Session.set_quality, ops.Quality(v))))
+    m.async_patch_state(quality=int(await m.async_command(lambda s: s.set_quality(ops.Quality(v)))))
 
 
 async def _motion(m: CameraManager, v: int) -> None:
-    await m.async_command(Session.set_motion_sensitivity, ops.MotionSensitivity(v))
+    await m.async_command(lambda s: s.set_motion_sensitivity(ops.MotionSensitivity(v)))
     st = m.data
     m.async_patch_state(
         motion=dataclasses.replace(st.motion, sensitivity=v) if st.motion else None,
@@ -43,7 +42,8 @@ async def _motion(m: CameraManager, v: int) -> None:
 
 
 async def _notify(m: CameraManager, v: int) -> None:
-    m.async_patch_state(notify_interval=int(await m.async_command(Session.set_notify_interval, ops.NotifyInterval(v))))
+    interval = await m.async_command(lambda s: s.set_notify_interval(ops.NotifyInterval(v)))
+    m.async_patch_state(notify_interval=int(interval))
 
 
 async def _lullaby_timer(m: CameraManager, v: int) -> None:

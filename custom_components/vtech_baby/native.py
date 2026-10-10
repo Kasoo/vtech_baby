@@ -6,7 +6,6 @@ I/O and hashing: run in an executor. No Home Assistant imports.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -30,7 +29,7 @@ class Prepared:
     libdir: str
     arch: str
     version: str                  # SDK version of the user's libraries (always SDK_VERSION once patched)
-    restart_required: bool        # inputs changed but this process already has an SDK loaded
+    fingerprint: str              # identifies the patched set; a change restarts the SDK worker
 
 
 def companion_path(arch: str) -> str:
@@ -66,22 +65,11 @@ def sdk_present(sdk_dir: str) -> bool:
         return False
 
 
-def _sha256(path: str) -> str | None:
-    h = hashlib.sha256()
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-    except OSError:
-        return None
-    return h.hexdigest()
-
-
 def prepare(sdk_dir: str, lib_root: str) -> Prepared:
     """Patch `sdk_dir` into `lib_root/<arch>/` (cached) and check the result can load on this host.
 
-    If an SDK is already loaded in this process, nothing is rewritten: a loaded library must never be
-    replaced underneath the process. A changed input is then reported as `restart_required`.
+    The SDK is loaded by the worker process, never here. Patching writes each file as a new inode, so a
+    running worker keeps the set it mapped; a changed fingerprint makes the client restart it.
     Raises UnsupportedHost or PatchError with a user-presentable message.
     """
     arch = _sdk.host_arch()
@@ -98,18 +86,7 @@ def prepare(sdk_dir: str, lib_root: str) -> Prepared:
     if sdk_arch != arch:
         raise UnsupportedHost(f"the SDK libraries in {sdk_dir} are {sdk_arch} but this host is {arch}")
 
-    loaded = _sdk.loaded()
-    if loaded is not None:
-        try:
-            with open(os.path.join(loaded.libdir, _patch.MANIFEST)) as f:
-                manifest = json.load(f)
-        except (OSError, ValueError):
-            manifest = {}
-        inputs = {lib: _sha256(os.path.join(sdk_dir, lib)) for lib in _patch.LIBS}
-        changed = (os.path.realpath(libdir) != loaded.libdir or manifest.get("inputs") != inputs
-                   or manifest.get("companion") != _sha256(companion))
-        return Prepared(loaded.libdir, arch, str(manifest.get("version", "")), changed)
-
     info = _patch.patch_sdk(sdk_dir, libdir, companion=companion)
     _sdk.preflight(libdir)
-    return Prepared(libdir, arch, info["version"], False)
+    info.pop("cached", None)
+    return Prepared(libdir, arch, info["version"], json.dumps(info, sort_keys=True))

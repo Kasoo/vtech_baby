@@ -13,11 +13,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .entity import VtechEntity
 from .manager import CameraManager, CameraState
-from .vtech_lan.session import Session
 
 
 async def _led(m: CameraManager, on: bool) -> None:
-    await m.async_command(Session.set_status_led, on)
+    await m.async_command(lambda s: s.set_status_led(on))
     m.async_patch_state(status_led=on)
 
 
@@ -28,7 +27,7 @@ async def _temp_alert(m: CameraManager, on: bool) -> None:
 
 
 async def _sound(m: CameraManager, on: bool) -> None:
-    await m.async_command(Session.set_sound_detect, on)
+    await m.async_command(lambda s: s.set_sound_detect(on))
     m.async_patch_state(sound_detect=on)
 
 

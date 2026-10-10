@@ -1,10 +1,9 @@
-"""native.prepare: patch + cache the user's SDK, arch/companion checks, and the loaded-SDK rules.
+"""native.prepare: patch + cache the user's SDK, arch/companion checks, and the fingerprint.
 
 Uses the local development SDK (vtech-lan-kit/sdk/) as the user-supplied input; skipped without it.
 """
 import os
 import shutil
-import types
 
 import pytest
 
@@ -27,22 +26,13 @@ pytestmark = pytest.mark.skipif(
     reason="needs an x86_64 or aarch64 host and the development SDK (vtech-lan-kit/sdk/ or $VTECH_SDK_DIR)")
 
 
-@pytest.fixture(autouse=True)
-def not_loaded(monkeypatch):
-    monkeypatch.setattr(native._sdk, "loaded", lambda: None)
-
-
-def fake_loaded(monkeypatch, libdir):
-    monkeypatch.setattr(native._sdk, "loaded", lambda: types.SimpleNamespace(libdir=os.path.realpath(libdir)))
-
-
 def snapshot(libdir):
     return {n: os.stat(os.path.join(libdir, n)).st_ino for n in os.listdir(libdir)}
 
 
 def test_fresh_patch(tmp_path):
     p = native.prepare(HOST_SDK, str(tmp_path))
-    assert p == native.Prepared(str(tmp_path / ARCH), ARCH, "4.3.8.1", False)
+    assert (p.libdir, p.arch, p.version) == (str(tmp_path / ARCH), ARCH, "4.3.8.1")
     assert sorted(os.listdir(p.libdir)) == sorted([*patch_sdk.LIBS, "libtk.so", patch_sdk.MANIFEST])
 
 
@@ -54,16 +44,28 @@ def test_second_prepare_is_cached(tmp_path, monkeypatch):
     assert snapshot(p.libdir) == before
 
 
-def test_changed_sdk_is_repatched_when_not_loaded(tmp_path):
+def test_changed_sdk_is_repatched_with_a_new_fingerprint(tmp_path):
+    """A running worker keeps its mapped files: patching writes new inodes, and the new fingerprint
+    makes the client restart the worker."""
     sdk = tmp_path / "sdk"
     shutil.copytree(HOST_SDK, sdk)
-    native.prepare(str(sdk), str(tmp_path / "lib"))
+    old = native.prepare(str(sdk), str(tmp_path / "lib"))
     with open(sdk / "libIOTCAPIs.so", "ab") as f:
         f.write(b"\0")
     before = snapshot(str(tmp_path / "lib" / ARCH))
     p = native.prepare(str(sdk), str(tmp_path / "lib"))
-    assert p.version == "4.3.8.1" and not p.restart_required
+    assert p.version == "4.3.8.1" and p.fingerprint != old.fingerprint
     assert snapshot(p.libdir)["libIOTCAPIs.so"] != before["libIOTCAPIs.so"]
+
+
+def test_changed_companion_changes_the_fingerprint(tmp_path, monkeypatch):
+    p = native.prepare(HOST_SDK, str(tmp_path))
+    other = tmp_path / "libtk.so"
+    shutil.copyfile(native.companion_path(ARCH), other)
+    with open(other, "ab") as f:
+        f.write(b"\0")
+    monkeypatch.setattr(native, "companion_path", lambda arch: str(other))
+    assert native.prepare(HOST_SDK, str(tmp_path)).fingerprint != p.fingerprint
 
 
 def set_version(path, version):
@@ -100,47 +102,6 @@ def test_sdk_present(tmp_path):
     assert native.sdk_present(HOST_SDK)
     assert not native.sdk_present(FOREIGN_SDK)
     assert not native.sdk_present(str(tmp_path / "nope"))
-
-
-def test_loaded_and_unchanged(tmp_path, monkeypatch):
-    p = native.prepare(HOST_SDK, str(tmp_path))
-    fake_loaded(monkeypatch, p.libdir)
-    before = snapshot(p.libdir)
-    assert native.prepare(HOST_SDK, str(tmp_path)) == native.Prepared(
-        os.path.realpath(p.libdir), ARCH, "4.3.8.1", False)
-    assert snapshot(p.libdir) == before
-
-
-def test_changed_while_loaded_needs_restart_and_rewrites_nothing(tmp_path, monkeypatch):
-    sdk = tmp_path / "sdk"
-    shutil.copytree(HOST_SDK, sdk)
-    p = native.prepare(str(sdk), str(tmp_path / "lib"))
-    fake_loaded(monkeypatch, p.libdir)
-    before = snapshot(p.libdir)
-    with open(sdk / "libAVAPIs.so", "ab") as f:
-        f.write(b"\0")
-    monkeypatch.setattr(patch_sdk, "patch_sdk", lambda *a, **k: pytest.fail("patched while loaded"))
-    q = native.prepare(str(sdk), str(tmp_path / "lib"))
-    assert q.restart_required and q.libdir == os.path.realpath(p.libdir)
-    assert snapshot(p.libdir) == before
-
-
-def test_changed_companion_while_loaded_needs_restart(tmp_path, monkeypatch):
-    p = native.prepare(HOST_SDK, str(tmp_path))
-    fake_loaded(monkeypatch, p.libdir)
-    other = tmp_path / "libtk.so"
-    shutil.copyfile(native.companion_path(ARCH), other)
-    with open(other, "ab") as f:
-        f.write(b"\0")
-    monkeypatch.setattr(native, "companion_path", lambda arch: str(other))
-    assert native.prepare(HOST_SDK, str(tmp_path)).restart_required
-
-
-def test_loaded_from_elsewhere_needs_restart(tmp_path, monkeypatch):
-    native.prepare(HOST_SDK, str(tmp_path / "a"))
-    p = native.prepare(HOST_SDK, str(tmp_path / "b"))
-    fake_loaded(monkeypatch, p.libdir)
-    assert native.prepare(HOST_SDK, str(tmp_path / "a")).restart_required
 
 
 def test_wrong_arch_sdk(tmp_path):

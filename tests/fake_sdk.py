@@ -244,3 +244,38 @@ class FakeFrameReader:
             return AV_ER_DATA_NOREADY, b""
         cam.aidx += 1
         return 1, encrypt_frame(b"\xD5" * 320, cam.master)
+
+
+class ThreadWorker:
+    """Runs the SDK worker (`vtech_lan/worker.py`) on a thread instead of a process, over the same
+    socket pair and messages, with `sdk` (usually a FakeSdk). `worker` is the live Worker object."""
+
+    pid = None
+
+    def __init__(self, child, listen, sdk):
+        from custom_components.vtech_baby.vtech_lan.ipc import Channel
+        from custom_components.vtech_baby.vtech_lan.worker import Worker
+        self._sock = child.dup()
+        self.worker = Worker(Channel(self._sock), lambda _libdir: sdk, listen)
+        self._thread = threading.Thread(target=self.worker.run, name="vtech-thread-worker", daemon=True)
+        self._thread.start()
+
+    def wait(self, timeout=None):
+        self._thread.join(timeout)
+        return None if self._thread.is_alive() else 0
+
+    def kill(self):
+        """Like the process dying: both directions of its socket end at once."""
+        import socket
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)       # wakes the worker's blocked recv (close alone doesn't)
+        except OSError:
+            pass
+        self._sock.close()
+
+
+def thread_client(sdk, **kw):
+    """A WorkerClient whose worker runs on a thread with `sdk`."""
+    from custom_components.vtech_baby.vtech_lan.worker_client import WorkerClient
+    return WorkerClient(spawn=lambda child, listen: ThreadWorker(child, listen, sdk), **kw)
+

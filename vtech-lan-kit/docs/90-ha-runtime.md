@@ -116,6 +116,16 @@ blast radius small:
 kills only the child, which the integration restarts like a reconnect. The cost is IPC for every IOCtrl
 and for the media stream. The in-process design is simpler; the out-of-process one is safer.
 
+The `vtech_baby` integration runs out of process. What made it straightforward:
+- Start the child with `subprocess` and `python -I`, never by forking Home Assistant (a forked copy of a
+  multi-threaded process can inherit locks held by threads that don't exist in the child).
+- Run the media path in the child too, and serve the MPEG-TS from there (section 7). Only control
+  messages and the occasional snapshot cross the IPC, never the stream.
+- Bind the loopback listening socket in Home Assistant and pass it to each child, so the stream URL
+  survives a child restart.
+- Treat the child's death like a lost session: fail every pending request, report every session lost,
+  and reconnect with the usual backoff.
+
 ## 7. Feeding a `camera` entity
 
 - Decrypted video is H.264 and audio is G.711 A-law, 8 kHz mono (`40-media-streaming.md`,

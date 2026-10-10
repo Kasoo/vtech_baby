@@ -20,11 +20,12 @@ from .errors import (
     Unreachable,
     UnsupportedHost,
     VtechError,
+    WorkerDied,
 )
 from .session import PARAMS_UPDATE, Push, Session
 
 __all__ = [
     "AuthFailed", "CapacityExceeded", "NotLanDirect", "PARAMS_UPDATE", "ProtocolError", "Push", "RequestTimeout",
     "SdkMismatch", "Session", "SessionGone", "Unlicensed", "Unreachable", "UnsupportedHost",
-    "VtechError", "ops", "provision",
+    "VtechError", "WorkerDied", "ops", "provision",
 ]
