@@ -57,8 +57,15 @@ Package the results at a per-architecture path, e.g. `native/x86_64/libtk.so` an
 
 Run all of this off the event loop (in an executor): it does file I/O and hashes several MB.
 
-1. **Collect the SDK libraries** from the user, for example as a path or an upload into the HA config
-   directory. Require all four files.
+1. **Collect the SDK libraries** from the user. The usable form is an upload of the app download itself
+   (`../sdk/README.md` names the app and version); `../tooling/extract_sdk.py` takes the four libraries
+   for the host's architecture out of it, checks their architecture and SDK version, and replaces the
+   SDK directory only once they pass:
+   ```python
+   from .tooling.extract_sdk import extract_sdk, ExtractError   # NotAPackage, WrongArch, MissingLibs, WrongVersion
+   info = extract_sdk(uploaded_file, "<config>/<domain>/sdk", arch)
+   ```
+   Delete the upload afterwards. If the SDK directory already holds a usable set, skip the upload.
 2. **Check the host.** Map `platform.machine()` to `x86_64` or `aarch64`, and refuse anything else
    (32-bit armv7 / i386). The SDK directory's architecture (`patch_sdk.sdk_arch()`) must match the
    host's.
@@ -72,9 +79,8 @@ Run all of this off the event loop (in an executor): it does file I/O and hashes
      `noexec`). The HA config directory is fine on standard installs.
    - `patch_sdk()` verifies its own output before writing it, and raises `PatchError` on anything
      unexpected. Show that error to the user as a setup failure.
-   - `info["tested"]` is `False` when the user's libraries are not the build this kit is characterised
-     against (`../sdk/README.md`). The set may still work; surface a warning (e.g. an HA repair issue)
-     rather than failing.
+   - Only SDK version `patch_sdk.SDK_VERSION` (4.3.8.1) is accepted: any other raises `PatchError`
+     (`../sdk/README.md`). `info["version"]` reports it.
    - The step is idempotent. `PATCHED.json` records the input, companion and tooling hashes, and a
      repeat call with unchanged inputs returns immediately with `info["cached"] is True`.
 4. **Check before loading.** The reference client's `preflight(libdir)` confirms that the host

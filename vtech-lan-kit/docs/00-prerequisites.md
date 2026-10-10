@@ -63,7 +63,7 @@ The AV session is started with DTLS (`security_mode = 1`).
 The four ThroughTek/TUTK Kalay SDK libraries (`libIOTCAPIs.so`, `libAVAPIs.so`, `libNebulaAPIs.so`,
 `libTUTKGlobalAPIs.so`), for the host's architecture, plus the companion (`libtk.so`). The SDK libraries
 are user-supplied (fetched from a public source — `../sdk/README.md`); the kit never ships the binaries.
-`../sdk/` holds local-development copies and the digests of the tested build; `../tooling/` has the
+`../sdk/` holds local-development copies and the tested build's version (only SDK 4.3.8.1 is accepted); `../tooling/` has the
 load-time patch and the companion build. On a host that is not Android, patch the SDK set with
 `../tooling/patch.sh` (or `../tooling/patch_sdk.py` plus a prebuilt companion), then point `VTECH_LIBDIR`
 at the output directory (the embedded license is used automatically; drop a `LICENSE_KEY.txt` alongside

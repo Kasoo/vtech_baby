@@ -20,14 +20,14 @@ arrive on the AV frame channels and are application-layer encrypted.
 | `docs/` | The protocol specification (start at `docs/README.md`). |
 | `client/vtech_camera_client.py` | Reference client: connects, runs the video handshake, decrypts video+audio, plays audio through the camera speaker (talk-back), and exposes an opcode framework for control/telemetry. |
 | `client/vtech_provision.py` | Offline credential provisioning: pairing QR (text or photo) → UID + AV password + derived authKey (`docs/05-provisioning.md`). |
-| `sdk/` | Local-development copies of the ThroughTek/TUTK Kalay SDK libraries (x86_64 and aarch64), plus the tested-build digests. **We do not redistribute these binaries** — see `sdk/README.md` for a public source. |
+| `sdk/` | Local-development copies of the ThroughTek/TUTK Kalay SDK libraries (x86_64 and aarch64), plus the tested build's version and digests. **We do not redistribute these binaries** — see `sdk/README.md` for a public source. |
 | `tooling/` | The load-time ELF patcher (`elfpatch.py`, `patch_sdk.py`), companion source and build step that let the SDK load on a host libc. |
 
 ## Quick start
 
 1. **Provide the inputs.** The one input the user supplies is the **SDK libraries** for their
    architecture — the kit doesn't host the binaries but points to a public source (`docs/00-prerequisites.md`,
-   `sdk/README.md`). The SDK **license key** is embedded in the kit (a small static fact), so no
+   `sdk/README.md`); `python3 tooling/extract_sdk.py <app.xapk> <SDK_DIR>` takes them out of the download. The SDK **license key** is embedded in the kit (a small static fact), so no
    `LICENSE_KEY.txt` is needed (drop one in `VTECH_LIBDIR` only to override it). The **per-camera
    credentials** are derived offline from the owner's pairing QR (`docs/05-provisioning.md`):
    `python3 client/vtech_provision.py --image qr.jpg --env` prints the `VTECH_*` exports.

@@ -10,17 +10,19 @@ It never builds anything.
 
     from patch_sdk import patch_sdk
     info = patch_sdk("/path/to/sdk", "/path/to/out", companion="/path/to/libtk.so")
-    # -> {"arch": "aarch64", "tested": True, "cached": False, ...}
+    # -> {"arch": "aarch64", "version": "4.3.8.1", "cached": False, ...}
 
-    python3 patch_sdk.py SDK_DIR OUT_DIR [--companion PATH/TO/libtk.so]
+    python3 patch_sdk.py SDK_DIR OUT_DIR [--companion PATH/TO/libtk.so] [--any-version]
 
-The output directory gets the four patched libraries, libtk.so (if given) and PATCHED.json (a manifest
-of the input hashes). A repeat call with the same inputs and tooling returns early with "cached": True.
-Errors raise PatchError.
+Only SDK version SDK_VERSION is accepted (read from the libraries' own version string), unless the
+caller passes require_version=None. The output directory gets the four patched libraries, libtk.so (if
+given) and PATCHED.json (a manifest of the input hashes). A repeat call with the same inputs and tooling
+returns early with "cached": True. Errors raise PatchError.
 """
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -34,22 +36,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RENAMES = os.path.join(HERE, "companion", "renames.txt")
 MANIFEST = "PATCHED.json"
 
-# The SDK build this kit is characterised against (Kalay 4.3.8.1). Other builds may still patch and load,
-# but are untested; the result reports "tested": False so a caller can warn.
-TESTED_SHA256 = {
-    "x86_64": {
-        "libTUTKGlobalAPIs.so": "de59ccf3d543ac45211624bf63a7b98f9f1753ed95ecb27e8334a95bca8e3feb",
-        "libNebulaAPIs.so":     "d538aca357d501266362244a4a1444f07819fec09b003218f23e92620db098a7",
-        "libIOTCAPIs.so":       "0ebf29b441d9bf52154ea5b9756391da8944c6c7f708ea8443681be2a078b193",
-        "libAVAPIs.so":         "43c69cf873e6aa462ac43f7095cc8a1d0edbf96e91fad17760e7bc7db1dc2b90",
-    },
-    "aarch64": {
-        "libTUTKGlobalAPIs.so": "0f367351372eafd5c4663226d6098e517d5cba34797a8e5e0d65e99b0003b1ad",
-        "libNebulaAPIs.so":     "a029e3935bf207379a31391c9c748cc6bcbaf31cc8b336a86408d845d7628aef",
-        "libIOTCAPIs.so":       "6b4a2c3dd2ffc25617af837777c8360ee235d5b744775c446fda77a221e4fc02",
-        "libAVAPIs.so":         "a1f8c268d8ae4ca7e75917841aa67332f13ea30e61ba94d9eb889acf27c94589",
-    },
-}
+# The SDK version this kit is characterised against. Struct layouts change between SDK versions
+# (4.3.6.2 -> 4.3.8.1 changed IOTC_Connect_ByUIDEx's input), so other versions are refused.
+SDK_VERSION = "4.3.8.1"
+# Each library embeds its build's version as a C string, e.g. "4.3.8.1-1-gc5f0edc-R2_openssl_android".
+_VERSION_RE = re.compile(rb"(?<![0-9A-Za-z.])(\d+\.\d+\.\d+\.\d+)-\d+-g[0-9a-f]{7,}[0-9A-Za-z._-]*\x00")
 
 
 class PatchError(Exception):
@@ -81,6 +72,25 @@ def _tooling_hash():
         with open(p, "rb") as f:
             h.update(f.read())
     return h.hexdigest()
+
+
+def lib_version(path):
+    """SDK version of one library, from its embedded version string (e.g. '4.3.8.1')."""
+    with open(path, "rb") as f:
+        found = {m.group(1).decode() for m in _VERSION_RE.finditer(f.read())}
+    if len(found) != 1:
+        what = "no SDK version string" if not found else f"several SDK versions ({', '.join(sorted(found))})"
+        raise PatchError(f"{os.path.basename(path)}: {what}")
+    return found.pop()
+
+
+def sdk_version(sdk_dir):
+    """SDK version of an SDK directory; all four libraries must agree."""
+    versions = {lib: lib_version(os.path.join(sdk_dir, lib)) for lib in LIBS}
+    if len(set(versions.values())) != 1:
+        raise PatchError("the SDK libraries are from different versions: "
+                         + ", ".join(f"{lib} {v}" for lib, v in versions.items()))
+    return versions[LIBS[0]]
 
 
 def sdk_arch(sdk_dir):
@@ -123,7 +133,7 @@ def _patch_one(src, dst, arch, renames):
     os.replace(tmp, dst)
 
 
-def patch_sdk(sdk_dir, out_dir, companion=None):
+def patch_sdk(sdk_dir, out_dir, companion=None, require_version=SDK_VERSION):
     """Patch the four SDK libraries in sdk_dir into out_dir (see module docstring). Returns a dict."""
     for lib in LIBS:
         if not os.path.isfile(os.path.join(sdk_dir, lib)):
@@ -132,12 +142,15 @@ def patch_sdk(sdk_dir, out_dir, companion=None):
     for lib in LIBS:
         if sdk_arch_of_file(os.path.join(sdk_dir, lib)) != arch:
             raise PatchError(f"{lib} is not {arch}: the SDK directory mixes architectures")
+    version = sdk_version(sdk_dir)
+    if require_version and version != require_version:
+        raise PatchError(f"the SDK libraries are version {version}; this needs version {require_version}")
     if companion and sdk_arch_of_file(companion) != arch:
         raise PatchError(f"companion {companion} is not {arch}")
     inputs = {lib: _sha256(os.path.join(sdk_dir, lib)) for lib in LIBS}
     comp_hash = _sha256(companion) if companion else None
     manifest = {"arch": arch, "inputs": inputs, "companion": comp_hash, "tooling": _tooling_hash(),
-                "tested": inputs == TESTED_SHA256[arch]}
+                "version": version}
 
     os.makedirs(out_dir, exist_ok=True)
     mpath = os.path.join(out_dir, MANIFEST)
@@ -173,12 +186,13 @@ def main():
     ap.add_argument("sdk_dir")
     ap.add_argument("out_dir")
     ap.add_argument("--companion", help="prebuilt libtk.so for the SDK's architecture, copied into OUT_DIR")
+    ap.add_argument("--any-version", action="store_true", help=f"accept SDK versions other than {SDK_VERSION}")
     a = ap.parse_args()
     try:
-        info = patch_sdk(a.sdk_dir, a.out_dir, a.companion)
+        info = patch_sdk(a.sdk_dir, a.out_dir, a.companion, None if a.any_version else SDK_VERSION)
     except PatchError as ex:
         sys.exit(f"[patch_sdk] error: {ex}")
-    print(f"[patch_sdk] arch={info['arch']} tested_sdk_build={info['tested']} cached={info['cached']} "
+    print(f"[patch_sdk] arch={info['arch']} sdk_version={info['version']} cached={info['cached']} "
           f"-> {a.out_dir}")
 
 

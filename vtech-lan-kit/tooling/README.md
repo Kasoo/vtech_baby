@@ -10,7 +10,8 @@ libc. Everything here is purely a loader-compatibility layer; it does not change
 | Path | What it is |
 |---|---|
 | `elfpatch.py` | In-place, same-size ELF64 patcher. Strips symbol-version records, fixes `DT_NEEDED` entries, and renames the ABI-divergent imports to companion tokens. Pure stdlib. |
-| `patch_sdk.py` | The patch step as an importable, pure-Python function, `patch_sdk(sdk_dir, out_dir, companion=None)`, plus a CLI. It detects the architecture, applies the `elfpatch.py` edits, verifies the result, optionally copies in a prebuilt companion, and caches via a `PATCHED.json` manifest. It is used by `patch.sh`, and by hosts with no compiler (e.g. a Home Assistant integration). |
+| `patch_sdk.py` | The patch step as an importable, pure-Python function, `patch_sdk(sdk_dir, out_dir, companion=None)`, plus a CLI. It detects the architecture, checks the SDK version (only `SDK_VERSION`, 4.3.8.1, from the libraries' embedded version string), applies the `elfpatch.py` edits, verifies the result, optionally copies in a prebuilt companion, and caches via a `PATCHED.json` manifest. It is used by `patch.sh`, and by hosts with no compiler (e.g. a Home Assistant integration). |
+| `extract_sdk.py` | Takes the four SDK libraries for one architecture out of an app download (APK, or a split bundle such as `.xapk`), checks their architecture and version, and writes them to an SDK directory: `extract_sdk(package, out_dir, arch)`, plus a CLI. Pure stdlib. |
 | `companion/` | Source for the companion library `libtk.so` (a.k.a. `libtutkabi.so`), plus `build.sh`. Build it on a development machine; an integration ships the **prebuilt** result for each architecture (`../docs/85-ha-deployment.md`). |
 | `companion/renames.txt` | The old→new symbol rename map shared by the patcher and the companion. |
 | `patch.sh` | One-shot development step: `patch_sdk.py` followed by a companion build for the same architecture, into one output directory. |
