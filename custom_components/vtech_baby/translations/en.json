@@ -1,0 +1,204 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "VTech SDK libraries",
+        "description": "Copy the four ThroughTek SDK libraries for this host's architecture (libIOTCAPIs.so, libAVAPIs.so, libNebulaAPIs.so, libTUTKGlobalAPIs.so) into a folder under your Home Assistant config directory, then enter that folder. They are patched once to run on this host.",
+        "data": {
+          "sdk_dir": "SDK folder"
+        }
+      },
+      "camera": {
+        "title": "Camera pairing QR",
+        "description": "On the parent unit, open the camera's \"Connect Mobile Phone\" pairing QR code. Scan it with any phone QR-code reader and paste the text it shows (a long base64 string) here.",
+        "data": {
+          "qr": "Pairing QR text"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-pair {name}",
+        "description": "The camera is not accepting the stored credentials. They change whenever the camera's Wi-Fi changes or its security key is updated. Scan the current pairing QR code on the parent unit and paste its text here.",
+        "data": {
+          "qr": "Pairing QR text"
+        }
+      }
+    },
+    "error": {
+      "sdk_error": "The SDK could not be prepared: {error}",
+      "sdk_unavailable": "The SDK could not be loaded; check the SDK folder.",
+      "invalid_qr": "This is not a VTech pairing QR code. Paste the full text the QR reader shows.",
+      "wrong_camera": "This QR code belongs to a different camera.",
+      "invalid_auth": "The camera rejected the credentials from this QR code. Scan the QR again; it changes after a Wi-Fi change.",
+      "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant. If its Wi-Fi changed recently, scan a fresh QR code.",
+      "invalid_license": "The SDK rejected its license key.",
+      "unknown": "Unexpected error; see the logs."
+    },
+    "abort": {
+      "already_configured": "This camera is already configured; its credentials were updated.",
+      "reauth_successful": "The camera was re-paired."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": {
+        "name": "Temperature"
+      },
+      "temperature_state": {
+        "name": "Temperature alert",
+        "state": {
+          "ok": "OK",
+          "too_hot": "Too hot",
+          "too_cold": "Too cold"
+        }
+      },
+      "sound_sensitivity": {
+        "name": "Sound sensitivity",
+        "state": {
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "connection": {
+        "name": "Connection",
+        "state": {
+          "lan": "LAN",
+          "p2p": "Internet P2P",
+          "relay": "Internet relay"
+        }
+      }
+    },
+    "light": {
+      "night_light": {
+        "name": "Night-light"
+      }
+    },
+    "select": {
+      "night_vision": {
+        "name": "Night vision",
+        "state": {
+          "auto": "Auto",
+          "on": "On",
+          "off": "Off"
+        }
+      },
+      "resolution": {
+        "name": "Resolution",
+        "state": {
+          "1080p": "1080p",
+          "720p": "720p"
+        }
+      },
+      "motion_sensitivity": {
+        "name": "Motion sensitivity",
+        "state": {
+          "off": "Off",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "notify_interval": {
+        "name": "Alert interval",
+        "state": {
+          "default": "Default",
+          "1_min": "1 minute",
+          "3_min": "3 minutes",
+          "5_min": "5 minutes",
+          "10_min": "10 minutes",
+          "30_min": "30 minutes",
+          "never": "Never"
+        }
+      },
+      "lullaby_timer": {
+        "name": "Lullaby timer",
+        "state": {
+          "15_min": "15 minutes",
+          "30_min": "30 minutes",
+          "60_min": "60 minutes",
+          "non_stop": "Non-stop"
+        }
+      }
+    },
+    "switch": {
+      "status_led": {
+        "name": "Status LED"
+      },
+      "temperature_alerts": {
+        "name": "Temperature alerts"
+      },
+      "sound_detection": {
+        "name": "Sound detection"
+      }
+    },
+    "number": {
+      "temperature_max": {
+        "name": "Temperature alert maximum"
+      },
+      "temperature_min": {
+        "name": "Temperature alert minimum"
+      }
+    },
+    "binary_sensor": {
+      "night_vision_active": {
+        "name": "Night vision active"
+      },
+      "parent_unit": {
+        "name": "Parent unit"
+      },
+      "motion": {
+        "name": "Motion"
+      },
+      "sound": {
+        "name": "Sound"
+      }
+    },
+    "camera": {
+      "live_view": {
+        "name": "Live view"
+      }
+    },
+    "event": {
+      "alert": {
+        "name": "Alert",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "motion": "Motion",
+              "sound": "Sound",
+              "too_hot": "Too hot",
+              "too_cold": "Too cold",
+              "unknown": "Unknown"
+            }
+          }
+        }
+      }
+    }
+  },
+  "issues": {
+    "untested_sdk": {
+      "title": "Untested VTech SDK build",
+      "description": "The SDK libraries supplied are not the build this integration was tested against. It may still work; report problems with the diagnostics attached."
+    },
+    "restart_required": {
+      "title": "Restart Home Assistant to use the new VTech SDK",
+      "description": "The SDK libraries or the integration's companion library changed, but the old ones are already loaded and cannot be replaced while Home Assistant runs. Restart Home Assistant to apply them."
+    }
+  },
+  "services": {
+    "get_motion_events": {
+      "name": "Get motion events",
+      "description": "Returns the camera's stored motion history (the camera stores motion only), newest first.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Camera",
+          "description": "The camera's config entry."
+        },
+        "hours": {
+          "name": "Hours",
+          "description": "How far back to look (default 24)."
+        }
+      }
+    }
+  }
+}

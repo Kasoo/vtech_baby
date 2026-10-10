@@ -1,0 +1,13 @@
+{
+  "entity": {
+    "sensor": {
+      "temperature_state": {
+        "default": "mdi:thermometer-check",
+        "state": {
+          "too_hot": "mdi:thermometer-high",
+          "too_cold": "mdi:thermometer-low"
+        }
+      }
+    }
+  }
+}

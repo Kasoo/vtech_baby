@@ -1,0 +1,15 @@
+get_motion_events:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: vtech_baby
+    hours:
+      default: 24
+      selector:
+        number:
+          min: 0.1
+          max: 744
+          step: 0.1
+          unit_of_measurement: h

@@ -1,0 +1,78 @@
+# divergent-symbol rename map (old=new); toggle-case of the first alpha char, same length.
+# Consumed by elfpatch.py --rename-file. Companion (libtutkabi.so) exports the NEW tokens.
+# NOT renamed (identical ABI, direct-bind to host): __cxa_atexit, syscall,
+#   getnameinfo, __stack_chk_fail, and the ~150 ordinary libc funcs.
+# One map serves x86_64 AND aarch64: a name a given library doesn't import is simply reported NOT FOUND.
+
+# -- pthread (side-table -- pthread.c)
+pthread_attr_destroy=Pthread_attr_destroy
+pthread_attr_init=Pthread_attr_init
+pthread_attr_setstacksize=Pthread_attr_setstacksize
+pthread_create=Pthread_create
+pthread_detach=Pthread_detach
+pthread_equal=Pthread_equal
+pthread_exit=Pthread_exit
+pthread_getspecific=Pthread_getspecific
+pthread_join=Pthread_join
+pthread_key_create=Pthread_key_create
+pthread_key_delete=Pthread_key_delete
+pthread_mutexattr_init=Pthread_mutexattr_init
+pthread_mutexattr_settype=Pthread_mutexattr_settype
+pthread_mutex_destroy=Pthread_mutex_destroy
+pthread_mutex_init=Pthread_mutex_init
+pthread_mutex_lock=Pthread_mutex_lock
+pthread_mutex_trylock=Pthread_mutex_trylock
+pthread_mutex_unlock=Pthread_mutex_unlock
+pthread_once=Pthread_once
+pthread_rwlock_destroy=Pthread_rwlock_destroy
+pthread_rwlock_init=Pthread_rwlock_init
+pthread_rwlock_rdlock=Pthread_rwlock_rdlock
+pthread_rwlock_unlock=Pthread_rwlock_unlock
+pthread_rwlock_wrlock=Pthread_rwlock_wrlock
+pthread_self=Pthread_self
+pthread_setspecific=Pthread_setspecific
+
+# -- addrinfo swap + LAN-only egress policy -- net.c
+getaddrinfo=Getaddrinfo
+freeaddrinfo=Freeaddrinfo
+connect=Connect
+sendto=Sendto
+
+# -- host-missing (bionic names / musl-absent) -- misc.c
+__errno=__Errno
+__get_h_errno=__Get_h_errno
+__sF=__SF
+arc4random=Arc4random
+res_init=Res_init
+__system_property_get=__System_property_get   # aarch64 libraries only (compiler-rt LSE init, "ro.arch")
+
+# -- stat/fstat: layout identical across bionic/glibc/musl on both arches; renamed only because glibc
+#    below 2.33 exports no `stat`/`fstat` symbol -- misc.c forwards via the host (compiles to __xstat on
+#    an old glibc floor)
+stat=Stat
+fstat=Fstat
+
+# -- fortify _chk family (union host-missing) -- fortify.c
+__FD_SET_chk=__fD_SET_chk
+__memcpy_chk=__Memcpy_chk
+__strcpy_chk=__Strcpy_chk
+__strlen_chk=__Strlen_chk
+__strncat_chk=__Strncat_chk
+__strncpy_chk=__Strncpy_chk
+__strncpy_chk2=__Strncpy_chk2
+__vsprintf_chk=__Vsprintf_chk
+
+# -- sysconf _SC_* numbering -- misc.c
+sysconf=Sysconf
+
+# -- ABI-divergent STRUCT watchlist (loud-abort stub) -- stubs.c
+basename=Basename
+gethostbyname=Gethostbyname
+getpwuid_r=Getpwuid_r
+getservbyname=Getservbyname
+gmtime_r=Gmtime_r
+localtime_r=Localtime_r
+readdir=Readdir
+sigaction=Sigaction
+strerror_r=Strerror_r
+strftime=Strftime

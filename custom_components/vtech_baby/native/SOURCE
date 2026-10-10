@@ -1,0 +1,6 @@
+kit_tooling_commit: 7f4a661e90cfb853332cdb80f9ded138e2b15f78
+synced: 2026-10-06T10:19:00Z
+82375e01201057fa3c3550a2c1cef38381d535cfbcc514f37c06922319e592dc  tooling/elfpatch.py
+8d3c50bab01d4ef214efcffb5ad3473252702ca52cb43b6290f82c8bd4093177  tooling/patch_sdk.py
+667dd7e93231ea891119966f1c34ccc7e0d1d89da7dfa68b6cbc6fb3d9f421cf  tooling/companion/renames.txt
+f6972ef4844bc45717127637019e10ca7b8bb3f256f49fbc328a30e97bb87c84  native/x86_64/libtk.so
