@@ -57,10 +57,11 @@ Package the results at a per-architecture path, e.g. `native/x86_64/libtk.so` an
 
 Run all of this off the event loop (in an executor): it does file I/O and hashes several MB.
 
-1. **Collect the SDK libraries** from the user. The usable form is an upload of the app download itself
-   (`../sdk/README.md` names the app and version); `../tooling/extract_sdk.py` takes the four libraries
-   for the host's architecture out of it, checks their architecture and SDK version, and replaces the
-   SDK directory only once they pass:
+1. **Collect the SDK libraries** from the user, as an upload of one zip: the app download itself
+   (`../sdk/README.md` names the app and version; an APK or `.xapk`), or the four libraries zipped up.
+   `../tooling/extract_sdk.py` finds the libraries for the host's architecture by name, anywhere in the
+   zip or in a zip inside it, keeps only ELF shared objects of that architecture and SDK version, and
+   replaces the SDK directory only once all four pass:
    ```python
    from .tooling.extract_sdk import extract_sdk, ExtractError   # NotAPackage, WrongArch, MissingLibs, WrongVersion
    info = extract_sdk(uploaded_file, "<config>/<domain>/sdk", arch)

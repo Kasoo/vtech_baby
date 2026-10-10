@@ -15,7 +15,7 @@ The kit *may* point the user at a **public source** to obtain them: ThroughTek's
 (`com.tutk.kalaymobile`, version 2.0.0, version code 87, which carries SDK 4.3.8.1), from a public app
 mirror such as APKPure. The libraries are in the APK's `lib/<abi>/` (`x86_64`, `arm64-v8a`), which in a
 split download (`.xapk`) is the ABI split, e.g. `config.x86_64.apk`. `../tooling/extract_sdk.py` takes
-the four libraries out of such a download. We only reference the source; we never host or re-serve the
+the four libraries out of such a download, or out of any zip of them. We only reference the source; we never host or re-serve the
 binaries ourselves.
 
 > The SDK **license key** is a different matter: it is a small static value (a pure numeric fact,

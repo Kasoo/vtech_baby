@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
 """
-extract_sdk.py -- take the four SDK libraries for one architecture out of an Android app package.
+extract_sdk.py -- find the four SDK libraries for one architecture in a zip file, and copy them out.
 
-The input is an APK, or a bundle of split APKs such as APKPure's .xapk or an .apks: the libraries are in
-`lib/<abi>/` of the APK, or of one of the bundle's APKs (e.g. `config.x86_64.apk`). Only the four
-libraries patch_sdk.py needs are taken, by exact name; ThroughTek's `...T.so` builds (the same API with
-logcat logging) are ignored. Their architecture and SDK version are checked before anything is written,
-and OUT_DIR is replaced as a whole.
+The input is any zip: an APK, a bundle of split APKs (APKPure's .xapk, .apks), the right split on its
+own, or a zip the user made of the libraries. A file is a candidate if its name (in any folder) is one
+of the four libraries patch_sdk.py needs; members that are themselves zips (the APKs inside a bundle)
+are searched one level deep. A candidate is used only if it is an ELF shared object for the requested
+architecture with SDK version SDK_VERSION, so ThroughTek's `...T.so` logging builds, other ABIs and
+other versions are never picked. Nothing is written unless all four are found; OUT_DIR is then replaced
+as a whole.
 
     from extract_sdk import extract_sdk
     info = extract_sdk("Kalay Mobile.xapk", "/path/to/sdk", "x86_64")
     # -> {"arch": "x86_64", "version": "4.3.8.1", "abis": ["arm64-v8a", "x86_64"]}
 
-    python3 extract_sdk.py PACKAGE OUT_DIR [--arch x86_64|aarch64] [--any-version]
+    python3 extract_sdk.py ZIPFILE OUT_DIR [--arch x86_64|aarch64] [--any-version]
 
-The package is untrusted input: only fixed member names are read, and every read is size-capped.
-Errors raise ExtractError (or one of its subclasses below).
+The zip is untrusted input: member paths are never used to build output paths, and every read is
+size-capped. Errors raise ExtractError (or one of its subclasses below).
 """
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from patch_sdk import LIBS, SDK_VERSION, PatchError, sdk_arch_of_file, sdk_version  # noqa: E402
+from patch_sdk import LIBS, SDK_VERSION, PatchError, lib_version  # noqa: E402
 
-ABI_OF = {"x86_64": "x86_64", "aarch64": "arm64-v8a"}   # our arch name -> Android ABI directory
-MAX_APK = 512 << 20          # one APK inside a bundle
+ABI_OF = {"x86_64": "x86_64", "aarch64": "arm64-v8a"}   # our arch name -> Android ABI name
+# (ELF class, e_machine) -> Android ABI name, for telling the user what a file does contain.
+_ABI_OF_ELF = {(2, 62): "x86_64", (2, 183): "arm64-v8a", (1, 40): "armeabi-v7a", (1, 3): "x86"}
+_ET_DYN = 3
+MAX_NESTED = 512 << 20       # one zip inside the upload (e.g. an APK in an .xapk)
 MAX_LIB = 64 << 20           # one SDK library
 
 
@@ -36,122 +42,144 @@ class ExtractError(Exception):
 
 
 class NotAPackage(ExtractError):
-    """Not an APK or a bundle of APKs."""
+    """Not a zip file."""
 
 
 class WrongArch(ExtractError):
-    """The package has no libraries for the requested architecture."""
+    """SDK libraries were found, but none for the requested architecture."""
 
     def __init__(self, arch, found):
         self.arch, self.found = arch, found
         have = ", ".join(found) if found else "none"
-        super().__init__(f"the package has no {ABI_OF[arch]} libraries (it has: {have})")
+        super().__init__(f"the file has no {ABI_OF[arch]} SDK libraries (it has: {have})")
 
 
 class MissingLibs(ExtractError):
-    """The package has libraries for the architecture, but not the SDK's."""
+    """Some (or all) of the four libraries aren't in the file."""
 
     def __init__(self, missing):
         self.missing = missing
-        super().__init__(f"the package is missing {', '.join(missing)}")
+        super().__init__(f"the file doesn't contain {', '.join(missing)}")
 
 
 class WrongVersion(ExtractError):
-    """The SDK libraries are not the required version."""
+    """The libraries for the architecture are not the required SDK version."""
 
     def __init__(self, version, required):
         self.version, self.required = version, required
         super().__init__(f"the SDK libraries are version {version}; this needs version {required}")
 
 
-def _copy_member(zf, name, dst, limit):
+def _copy_member(zf, info, dst, limit):
     """Copy one zip member to dst, refusing to write more than `limit` bytes (whatever the header says)."""
-    with zf.open(name) as src, open(dst, "wb") as out:
+    with zf.open(info) as src, open(dst, "wb") as out:
         left = limit
         while chunk := src.read(min(1 << 20, left + 1)):
             left -= len(chunk)
             if left < 0:
-                raise ExtractError(f"{name} is larger than {limit >> 20} MiB")
+                raise ExtractError(f"{info.filename} is larger than {limit >> 20} MiB")
             out.write(chunk)
 
 
-def _abis(zf):
-    return {n.split("/")[1] for n in zf.namelist() if n.startswith("lib/") and n.count("/") == 2}
+def _elf_abi(head):
+    """Android ABI name of an ELF shared object from its first bytes, or None if it isn't one."""
+    if len(head) < 0x14 or head[:4] != b"\x7fELF" or head[5] != 1:     # little-endian ELF only
+        return None
+    e_type, e_machine = struct.unpack_from("<HH", head, 0x10)
+    if e_type != _ET_DYN:
+        return None
+    return _ABI_OF_ELF.get((head[4], e_machine), f"e_machine={e_machine}")
 
 
-def _find_libs(package, abi, tmp):
-    """Return (zip with lib/<abi>/, every ABI seen). Looks in the package itself, then its APKs."""
-    seen = set()
+def _head(zf, info):
+    with zf.open(info) as f:
+        return f.read(64)
+
+
+def _zips(package, tmp):
+    """Yield the upload and each zip directly inside it (one level), as open ZipFiles."""
     try:
         top = zipfile.ZipFile(package)
     except (zipfile.BadZipFile, OSError) as ex:
-        raise NotAPackage(f"not an APK or app bundle: {ex}") from None
-    abis = _abis(top)
-    seen |= abis
-    if abi in abis:
-        return top, seen
-    apks = [n for n in top.namelist() if n.endswith(".apk") and "/" not in n]
-    if not apks and not abis and "AndroidManifest.xml" not in top.namelist():
-        top.close()
-        raise NotAPackage("not an APK or app bundle")
-    # The ABI split first (config.x86_64.apk, config.arm64_v8a.apk), then the rest.
-    split = abi.replace("-", "_")
-    apks.sort(key=lambda n: split not in n)
+        raise NotAPackage(f"not a zip file: {ex}") from None
     with top:
-        for i, name in enumerate(apks):
-            path = os.path.join(tmp, f"split{i}.apk")
-            _copy_member(top, name, path, MAX_APK)
+        yield top
+        for i, info in enumerate(top.infolist()):
+            if info.is_dir() or os.path.basename(info.filename) in LIBS or _head(top, info)[:4] != b"PK\x03\x04":
+                continue
+            path = os.path.join(tmp, f"nested{i}.zip")
+            _copy_member(top, info, path, MAX_NESTED)
             try:
                 inner = zipfile.ZipFile(path)
             except zipfile.BadZipFile:
                 os.remove(path)
                 continue
-            abis = _abis(inner)
-            seen |= abis
-            if abi in abis:
-                return inner, seen
-            inner.close()
+            with inner:
+                yield inner
             os.remove(path)
-    return None, seen
 
 
 def extract_sdk(package, out_dir, arch, require_version=SDK_VERSION):
-    """Extract the SDK libraries for `arch` from `package` into out_dir (see module docstring)."""
+    """Extract the SDK libraries for `arch` from the zip `package` into out_dir (see module docstring)."""
     if arch not in ABI_OF:
         raise ExtractError(f"unsupported architecture {arch}; need one of {', '.join(ABI_OF)}")
-    abi = ABI_OF[arch]
+    want = ABI_OF[arch]
     out_dir = os.path.abspath(out_dir)
     parent = os.path.dirname(out_dir)
     os.makedirs(parent, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix=".extract-", dir=parent)
     try:
-        zf, seen = _find_libs(package, abi, tmp)
-        if zf is None:
-            raise WrongArch(arch, sorted(seen))
         staged = os.path.join(tmp, "sdk")
         os.mkdir(staged)
-        with zf:
-            names = set(zf.namelist())
-            missing = [lib for lib in LIBS if f"lib/{abi}/{lib}" not in names]
-            if missing:
-                raise MissingLibs(missing)
-            for lib in LIBS:
-                _copy_member(zf, f"lib/{abi}/{lib}", os.path.join(staged, lib), MAX_LIB)
-        for lib in LIBS:
-            if sdk_arch_of_file(os.path.join(staged, lib)) != arch:
-                raise ExtractError(f"{lib} in lib/{abi}/ is not an {arch} library")
-        try:
-            version = sdk_version(staged)
-        except PatchError as ex:
-            raise ExtractError(str(ex)) from None
-        if require_version and version != require_version:
-            raise WrongVersion(version, require_version)
+        chosen = set()
+        abis = set()               # ABIs of every SDK-named ELF library seen
+        wrong = {}                 # lib -> version, for right-arch candidates of another version
+        n = 0
+        zips = _zips(package, tmp)
+        for zf in zips:
+            for info in zf.infolist():
+                lib = os.path.basename(info.filename)
+                if info.is_dir() or lib not in LIBS or lib in chosen:
+                    continue
+                abi = _elf_abi(_head(zf, info))
+                if abi is None:
+                    continue
+                abis.add(abi)
+                if abi != want:
+                    continue
+                n += 1
+                path = os.path.join(tmp, f"candidate{n}.so")
+                _copy_member(zf, info, path, MAX_LIB)
+                try:
+                    version = lib_version(path)
+                except PatchError:
+                    version = "unknown"
+                if require_version and version != require_version:
+                    wrong.setdefault(lib, version)
+                    os.remove(path)
+                    continue
+                os.replace(path, os.path.join(staged, lib))
+                chosen.add(lib)
+            if len(chosen) == len(LIBS):
+                break
+        zips.close()
+
+        missing = [lib for lib in LIBS if lib not in chosen]
+        if missing:
+            if any(lib in wrong for lib in missing):
+                raise WrongVersion(next(wrong[lib] for lib in missing if lib in wrong), require_version)
+            if not chosen and want not in abis and abis:
+                raise WrongArch(arch, sorted(abis))
+            raise MissingLibs(missing)
+        versions = {lib_version(os.path.join(staged, lib)) for lib in LIBS}
+        if len(versions) != 1:      # only possible with require_version=None
+            raise ExtractError(f"the SDK libraries are from different versions: {', '.join(sorted(versions))}")
 
         old = os.path.join(tmp, "old")
         if os.path.lexists(out_dir):
             os.replace(out_dir, old)
         os.replace(staged, out_dir)
-        return {"arch": arch, "version": version, "abis": sorted(seen)}
+        return {"arch": arch, "version": versions.pop(), "abis": sorted(abis)}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
