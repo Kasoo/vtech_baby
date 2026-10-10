@@ -11,12 +11,25 @@ bundle, download or redistribute them, and neither may anything built on it (a H
 included) — they are an **input the user provides**. `../docs/85-ha-deployment.md` describes how an
 integration accepts them and prepares them at runtime.
 
-The kit *may* point the user at a **public source** to obtain them: ThroughTek's own **Kalay Mobile** app
-(`com.tutk.kalaymobile`, version 2.0.0, version code 87, which carries SDK 4.3.8.1), from a public app
-mirror such as APKPure. The libraries are in the APK's `lib/<abi>/` (`x86_64`, `arm64-v8a`), which in a
-split download (`.xapk`) is the ABI split, e.g. `config.x86_64.apk`. `../tooling/extract_sdk.py` takes
-the four libraries out of such a download, or out of any zip of them. We only reference the source; we never host or re-serve the
-binaries ourselves.
+## Where to get them
+
+The easiest source is ThroughTek's **Kalay Mobile** app for Android. You don't need to install it
+anywhere: obtain the APK and take the libraries out of it. This might be found on APK download sites
+such as APKPure. We only name the source; we never host or re-serve the binaries ourselves.
+
+| | |
+|---|---|
+| App | Kalay Mobile, by ThroughTek Co., Ltd. |
+| Package Name | `com.tutk.kalaymobile` |
+| Version | `2.0.0` (versionCode `87`) |
+| Variant | `x86_64` or `arm64-v8a` (matching the host's architecture) |
+
+The libraries are in the APK's `lib/<abi>/`; in a split download (`xapk`/`apks`) that is the ABI split,
+`config.x86_64` or `config.arm64_v8a`. `../tooling/extract_sdk.py` takes the four libraries out of the
+split APK, the whole bundle, or a zip of the four SDK libraries.
+
+The libraries must be SDK version `4.3.8.1` (the Android builds; the build suffix doesn't matter). The
+ones tested are listed under "Tested SDK build" below.
 
 > The SDK **license key** is a different matter: it is a small static value (a pure numeric fact,
 > shareable under interoperability exceptions), so it is **embedded in the kit**, not user-supplied. See

@@ -1,27 +1,19 @@
-# VTech RM5754HD — LAN-local protocol kit
+# VTech RM5754HD — LAN-local protocol documentation
 
 A clean-room description of the **LAN-local control and streaming protocol** of the **VTech RM5754HD**
 baby-monitor camera, plus a reference client and the tooling needed to talk to it from a normal Linux
 host. Everything here is stated as protocol fact; it is intended as the implementation reference for a
 Home-Assistant integration.
 
-> NOTE: The integration has been written targeting the **VTech RM5754HD** specifically. 
+> NOTE: The contents of this documentation have been written targeting the **VTech RM5754HD** specifically.
 > It is untested against any other model. Other VTech cameras may partially work, but they will likely
 > differ in opcodes, credentials, or the media crypto so you may see unexpected failures.
 
-The camera speaks **only** ThroughTek's Kalay P2P protocol (TUTK). 
-All control and telemetry is `avSendIOCtrl` / `avRecvIOCtrl` on an authenticated TUTK AVsession; 
-video and audio arrive on the AV frame channels and are application-layer encrypted.
+The camera communicates via ThroughTek's Kalay P2P protocol (TUTK).
+All control and telemetry is `avSendIOCtrl` / `avRecvIOCtrl` on an authenticated TUTK AV session;
+video and audio arrive on the AV frame channels, and carry a second layer of encryption at the
+application layer.
 
-## Layout
-
-| Path | What it is |
-|---|---|
-| `docs/` | The protocol specification (start at `docs/README.md`). |
-| `client/vtech_camera_client.py` | Reference client: connects, runs the video handshake, decrypts video+audio, plays audio through the camera speaker (talk-back), and exposes an opcode framework for control/telemetry. |
-| `client/vtech_provision.py` | Offline credential provisioning: pairing QR (text or photo) → UID + AV password + derived authKey (`docs/05-provisioning.md`). |
-| `sdk/` | Local-development copies of the ThroughTek/TUTK Kalay SDK libraries (x86_64 and aarch64), plus the tested build's version and digests. **We do not redistribute these binaries** — see `sdk/README.md` for a public source. |
-| `tooling/` | The load-time ELF patcher (`elfpatch.py`, `patch_sdk.py`), companion source and build step that let the SDK load on a host libc. |
 
 ## Quick start
 
@@ -68,3 +60,13 @@ with internet the SDK still does master DNS and STUN in parallel. For no cloud c
 client internet routing, or use the companion `libtk.so`, which refuses the SDK's off-link sends and DNS
 lookups. If the LAN path is unavailable and the client has internet, the SDK falls back to a ThroughTek
 relay. See `docs/00-prerequisites.md` ("Host / networking").
+
+## Layout
+
+| Path | What it is |
+|---|---|
+| `docs/` | The protocol specification (start at `docs/README.md`). |
+| `client/vtech_camera_client.py` | Reference client: connects, runs the video handshake, decrypts video+audio, plays audio through the camera speaker (talk-back), and exposes an opcode framework for control/telemetry. |
+| `client/vtech_provision.py` | Offline credential provisioning: pairing QR (text or photo) → UID + AV password + derived authKey (`docs/05-provisioning.md`). |
+| `sdk/README.md` | Where to obtain the ThroughTek SDK libraries, and the version required. The libraries themselves are not included. |
+| `tooling/` | The load-time ELF patcher (`elfpatch.py`, `patch_sdk.py`), companion source and build step that let the SDK load on a host libc. |
