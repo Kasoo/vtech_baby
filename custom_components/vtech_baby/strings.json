@@ -3,9 +3,9 @@
     "step": {
       "user": {
         "title": "ThroughTek SDK",
-        "description": "This integration needs ThroughTek's SDK libraries, which it can't include. They are in ThroughTek's {app} app for Android. Download its {abi} variant as an XAPK file, as the integration's README describes, and upload it here. Only the four SDK libraries (version {required}) are kept; the rest of the file is deleted.",
+        "description": "This integration needs ThroughTek's SDK libraries (version {required}, {abi}), which it can't include. Upload ThroughTek's {app} app for Android, {abi} variant, as the XAPK file you downloaded, or the split APK for {abi}. If you got the libraries another way, upload a zip of them; the integration's README lists the four files. Only those four libraries are kept; the rest of the file is deleted.",
         "data": {
-          "app_file": "Kalay Mobile app (.xapk or .apk)"
+          "app_file": "App (.xapk or .apk) or zip of the SDK libraries"
         }
       },
       "camera": {
@@ -24,9 +24,9 @@
       }
     },
     "error": {
-      "not_a_package": "This isn't an Android app. Upload the .xapk or .apk file as downloaded.",
-      "wrong_arch": "This file has no SDK libraries for this Home Assistant host ({arch}). Libraries it does have: {found}. Download the {abi} variant of {app}.",
-      "missing_libraries": "This app doesn't contain the ThroughTek SDK libraries. Upload {app}.",
+      "not_a_package": "This isn't a zip file. Upload the app's .xapk or .apk file as downloaded, or a zip of the SDK libraries.",
+      "wrong_arch": "This file has no SDK libraries for this Home Assistant host, which needs {abi}. It only has libraries for: {found}.",
+      "missing_libraries": "This file doesn't contain all of the SDK libraries for this host ({abi}). Missing: {missing}.",
       "wrong_version": "The SDK libraries in this file are version {version}, but this integration needs version {required}. Download {app}.",
       "sdk_error": "The SDK could not be prepared: {error}",
       "sdk_unavailable": "The SDK could not be loaded; see the logs.",
@@ -38,7 +38,7 @@
       "unknown": "Unexpected error; see the logs."
     },
     "abort": {
-      "unsupported_host": "This Home Assistant host's processor isn't supported yet: the integration runs on x86_64 (64-bit PC) only.",
+      "unsupported_host": "This Home Assistant host's processor ({machine}) isn't supported. The integration needs a 64-bit system: x86_64 (most PCs) or aarch64 (64-bit ARM, such as a Raspberry Pi 4 or 5 running a 64-bit OS).",
       "already_configured": "This camera is already configured; its credentials were updated.",
       "reauth_successful": "The camera was re-paired."
     }

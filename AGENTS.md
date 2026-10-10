@@ -36,8 +36,8 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 ## Rules
 
 ### Proprietary material and secrets
-- **The SDK libraries are user-supplied**: the user uploads ThroughTek's Kalay Mobile app in the config
-  flow, and `tooling/extract_sdk.py` keeps the four libraries. Only SDK **4.3.8.1** is accepted (checked
+- **The SDK libraries are user-supplied**: the user uploads ThroughTek's Kalay Mobile app (or any zip
+  of the four libraries) in the config flow, and `tooling/extract_sdk.py` keeps the four libraries. Only SDK **4.3.8.1** is accepted (checked
   from the libraries' version string, not a hash). The package must never ship, download or commit them,
   patched or not (`vtech-lan-kit/sdk/README.md`, `docs/85-ha-deployment.md`). `.gitignore` excludes
   `vtech-lan-kit/sdk/*/` and every `.so` except our own `libtk.so`.

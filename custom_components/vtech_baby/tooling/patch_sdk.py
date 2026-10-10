@@ -40,7 +40,9 @@ MANIFEST = "PATCHED.json"
 # (4.3.6.2 -> 4.3.8.1 changed IOTC_Connect_ByUIDEx's input), so other versions are refused.
 SDK_VERSION = "4.3.8.1"
 # Each library embeds its build's version as a C string, e.g. "4.3.8.1-1-gc5f0edc-R2_openssl_android".
-_VERSION_RE = re.compile(rb"(?<![0-9A-Za-z.])(\d+\.\d+\.\d+\.\d+)-\d+-g[0-9a-f]{7,}[0-9A-Za-z._-]*\x00")
+# Only the four-part version counts; the build suffix after it can be anything. A suffix is required,
+# because a bare dotted quad can't be told apart from the IP addresses and OIDs the libraries also hold.
+_VERSION_RE = re.compile(rb"(?<![0-9A-Za-z.])(\d+\.\d+\.\d+\.\d+)[-_+][\x21-\x7e]*\x00")
 
 
 class PatchError(Exception):

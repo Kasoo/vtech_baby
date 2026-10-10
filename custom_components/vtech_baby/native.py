@@ -47,7 +47,8 @@ def host_supported() -> str | None:
 
 
 def install_sdk(package: str, sdk_dir: str) -> str:
-    """Extract this host's SDK libraries from an app package (APK/XAPK) into sdk_dir. Returns the version.
+    """Extract this host's SDK libraries from a zip (the app's APK/XAPK, or the libraries zipped up) into
+    sdk_dir. Returns the version.
 
     Raises ExtractError (or a subclass: NotAPackage, WrongArch, MissingLibs, WrongVersion). sdk_dir is
     only replaced once the new libraries have passed every check.

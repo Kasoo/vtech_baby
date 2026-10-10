@@ -141,7 +141,7 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, sdk):
     ("arm-only.xapk", "wrong_arch", {"found": "arm64-v8a, armeabi-v7a", "arch": "x86_64"}),
     ("newer.xapk", "wrong_version", {"version": "4.4.0.0", "required": "4.3.8.1"}),
     ("photo.jpg", "not_a_package", {}),
-    ("other.apk", "missing_libraries", {}),
+    ("other.apk", "missing_libraries", {"missing": "libIOTCAPIs.so"}),
     ("expired", "sdk_error", {"error": "Invalid file_id expired"}),
 ])
 async def test_upload_errors(hass: HomeAssistant, sdk, name, error, placeholders):
@@ -192,6 +192,7 @@ async def test_unsupported_host(hass: HomeAssistant):
     with patch.object(native, "host_supported", lambda: None):
         r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     assert r["type"] is FlowResultType.ABORT and r["reason"] == "unsupported_host"
+    assert r["description_placeholders"]["machine"]
 
 
 @pytest.mark.parametrize(("rc", "error"), [(-13, "cannot_connect"), (-68, "invalid_auth"), (-10, "invalid_license")])

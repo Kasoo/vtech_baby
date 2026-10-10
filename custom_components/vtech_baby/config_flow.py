@@ -9,6 +9,7 @@ never stored.
 from __future__ import annotations
 
 import logging
+import platform
 from collections.abc import Mapping
 from typing import Any
 
@@ -45,11 +46,11 @@ from .vtech_lan.errors import AuthFailed, Unlicensed, Unreachable, VtechError
 _LOG = logging.getLogger(__name__)
 
 QR_SCHEMA = vol.Schema({vol.Required(CONF_QR): TextSelector(TextSelectorConfig(multiline=True))})
-APP_SCHEMA = vol.Schema({vol.Required(CONF_APP_FILE): FileSelector(FileSelectorConfig(accept=".xapk,.apk,.apks"))})
+APP_SCHEMA = vol.Schema({vol.Required(CONF_APP_FILE): FileSelector(FileSelectorConfig(accept=".xapk,.apk,.apks,.zip"))})
 
 
 def _install(hass: HomeAssistant, file_id: str, sdk_dir: str) -> str:
-    """Executor job: extract the SDK from the uploaded package into sdk_dir. The upload is then deleted."""
+    """Executor job: extract the SDK from the uploaded zip into sdk_dir. The upload is then deleted."""
     with process_uploaded_file(hass, file_id) as path:
         return native.install_sdk(str(path), sdk_dir)
 
@@ -65,9 +66,10 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         arch = await self.hass.async_add_executor_job(native.host_supported)
         if arch is None:
-            return self.async_abort(reason="unsupported_host")
+            return self.async_abort(reason="unsupported_host",
+                                    description_placeholders={"machine": platform.machine() or "unknown"})
         placeholders = {"app": KALAY_APP, "arch": arch, "abi": native.ABI_OF[arch],
-                        "required": native.SDK_VERSION, "version": "", "found": "", "error": ""}
+                        "required": native.SDK_VERSION, "version": "", "found": "", "missing": "", "error": ""}
 
         if user_input is None:
             # Already here: an existing camera's SDK, or the app uploaded before on this host.
@@ -174,6 +176,7 @@ def _install_error(err: Exception, placeholders: dict[str, str]) -> str:
         placeholders["found"] = ", ".join(err.found) or "none"
         return "wrong_arch"
     if isinstance(err, native.MissingLibs):
+        placeholders["missing"] = ", ".join(err.missing)
         return "missing_libraries"
     if isinstance(err, native.WrongVersion):
         placeholders["version"] = err.version

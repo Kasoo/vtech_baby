@@ -22,9 +22,10 @@ Only the RM5754HD has been tested.
 - The camera already set up with its parent unit, on the same network segment as Home Assistant.
 - Home Assistant on x86_64 Linux (the standard container or OS on a PC). Raspberry Pi and other arm64
   machines aren't supported yet.
-- ThroughTek's **Kalay Mobile** app for Android, as a file. The camera's protocol needs ThroughTek's
-  SDK libraries, which can't be included here, and this app contains them. You don't install the app
-  anywhere: you upload the file to Home Assistant, which keeps only the four libraries it needs.
+- ThroughTek's SDK libraries (below). They can't be included here, so you upload them to Home
+  Assistant when you add the first camera. The easiest source is ThroughTek's **Kalay Mobile** app for
+  Android: you don't install it anywhere, you upload the downloaded file and Home Assistant keeps only the
+  four libraries.
 
   Download exactly this from [APKPure](https://apkpure.com/kalay-mobile/com.tutk.kalaymobile/download):
 
@@ -40,8 +41,38 @@ Only the RM5754HD has been tested.
   | A Raspberry Pi 4 or 5, or another 64-bit ARM machine | **arm64-v8a** (not supported yet, see above) |
 
   The setup dialog names the variant your host needs. 32-bit systems (armeabi-v7a, x86) can't be
-  supported. Other app versions may carry a different SDK version, which won't work: the integration
-  needs SDK version 4.3.8.1, and checks the libraries' version and architecture when you upload them.
+  supported. Other app versions may carry a different SDK version, which won't work.
+
+### The SDK libraries
+
+If you have the libraries from somewhere else, put these four files in a zip (in any folder, or inside
+one zip within it) and upload that instead:
+
+- `libTUTKGlobalAPIs.so`
+- `libNebulaAPIs.so`
+- `libIOTCAPIs.so`
+- `libAVAPIs.so`
+
+All four must be:
+
+- ThroughTek Kalay SDK **version 4.3.8.1**. Each library contains its version string; in the tested
+  builds that is `4.3.8.1-1-gc5f0edc-R2_openssl_android`. Only the `4.3.8.1` is checked, so a different
+  build suffix is fine;
+- the **Android** build (the ones in Android apps' `lib/` folders);
+- for your host: **x86_64** (`lib/x86_64/`), or **arm64-v8a** (`lib/arm64-v8a/`) for 64-bit ARM.
+
+The upload is checked for exactly this (file names, ELF shared objects, architecture and version), and
+anything else in it is ignored. These are the SHA-256 digests of the builds tested, which Kalay Mobile
+2.0.0 carries:
+
+| File | x86_64 | arm64-v8a |
+|---|---|---|
+| `libTUTKGlobalAPIs.so` | `de59ccf3d543ac45211624bf63a7b98f9f1753ed95ecb27e8334a95bca8e3feb` | `0f367351372eafd5c4663226d6098e517d5cba34797a8e5e0d65e99b0003b1ad` |
+| `libNebulaAPIs.so` | `d538aca357d501266362244a4a1444f07819fec09b003218f23e92620db098a7` | `a029e3935bf207379a31391c9c748cc6bcbaf31cc8b336a86408d845d7628aef` |
+| `libIOTCAPIs.so` | `0ebf29b441d9bf52154ea5b9756391da8944c6c7f708ea8443681be2a078b193` | `6b4a2c3dd2ffc25617af837777c8360ee235d5b744775c446fda77a221e4fc02` |
+| `libAVAPIs.so` | `43c69cf873e6aa462ac43f7095cc8a1d0edbf96e91fad17760e7bc7db1dc2b90` | `a1f8c268d8ae4ca7e75917841aa67332f13ea30e61ba94d9eb889acf27c94589` |
+
+Other builds of version 4.3.8.1 should work too, but haven't been tested.
 
 ## Install
 
@@ -53,7 +84,8 @@ restart.
 
 ## Add a camera
 
-1. Add the **VTech Baby Monitor (RM5754HD)** integration and upload the Kalay Mobile `.xapk` file.
+1. Add the **VTech Baby Monitor (RM5754HD)** integration and upload the Kalay Mobile `.xapk` file (or
+   your zip of the SDK libraries).
    This is only needed once: further cameras, and reinstalls on the same Home Assistant, reuse the
    libraries already extracted (into `config/vtech_baby/sdk/`).
 2. On the parent unit, open the camera's **Connect Mobile Phone** QR code. Scan it with any QR reader
