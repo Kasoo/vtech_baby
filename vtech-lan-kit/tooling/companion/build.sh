@@ -30,6 +30,9 @@ LDFLAGS="-shared -Wl,-soname,libtk.so -Wl,--no-as-needed -lm -pthread"
 # use so the companion never becomes the load blocker (the TUTK libs themselves are 16K-aligned, so
 # 64K kernels are out of scope either way).
 [ "$ARCH" = aarch64 ] && LDFLAGS="$LDFLAGS -Wl,-z,max-page-size=0x10000"
+# GCC 10+ turns __atomic_* (net.c's counters) into libgcc's outline-atomics helpers on aarch64, whose
+# init imports glibc-internal __getauxval (patch_gate C6). Inline LL/SC atomics avoid the import.
+[ "$ARCH" = aarch64 ] && CFLAGS="$CFLAGS -mno-outline-atomics"
 IMG="quay.io/pypa/manylinux2014_$ARCH"   # glibc 2.17 floor
 
 build_native() {
