@@ -5,17 +5,10 @@ and what publishing needs.
 
 ## Before publishing
 
-These need a decision from the owner, not just work:
-
-- **The name.** "VTech" in the integration name is descriptive, but check it reads as unofficial
-  (the README says it isn't affiliated).
-
 HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
-- On GitHub, set a description and topics (e.g. `home-assistant`, `hacs`, `vtech`, `baby-monitor`) and
-  keep issues enabled.
-- Publish a GitHub release (a tag alone isn't enough), with the tag matching `version` in `manifest.json`.
-- Check the validation workflow passes on GitHub.
+- Publish a GitHub release (a tag alone isn't enough), with the tag matching `version` in
+  `manifest.json`. Waiting on the APKPure check below.
 - To get into the HACS default list: a PR on `hacs/default` adding the repo to `integration`, from a
   personal account.
 - Check that APKPure offers the x86_64 variant of Kalay Mobile 2.0.0 (only armeabi-v7a and arm64-v8a so
