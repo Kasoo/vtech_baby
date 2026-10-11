@@ -12,26 +12,15 @@ These need a decision from the owner, not just work:
 
 HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
-- Choose a licence and add `LICENSE` (GitHub must recognise its SPDX ID). Also check the kit's
-  own licensing notes still fit.
-- Create the public GitHub repo and add it as a remote. Then fill in what needs its URL:
-  - `manifest.json`: `documentation` (hassfest fails without it), `issue_tracker` and `codeowners`. HACS
-    requires all three.
-  - `README.md`: a My Home Assistant link that opens the repo in HACS
-    (`https://my.home-assistant.io/redirect/hacs_repository/?owner=<owner>&repository=<repo>&category=integration`).
 - On GitHub, set a description and topics (e.g. `home-assistant`, `hacs`, `vtech`, `baby-monitor`) and
   keep issues enabled.
 - Publish a GitHub release (a tag alone isn't enough), with the tag matching `version` in `manifest.json`.
 - Check the validation workflow passes on GitHub.
 - To get into the HACS default list: a PR on `hacs/default` adding the repo to `integration`, from a
   personal account.
-- `README.md` shows `images/device.png` by a relative path, which GitHub renders. Check whether HACS's
-  README view does too; if not, switch it to the image's full `raw.githubusercontent.com` URL.
 - Check that APKPure offers the x86_64 variant of Kalay Mobile 2.0.0 (only armeabi-v7a and arm64-v8a so
   far, 2026-10-10), as `README.md` tells users to download it. If it doesn't, find another public
   source or rethink the instructions.
-- Find the oldest Home Assistant release that works and put it in `hacs.json` (2026.9.3 is the only one
-  tested).
 
 ## Packaging
 
