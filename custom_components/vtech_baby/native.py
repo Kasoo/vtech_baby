@@ -1,7 +1,7 @@
 """Install and prepare the user's SDK for this host: extract it from the app package the user uploads,
 then patch it with the vendored tooling and the prebuilt companion.
 
-Authority: vtech-lan-kit/docs/85-ha-deployment.md ("Setup flow on the host", "Updates"). Blocking file
+Authority: docs/vtech-lan-kit/docs/85-ha-deployment.md ("Setup flow on the host", "Updates"). Blocking file
 I/O and hashing: run in an executor. No Home Assistant imports.
 """
 from __future__ import annotations

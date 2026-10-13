@@ -1,6 +1,6 @@
 """SDK return codes and the typed exceptions they map to.
 
-Authority: vtech-lan-kit/docs/90-ha-runtime.md §4 (what each code means and how an integration
+Authority: docs/vtech-lan-kit/docs/90-ha-runtime.md §4 (what each code means and how an integration
 should react). Every exception carries the originating SDK call and return code.
 """
 from __future__ import annotations
@@ -73,7 +73,7 @@ class Unreachable(VtechError):
 class NotLanDirect(Unreachable):
     """The SDK reached the camera some way other than LAN-direct (P2P or ThroughTek relay). The session is
     refused: this integration is LAN-only. The companion's egress policy should make this impossible, so
-    seeing it means that policy has a gap (vtech-lan-kit/docs/00-prerequisites.md, "LAN-only")."""
+    seeing it means that policy has a gap (docs/vtech-lan-kit/docs/00-prerequisites.md, "LAN-only")."""
 
 
 class AuthFailed(VtechError):

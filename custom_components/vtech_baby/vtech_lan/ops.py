@@ -1,6 +1,6 @@
 """The RM5754HD IOCtrl opcode table: codes, reply opcodes, encoders, decoders, enums, push decoders.
 
-Authority: vtech-lan-kit/docs/30-opcode-reference.md (plus 60-event-channel.md, 70-device-info.md).
+Authority: docs/vtech-lan-kit/docs/30-opcode-reference.md (plus 60-event-channel.md, 70-device-info.md).
 All payloads are little-endian.
 
 Design rules:

@@ -1,4 +1,4 @@
-"""Pairing-QR provisioning (vtech-lan-kit/docs/05-provisioning.md), on synthetic QRs only.
+"""Pairing-QR provisioning (docs/vtech-lan-kit/docs/05-provisioning.md), on synthetic QRs only.
 
 Parity with the kit's reference implementation is checked by importing it from the kit.
 """
@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from vtech_lan import provision, sdk
 from vtech_lan.provision import InvalidQr
 
-KIT_CLIENT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "vtech-lan-kit", "client")
+KIT_CLIENT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "vtech-lan-kit", "client")
 
 
 def _kit(name):

@@ -1,6 +1,6 @@
 """A fake SDK with the same surface `Session` uses, backed by a tiny camera model.
 
-`FakeSdk.camera` answers requests like the RM5754HD (per vtech-lan-kit/docs/30). Tests can inject
+`FakeSdk.camera` answers requests like the RM5754HD (per docs/vtech-lan-kit/docs/30). Tests can inject
 pushes, drop replies, fail connects, or kill the session.
 """
 import functools

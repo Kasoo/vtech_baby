@@ -1,7 +1,7 @@
-"""Per-camera credentials from the parent unit's pairing QR (vtech-lan-kit/docs/05-provisioning.md).
+"""Per-camera credentials from the parent unit's pairing QR (docs/vtech-lan-kit/docs/05-provisioning.md).
 
 The QR carries the UID and AV password; the authKey is derived from the AV password. Reference
-implementation: vtech-lan-kit/client/vtech_provision.py (tests check parity with it). Reading the QR
+implementation: docs/vtech-lan-kit/client/vtech_provision.py (tests check parity with it). Reading the QR
 out of a photo is left to the caller: this module takes the text the QR encodes.
 """
 from __future__ import annotations

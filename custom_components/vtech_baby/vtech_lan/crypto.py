@@ -1,6 +1,6 @@
 """Live-view key exchange and per-frame media crypto.
 
-Authority: vtech-lan-kit/docs/50-media-decryption.md. Scheme:
+Authority: docs/vtech-lan-kit/docs/50-media-decryption.md. Scheme:
     S         = X25519(n, camera_pubkey)                  # n = our ephemeral scalar
     master    = HMAC-SHA256(key = salt, msg = S)          # per session
     frame     = [wrapped_key:32][nonce:12][tag:16][body]

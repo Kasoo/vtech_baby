@@ -1,6 +1,6 @@
 """vtech_lan — LAN-local protocol library for the VTech RM5754HD (ThroughTek/TUTK Kalay).
 
-No Home Assistant imports: usable and testable standalone. Specification: ../vtech-lan-kit/docs/.
+No Home Assistant imports: usable and testable standalone. Specification: docs/vtech-lan-kit/docs/.
 
     from vtech_lan import sdk, Session, ops, provision
     c = provision.provision(qr_text)        # the pairing QR -> uid, av_password, authkey

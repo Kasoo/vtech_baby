@@ -1,6 +1,6 @@
 """One authenticated session to one camera: connect, request/reply, pushes, liveness, teardown.
 
-Authority: vtech-lan-kit/docs/90-ha-runtime.md §2–5 (sessions, threading, errors, teardown),
+Authority: docs/vtech-lan-kit/docs/90-ha-runtime.md §2–5 (sessions, threading, errors, teardown),
 20-ioctrl-framework.md (per-session prep), 30-opcode-reference.md (payloads, via `ops`).
 
 Threading model:

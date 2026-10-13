@@ -1,4 +1,4 @@
-"""Opcode table: encodings and decodings against the byte layouts in vtech-lan-kit/docs/30, 60, 70."""
+"""Opcode table: encodings and decodings against the byte layouts in docs/vtech-lan-kit/docs/30, 60, 70."""
 import datetime as dt
 import struct
 

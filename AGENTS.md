@@ -15,9 +15,9 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 
 | Path | What |
 |---|---|
-| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (protocol library), `tooling/` (vendored SDK patcher), `native/<arch>/libtk.so` (prebuilt companion, built from `vtech-lan-kit/tooling/companion/`), `brand/`. |
-| `vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. |
-| `vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
+| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (protocol library), `tooling/` (vendored SDK patcher), `native/<arch>/libtk.so` (prebuilt companion, built from `docs/vtech-lan-kit/tooling/companion/`), `brand/`. |
+| `docs/vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. |
+| `docs/vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
 | `tests/` | Offline tests (fake SDK, fake manager); `tests/live/` probes for a real camera. |
 | `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns. |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork) and `render.sh` (needs inkscape) for `brand/`. |
@@ -28,11 +28,11 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 | Doc | Why |
 |---|---|
 | "Design notes" below | Decisions, the entity map, open protocol questions and known issues. |
-| `vtech-lan-kit/docs/README.md` → `00`–`95` | **Protocol authority**: opcodes, payloads, pushes, crypto, talk-back. |
-| `vtech-lan-kit/docs/05-provisioning.md` | Credentials come from the pairing QR: UID + AV password decoded, authKey derived. |
-| `vtech-lan-kit/docs/85-ha-deployment.md`, `90-ha-runtime.md` | How the native layer ships, patches, loads, threads, fails and reconnects inside HA. Follow these; don't re-derive them. |
-| `vtech-lan-kit/client/vtech_camera_client.py` | Working reference implementation. Use it to check behaviour. |
-| `vtech-lan-kit/tooling/README.md` | How the SDK patch and the companion `libtk.so` work. |
+| `docs/vtech-lan-kit/docs/README.md` → `00`–`95` | **Protocol authority**: opcodes, payloads, pushes, crypto, talk-back. |
+| `docs/vtech-lan-kit/docs/05-provisioning.md` | Credentials come from the pairing QR: UID + AV password decoded, authKey derived. |
+| `docs/vtech-lan-kit/docs/85-ha-deployment.md`, `90-ha-runtime.md` | How the native layer ships, patches, loads, threads, fails and reconnects inside HA. Follow these; don't re-derive them. |
+| `docs/vtech-lan-kit/client/vtech_camera_client.py` | Working reference implementation. Use it to check behaviour. |
+| `docs/vtech-lan-kit/tooling/README.md` | How the SDK patch and the companion `libtk.so` work. |
 
 ## Rules
 
@@ -40,8 +40,8 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 - **The SDK libraries are user-supplied**: the user uploads ThroughTek's Kalay Mobile app (or any zip
   of the four libraries) in the config flow, and `tooling/extract_sdk.py` keeps the four libraries. Only SDK **4.3.8.1** is accepted (checked
   from the libraries' version string, not a hash). The package must never ship, download or commit them,
-  patched or not (`vtech-lan-kit/sdk/README.md`, `docs/85-ha-deployment.md`). `.gitignore` excludes
-  `vtech-lan-kit/sdk/*/` and every `.so` except our own `libtk.so`.
+  patched or not (`docs/vtech-lan-kit/sdk/README.md`, `docs/85-ha-deployment.md`). `.gitignore` excludes
+  `docs/vtech-lan-kit/sdk/*/` and every `.so` except our own `libtk.so`.
 - The SDK license key and the QR/HKDF provisioning constants are app-wide values **embedded** in the
   package (`vtech_lan/sdk.py`, `vtech_lan/provision.py`), matching the kit's reference client (a test
   enforces it). They live in code only: the docs name and describe them but never print the values.
@@ -49,7 +49,7 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
   **pairing QR** and live only in the config entry.
 - **Never write a real camera's credentials (or a real pairing QR) into code, tests, fixtures, docs or
   commits.** Live tests take them from `VTECH_UID`, `VTECH_PWD`, `VTECH_AUTHKEY`, `VTECH_ACCOUNT`
-  (`vtech-lan-kit/client/vtech_provision.py --env` prints them). Offline tests and the kit self-test use
+  (`docs/vtech-lan-kit/client/vtech_provision.py --env` prints them). Offline tests and the kit self-test use
   synthetic QRs (UID `TESTUID0000000000001`).
 
 ### Code
@@ -61,7 +61,7 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 - **Messages between HA and the worker** are pickles over a socket pair (`vtech_lan/ipc.py`). The
   session proxy forwards any public `Session` method by name, so a new `Session` method needs no IPC
   change. Live-view video never crosses the socket: the worker serves it over loopback HTTP.
-- **Runtime model** (`vtech-lan-kit/docs/90-ha-runtime.md`), inside the worker:
+- **Runtime model** (`docs/vtech-lan-kit/docs/90-ha-runtime.md`), inside the worker:
   - Load and initialise the SDK once per worker, and never unload it; a new SDK means a new worker.
   - Never make an SDK call on the event loop.
   - One reader thread owns `avRecvIOCtrl` for each session.
@@ -69,7 +69,7 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
   - Pass buffers from `ctypes.create_string_buffer` with exact sizes.
 - **Reply opcodes are listed explicitly per op**, never computed as request + 1: `0x709 → 0x710` and
   `0x729 → 0x730` break that rule.
-- **The kit is the spec.** If you find a protocol fact that is new or wrong, fix `vtech-lan-kit/docs/` in
+- **The kit is the spec.** If you find a protocol fact that is new or wrong, fix `docs/vtech-lan-kit/docs/` in
   the same change.
 - **Vendored copies match the kit.** `tooling/` and `native/` are refreshed together by
   `sync_vendored.sh`, which records the kit revision in `native/SOURCE`.
@@ -93,9 +93,9 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
   `IOTC_Set_LanSearchPort(32762)` (the SDK default 32761 is unanswered).
 - **Offline tests:**
   `python3 -m venv .venv && .venv/bin/pip install -r requirements_test.txt`, then `.venv/bin/pytest`
-  from the repo root. The tests that need the real SDK look in `vtech-lan-kit/sdk/<arch>/` (or
+  from the repo root. The tests that need the real SDK look in `docs/vtech-lan-kit/sdk/<arch>/` (or
   `$VTECH_SDK_DIR`) and in `.build/<arch>/` for a patched set
-  (`vtech-lan-kit/tooling/patch.sh vtech-lan-kit/sdk/x86_64 .build/x86_64`); they skip without them.
+  (`docs/vtech-lan-kit/tooling/patch.sh docs/vtech-lan-kit/sdk/x86_64 .build/x86_64`); they skip without them.
   Run tests from the root. Platform modules are named by Home Assistant (`select.py`, `sensor.py`, ...)
   and shadow other modules of the same name, so never put `custom_components/vtech_baby` (or
   `vtech_lan/`) on `sys.path` ahead of the standard library; the worker refuses to start if it is there

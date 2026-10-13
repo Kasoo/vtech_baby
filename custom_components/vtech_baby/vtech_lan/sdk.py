@@ -1,6 +1,6 @@
 """Load and initialise the patched ThroughTek/TUTK Kalay SDK — once per process, never unloaded.
 
-Authority: vtech-lan-kit/docs/85-ha-deployment.md (loading), 90-ha-runtime.md §1 (process-wide init),
+Authority: docs/vtech-lan-kit/docs/85-ha-deployment.md (loading), 90-ha-runtime.md §1 (process-wide init),
 10-transport-session.md (call signatures and struct layouts).
 
 `load()` returns the process-wide `Sdk`. It exposes small Python wrappers over the SDK calls a session
@@ -27,7 +27,7 @@ from .errors import (
 LIBS = ("libtk.so", "libTUTKGlobalAPIs.so", "libNebulaAPIs.so", "libIOTCAPIs.so", "libAVAPIs.so")
 IOCTRL_BUF = 2048
 # The camera answers LAN search on 32762; the SDK's built-in default (32761) goes unanswered, so without
-# this only ThroughTek's master can find the camera (vtech-lan-kit/docs/00-prerequisites.md).
+# this only ThroughTek's master can find the camera (docs/vtech-lan-kit/docs/00-prerequisites.md).
 LAN_SEARCH_PORT = 32762
 
 _EM = {62: "x86_64", 183: "aarch64"}
@@ -248,7 +248,7 @@ class FrameReader:
 
 
 # App-wide TUTK license key (TUTK_SDK_Set_License_Key), embedded per the kit
-# (vtech-lan-kit/docs/00-prerequisites.md; same value as the reference client's DEFAULT_LICENSE_KEY).
+# (docs/vtech-lan-kit/docs/00-prerequisites.md; same value as the reference client's DEFAULT_LICENSE_KEY).
 DEFAULT_LICENSE_KEY = ("AQAAAKLYFdlSXIPi3g3PGW+mwX+kQW1343RIBJstfyQuKZSJTOU5sxwi2J67GO31RCngqq8Q"
                        "/6zl6WkQn7hfwUZEP0hbj3spI06VDkAg7AB6MS0SG+0zcieGkORtSpkxxVf+S8TflIpgEldZ"
                        "ykhsLKR+plBToQ9/3CFtgXS/n70OhxyHakx6pXGuvM9xfOsrJnSrBqLdSyHim13rWGvrws4SpZ8b")

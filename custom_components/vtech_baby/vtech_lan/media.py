@@ -1,6 +1,6 @@
 """On-demand live view for one camera: START → receive → decrypt → MPEG-TS → subscribers, and snapshots.
 
-Protocol: vtech-lan-kit/docs/40, 50.
+Protocol: docs/vtech-lan-kit/docs/40, 50.
 
 - One dedicated thread per camera (`vtech-media-…`) owns the media path. It starts when the first
   subscriber arrives and stops `grace_s` after the last one leaves (go2rtc drops and reopens its

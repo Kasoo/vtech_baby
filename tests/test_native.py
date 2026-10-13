@@ -1,6 +1,6 @@
 """native.prepare: patch + cache the user's SDK, arch/companion checks, and the fingerprint.
 
-Uses the local development SDK (vtech-lan-kit/sdk/) as the user-supplied input; skipped without it.
+Uses the local development SDK (docs/vtech-lan-kit/sdk/) as the user-supplied input; skipped without it.
 """
 import os
 import shutil
@@ -12,7 +12,7 @@ from custom_components.vtech_baby.tooling import patch_sdk
 from custom_components.vtech_baby.vtech_lan.errors import UnsupportedHost
 
 SDK_ROOT = os.environ.get("VTECH_SDK_DIR",
-                          os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vtech-lan-kit", "sdk"))
+                          os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "vtech-lan-kit", "sdk"))
 try:
     ARCH = native._sdk.host_arch()
 except UnsupportedHost:
@@ -23,7 +23,7 @@ FOREIGN_SDK = os.path.join(SDK_ROOT, native.ABI_OF[FOREIGN]) if ARCH else ""
 
 pytestmark = pytest.mark.skipif(
     ARCH is None or not os.path.isdir(HOST_SDK) or not os.path.isdir(FOREIGN_SDK),
-    reason="needs an x86_64 or aarch64 host and the development SDK (vtech-lan-kit/sdk/ or $VTECH_SDK_DIR)")
+    reason="needs an x86_64 or aarch64 host and the development SDK (docs/vtech-lan-kit/sdk/ or $VTECH_SDK_DIR)")
 
 
 def snapshot(libdir):

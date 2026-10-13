@@ -2,8 +2,8 @@
 pairing QR; reauth = fresh QR.
 
 The SDK libraries are extracted from the user's upload by
-native.install_sdk (vtech-lan-kit/docs/85-ha-deployment.md); the upload itself is deleted afterwards.
-Credentials come from the pairing-QR text (vtech-lan-kit/docs/05-provisioning.md); the QR text itself is
+native.install_sdk (docs/vtech-lan-kit/docs/85-ha-deployment.md); the upload itself is deleted afterwards.
+Credentials come from the pairing-QR text (docs/vtech-lan-kit/docs/05-provisioning.md); the QR text itself is
 never stored.
 """
 from __future__ import annotations

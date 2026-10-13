@@ -1,6 +1,6 @@
 """CameraManager: owns one camera session, keeps its state cache, reconnects, and feeds entities.
 
-Runtime rules: vtech-lan-kit/docs/90-ha-runtime.md.
+Runtime rules: docs/vtech-lan-kit/docs/90-ha-runtime.md.
 - The SDK runs in a worker process (`vtech_lan/worker.py`); the manager drives it through proxies with
   `Session`'s blocking methods. If the worker dies, its sessions are lost and reconnect like any other.
 - Every session call runs in the executor; pushes arrive on the client's reader thread and are

@@ -1,7 +1,7 @@
 """Real-SDK smoke test: preflight, load, initialise, singleton rules. No camera connection.
 
 Needs a patched library set for this host in .build/<arch>/ (build it with
-`vtech-lan-kit/tooling/patch.sh vtech-lan-kit/sdk/<arch> .build/<arch>`); skipped without it. The
+`docs/vtech-lan-kit/tooling/patch.sh docs/vtech-lan-kit/sdk/<arch> .build/<arch>`); skipped without it. The
 license is the embedded sdk.DEFAULT_LICENSE_KEY unless $VTECH_LICENSE_FILE overrides it.
 """
 import os
@@ -14,7 +14,7 @@ from vtech_lan.errors import SdkMismatch, UnsupportedHost
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 LICENSE_FILE = os.environ.get("VTECH_LICENSE_FILE", "")
-SDK_DIR = os.environ.get("VTECH_SDK_DIR", os.path.join(ROOT, "vtech-lan-kit", "sdk"))
+SDK_DIR = os.environ.get("VTECH_SDK_DIR", os.path.join(ROOT, "docs", "vtech-lan-kit", "sdk"))
 
 
 def _license():
