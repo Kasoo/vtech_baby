@@ -1,0 +1,5 @@
+pytest
+cryptography
+pytest-homeassistant-custom-component==0.13.366   # pins homeassistant==2026.9.3 (the release tested)
+av==17.0.1                                         # = HA stream component; the live view muxes with PyAV
+PyTurboJPEG==1.8.3                                 # = HA camera component (imported when the camera platform loads)

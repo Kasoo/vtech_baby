@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.build/
+# The ThroughTek SDK is user-supplied and proprietary: never commit it (docs/vtech-lan-kit/sdk/README.md).
+/docs/vtech-lan-kit/sdk/*/
+*.so
+!/custom_components/vtech_baby/native/*/libtk.so
+# Credentials
+LICENSE_KEY.txt
+.env
+.env.*
+# The author's private development journal (kept locally, never published)
+/HA_INTEGRATION.md
+# Local working notes, never committed
+/TODO.md
+/RELEASE_TODO.md

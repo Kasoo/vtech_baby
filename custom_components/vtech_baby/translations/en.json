@@ -1,0 +1,209 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ThroughTek SDK",
+        "description": "This integration needs ThroughTek's SDK libraries (version {required}, {abi}), which it can't include. Upload ThroughTek's {app} app for Android, {abi} variant, as the XAPK file you downloaded, or the split APK for {abi}. If you got the libraries another way, upload a zip of them; the integration's README lists the four files. Only those four libraries are kept; the rest of the file is deleted.",
+        "data": {
+          "app_file": "App (.xapk or .apk) or zip of the SDK libraries"
+        }
+      },
+      "camera": {
+        "title": "Camera pairing QR",
+        "description": "On the parent unit, open the camera's \"Connect Mobile Phone\" pairing QR code. Scan it with any phone QR-code reader and paste the text it shows (a long base64 string) here.",
+        "data": {
+          "qr": "Pairing QR text"
+        }
+      },
+      "untested_model": {
+        "title": "Untested camera model",
+        "description": "This camera reports its model as {model}. This integration has only been tested with the {tested}, so with this camera some features may not work or may behave unexpectedly, and some may not appear at all. Submit to add it anyway, or close this dialog to cancel. If you do add it, please report how well it works, with the integration's diagnostics attached."
+      },
+      "reauth_confirm": {
+        "title": "Re-pair {name}",
+        "description": "The camera is not accepting the stored credentials. They change whenever the camera's Wi-Fi changes or its security key is updated. Scan the current pairing QR code on the parent unit and paste its text here.",
+        "data": {
+          "qr": "Pairing QR text"
+        }
+      }
+    },
+    "error": {
+      "not_a_package": "This isn't a zip file. Upload the app's .xapk or .apk file as downloaded, or a zip of the SDK libraries.",
+      "wrong_arch": "This file has no SDK libraries for this Home Assistant host, which needs {abi}. It only has libraries for: {found}.",
+      "missing_libraries": "This file doesn't contain all of the SDK libraries for this host ({abi}). Missing: {missing}.",
+      "wrong_version": "The SDK libraries in this file are version {version}, but this integration needs version {required}. Download {app}.",
+      "sdk_error": "The SDK could not be prepared: {error}",
+      "sdk_unavailable": "The SDK could not be loaded; see the logs.",
+      "invalid_qr": "This is not a VTech pairing QR code. Paste the full text the QR reader shows.",
+      "wrong_camera": "This QR code belongs to a different camera.",
+      "invalid_auth": "The camera rejected the credentials from this QR code. Scan the QR again; it changes after a Wi-Fi change.",
+      "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant. If its Wi-Fi changed recently, scan a fresh QR code.",
+      "invalid_license": "The SDK rejected its license key.",
+      "unknown": "Unexpected error; see the logs."
+    },
+    "abort": {
+      "unsupported_host": "This Home Assistant host's processor ({machine}) isn't supported. The integration needs a 64-bit system: x86_64 (most PCs) or aarch64 (64-bit ARM, such as a Raspberry Pi 4 or 5 running a 64-bit OS).",
+      "already_configured": "This camera is already configured; its credentials were updated.",
+      "reauth_successful": "The camera was re-paired."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": {
+        "name": "Temperature"
+      },
+      "temperature_state": {
+        "name": "Temperature alert",
+        "state": {
+          "ok": "OK",
+          "too_hot": "Too hot",
+          "too_cold": "Too cold"
+        }
+      },
+      "sound_sensitivity": {
+        "name": "Sound sensitivity",
+        "state": {
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "connection": {
+        "name": "Connection",
+        "state": {
+          "lan": "LAN",
+          "p2p": "Internet P2P",
+          "relay": "Internet relay"
+        }
+      }
+    },
+    "light": {
+      "night_light": {
+        "name": "Night-light"
+      }
+    },
+    "select": {
+      "night_vision": {
+        "name": "Night vision",
+        "state": {
+          "auto": "Auto",
+          "on": "On",
+          "off": "Off"
+        }
+      },
+      "resolution": {
+        "name": "Resolution",
+        "state": {
+          "1080p": "1080p",
+          "720p": "720p"
+        }
+      },
+      "motion_sensitivity": {
+        "name": "Motion sensitivity",
+        "state": {
+          "off": "Off",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "notify_interval": {
+        "name": "Alert interval",
+        "state": {
+          "default": "Default",
+          "1_min": "1 minute",
+          "3_min": "3 minutes",
+          "5_min": "5 minutes",
+          "10_min": "10 minutes",
+          "30_min": "30 minutes",
+          "never": "Never"
+        }
+      },
+      "lullaby_timer": {
+        "name": "Lullaby timer",
+        "state": {
+          "15_min": "15 minutes",
+          "30_min": "30 minutes",
+          "60_min": "60 minutes",
+          "non_stop": "Non-stop"
+        }
+      }
+    },
+    "switch": {
+      "status_led": {
+        "name": "Status LED"
+      },
+      "temperature_alerts": {
+        "name": "Temperature alerts"
+      },
+      "sound_detection": {
+        "name": "Sound detection"
+      }
+    },
+    "number": {
+      "temperature_max": {
+        "name": "Temp alert above"
+      },
+      "temperature_min": {
+        "name": "Temp alert below"
+      }
+    },
+    "binary_sensor": {
+      "night_vision_active": {
+        "name": "Night vision active"
+      },
+      "parent_unit": {
+        "name": "Parent unit"
+      },
+      "motion": {
+        "name": "Motion"
+      },
+      "sound": {
+        "name": "Sound"
+      }
+    },
+    "camera": {
+      "live_view": {
+        "name": "Live view"
+      }
+    },
+    "event": {
+      "alert": {
+        "name": "Alert",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "motion": "Motion",
+              "sound": "Sound",
+              "too_hot": "Too hot",
+              "too_cold": "Too cold",
+              "unknown": "Unknown"
+            }
+          }
+        }
+      }
+    }
+  },
+  "issues": {
+    "worker_crashed": {
+      "title": "The VTech SDK crashed",
+      "description": "The process that runs ThroughTek's SDK for the VTech cameras stopped unexpectedly ({reason}; {count} time(s) since Home Assistant started). Home Assistant itself kept running, and the cameras reconnect with a new process. If this keeps happening, please report it with the integration's diagnostics and the Home Assistant container's log, which holds the crash details."
+    }
+  },
+  "services": {
+    "get_motion_events": {
+      "name": "Get motion events",
+      "description": "Returns the camera's stored motion history (the camera stores motion only), newest first.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Camera",
+          "description": "The camera's config entry."
+        },
+        "hours": {
+          "name": "Hours",
+          "description": "How far back to look (default 24)."
+        }
+      }
+    }
+  }
+}
