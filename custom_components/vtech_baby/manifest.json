@@ -6,7 +6,8 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "file_upload"
+    "file_upload",
+    "media_source"
   ],
   "documentation": "https://github.com/Kasoo/vtech_baby",
   "integration_type": "device",

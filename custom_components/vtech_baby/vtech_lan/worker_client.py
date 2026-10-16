@@ -79,6 +79,7 @@ class WorkerClient:
         self._pending: dict[int, tuple[Future, int]] = {}
         self._sessions: dict[int, SessionProxy] = {}
         self._media: dict[str, MediaProxy] = {}
+        self._talks: dict[str, TalkProxy] = {}
         self._stopping = False
         self.closed = False
         self.crashes = 0
@@ -212,16 +213,19 @@ class WorkerClient:
         sessions = [p for p in self._sessions.values() if p._gen == gen]   # noqa: SLF001
         for p in sessions:
             self._sessions.pop(p._key, None)                                # noqa: SLF001
-        media = list(self._media.values())
+        media, talks = list(self._media.values()), list(self._talks.values())
         # Callbacks without the lock: they may call back into the client.
-        threading.Thread(target=self._notify_gone, args=(sessions, media, err), daemon=True).start()
+        threading.Thread(target=self._notify_gone, args=(sessions, media, talks, err), daemon=True).start()
 
     @staticmethod
-    def _notify_gone(sessions: list[SessionProxy], media: list[MediaProxy], err: WorkerDied) -> None:
+    def _notify_gone(sessions: list[SessionProxy], media: list[MediaProxy], talks: list[TalkProxy],
+                     err: WorkerDied) -> None:
         for p in sessions:
             p._lost(err)                                                    # noqa: SLF001
         for m in media:
             m._set_running(False)                                           # noqa: SLF001
+        for t in talks:
+            t._end_all(err)                                                 # noqa: SLF001
 
     def _dispatch(self, msg: tuple) -> None:
         kind = msg[0]
@@ -239,6 +243,9 @@ class WorkerClient:
         elif kind == "running":
             if (m := self._media.get(msg[1])) is not None:
                 m._set_running(msg[2])                                      # noqa: SLF001
+        elif kind == "talk":
+            if (t := self._talks.get(msg[1])) is not None:
+                t._ended(msg[2], msg[3])                                    # noqa: SLF001
         elif kind == "log":
             _level, name, text = msg[1:]
             logging.getLogger(name).log(_level, "%s", text)
@@ -256,6 +263,11 @@ class WorkerClient:
         m = MediaProxy(self, uid, on_running)
         self._media[uid] = m
         return m
+
+    def talk(self, uid: str) -> TalkProxy:
+        t = TalkProxy(self, uid)
+        self._talks[uid] = t
+        return t
 
     def url(self, uid: str) -> str:
         return f"http://127.0.0.1:{self.port}/{self.token}/{uid}.ts"
@@ -372,3 +384,60 @@ class MediaProxy:
             self._request("close")
         except VtechError:
             pass
+
+
+class TalkProxy:
+    """Stands in for one camera's `TalkBack`. The media is fetched and decoded in the worker."""
+
+    def __init__(self, client: WorkerClient, uid: str):
+        self._client, self.uid = client, uid
+        self._ids = itertools.count(1)
+        self._lock = threading.Lock()
+        self._on_end: dict[int, Callable[[VtechError | None], None]] = {}
+
+    def _request(self, method: str, *args: Any) -> Any:
+        if not self._client.running:
+            raise SessionGone(f"{self.uid[-4:]}: camera not connected", call="talk-back")
+        return self._client.request("talk", self.uid, method, args)
+
+    def start(self, url: str, on_end: Callable[[VtechError | None], None]) -> None:
+        """Play `url` through the camera's speaker; returns once the camera receives it. `on_end(err)`
+        runs on the client's reader thread when it ends: None when it played out or was stopped."""
+        tid = next(self._ids)
+        with self._lock:
+            self._on_end[tid] = on_end
+        try:
+            self._request("start", tid, url)
+        except BaseException:
+            with self._lock:
+                self._on_end.pop(tid, None)
+            raise
+
+    def stop(self) -> None:
+        try:
+            self._request("stop")
+        except VtechError:
+            pass                                                            # nothing is playing without a worker
+
+    def stats(self) -> dict[str, Any]:
+        try:
+            return self._request("stats")
+        except VtechError as err:
+            return {"running": False, "error": str(err)}
+
+    def close(self) -> None:
+        self._client._talks.pop(self.uid, None)                             # noqa: SLF001
+        self.stop()
+        self._end_all(None)
+
+    def _ended(self, tid: int, err: VtechError | None) -> None:
+        with self._lock:
+            on_end = self._on_end.pop(tid, None)
+        if on_end is not None:
+            on_end(err)
+
+    def _end_all(self, err: VtechError | None) -> None:
+        with self._lock:
+            ends, self._on_end = list(self._on_end.values()), {}
+        for on_end in ends:
+            on_end(err)

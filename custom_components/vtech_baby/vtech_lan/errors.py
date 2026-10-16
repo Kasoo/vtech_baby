@@ -100,6 +100,10 @@ class ProtocolError(VtechError):
     """A reply was malformed, or the camera acknowledged a SET as failed."""
 
 
+class MediaError(VtechError):
+    """Media for talk-back can't be played: an unsupported URL, unreadable, or no audio in it."""
+
+
 _CLASSES: dict[int, type[VtechError]] = {
     IOTC_ER_UNLICENSE: Unlicensed,
     IOTC_ER_DEVICE_OFFLINE: Unreachable,

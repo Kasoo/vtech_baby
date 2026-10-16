@@ -42,7 +42,7 @@ SIGNAL_EVENT = "vtech_baby_event_{}"   # .format(entry_id); payload: (ops.EventR
 
 # Notification-interval index -> seconds; index 0 ("default") is unmeasured, 6 = never.
 NOTIFY_INTERVAL_S = {1: 60.0, 2: 180.0, 3: 300.0, 4: 600.0, 5: 1800.0}
-SELF_TRIGGER_S = 10.0                  # sound events this long after a lullaby stops are self-triggered
+SELF_TRIGGER_S = 10.0                  # sound events this long after a lullaby or talk-back are self-triggered
 # The parent handset caps the camera to 720p and lifts the cap within seconds, live, but resolution
 # isn't pushed (kit 40): re-read it this long after each parent-unit change (cumulative waits).
 QUALITY_REREAD_S = (3.0, 7.0)

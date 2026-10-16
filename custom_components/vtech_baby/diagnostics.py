@@ -1,4 +1,4 @@
-"""Diagnostics: redacted credentials, the SDK worker, session state, cached camera state."""
+"""Diagnostics: redacted credentials, the SDK worker, session state, cached camera state, media stats."""
 from __future__ import annotations
 
 import dataclasses
@@ -24,4 +24,5 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry) -> dict
         "last_error": manager.last_error,
         "state": dataclasses.asdict(manager.data) if manager.data else None,
         "live_view": await hass.async_add_executor_job(manager.media.stats),
+        "talk_back": await hass.async_add_executor_job(manager.talk.stats),
     }

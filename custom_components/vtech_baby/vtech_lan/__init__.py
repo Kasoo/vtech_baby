@@ -11,6 +11,7 @@ from . import ops, provision
 from .errors import (
     AuthFailed,
     CapacityExceeded,
+    MediaError,
     NotLanDirect,
     ProtocolError,
     RequestTimeout,
@@ -25,7 +26,7 @@ from .errors import (
 from .session import PARAMS_UPDATE, Push, Session
 
 __all__ = [
-    "AuthFailed", "CapacityExceeded", "NotLanDirect", "PARAMS_UPDATE", "ProtocolError", "Push", "RequestTimeout",
+    "AuthFailed", "CapacityExceeded", "MediaError", "NotLanDirect", "PARAMS_UPDATE", "ProtocolError", "Push", "RequestTimeout",
     "SdkMismatch", "Session", "SessionGone", "Unlicensed", "Unreachable", "UnsupportedHost",
     "VtechError", "WorkerDied", "ops", "provision",
 ]

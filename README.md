@@ -14,7 +14,8 @@ You get one device per camera with:
 - motion and sound alerts, as events and as binary sensors;
 - the room temperature, and the too-hot/too-cold alert with its limits;
 - the night-light (red, orange or yellow) and the status LED;
-- night vision, resolution, motion sensitivity, sound detection, notification interval and lullaby timer.
+- night vision, resolution, motion sensitivity, sound detection, notification interval and lullaby timer;
+- a speaker for the camera's lullabies, its volume, and text-to-speech or other media.
 
 ![The camera's device page in Home Assistant](https://raw.githubusercontent.com/Kasoo/vtech_baby/refs/heads/main/images/device.png)
 

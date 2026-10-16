@@ -66,6 +66,9 @@ class FakeCamera:
         self.vidx = self.aidx = 0            # next clip frame / audio frames delivered this run
         self.fps = 100                       # 10x real time keeps the tests quick
         self.next_video = 0.0
+        # Talk-back
+        self.uplink_codec = 0x8A             # 0x32b codec id
+        self.speaker_ch: int | None = None   # the channel announced by SPEAKERSTART
 
     def handle(self, code, p):
         """Return a list of (opcode, payload) replies for request `code`."""
@@ -126,6 +129,13 @@ class FakeCamera:
             return [(0x75B, i32(self.parent))]
         if code == 0x788:
             return [(0x789, pg) for pg in self.event_pages]
+        if code == 0x735:                    # lullaby: ack, then the track push
+            if fail:
+                return [(0x736, i32(0, w(1)))]
+            self.params[1] = w(1)
+            return [(0x736, i32(1, w(1))), (0x7AC, i32(1, w(1)) + bytes(16))]
+        if code == 0x32A:
+            return [(0x32B, i32(0, self.uplink_codec) + bytes(4))]
         if code == 0x820:
             return [(0x821, self.key_reply(p))] if self.key_reply else []
         if code == 0x1FF:                    # START: after a buffer clean the first frame is a keyframe
@@ -139,6 +149,10 @@ class FakeCamera:
             self.audio_on = True
         elif code == 0x301:
             self.audio_on = False
+        elif code == 0x350:
+            self.speaker_ch = w(0)
+        elif code == 0x351:
+            self.speaker_ch = None
         return []
 
 
@@ -154,6 +168,9 @@ class FakeSdk:
         self.send_rc = 0
         self.mode = 2                        # IOTC_Session_Check Mode: 2 = LAN
         self.send_rc_for: dict[int, int] = {}   # per-opcode send rc override
+        self.serv_start_rc = 4               # avServStart3: the AV index, or an error
+        self.send_audio_rcs: list[int] = []  # avSendAudioData rcs to return next (then 0)
+        self.uplink: list[tuple[bytes, bytes]] = []     # (frame, frameinfo) sent
         self._lock = threading.Lock()
 
     # Session-facing surface
@@ -207,6 +224,33 @@ class FakeSdk:
 
     def frame_reader(self, av):
         return FakeFrameReader(self)
+
+    # Talk-back surface (TalkBack)
+    def free_channel(self, sid):
+        self.calls.append("free_channel")
+        return 1
+
+    def serv_start(self, sid, ch, timeout_s):
+        self.calls.append(f"serv_start:{ch}")
+        return self.serv_start_rc
+
+    def send_audio(self, idx, frame, info):
+        with self._lock:
+            self.uplink.append((bytes(frame), bytes(info)))
+            return self.send_audio_rcs.pop(0) if self.send_audio_rcs else 0
+
+    def serv_reset(self, idx):
+        self.calls.append(f"serv_reset:{idx}")
+        return 0
+
+    def serv_stop(self, idx):
+        self.calls.append(f"serv_stop:{idx}")
+
+    def channel_off(self, sid, ch):
+        self.calls.append(f"channel_off:{ch}")
+
+    def serv_exit(self, sid, ch):
+        self.calls.append(f"serv_exit:{ch}")
 
     # Test helpers
     def push(self, code, payload):

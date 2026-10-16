@@ -48,6 +48,7 @@ from .const import (
 from .vtech_lan import ops
 from .vtech_lan.errors import (
     AuthFailed,
+    MediaError,
     NotLanDirect,
     ProtocolError,
     RequestTimeout,
@@ -280,9 +281,12 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         self._quality_reread: asyncio.Task | None = None
         self._closing = False
         self._lullaby_stopped = float("-inf")
-        # The live view runs in the worker on this camera's current session; it ends when that session goes.
+        self.talking = False
+        self._talk_stopped = float("-inf")
+        # The live view and talk-back run in the worker on this camera's current session; they end when it goes.
         self.media = client.media(self.uid, on_running=lambda _r: hass.loop.call_soon_threadsafe(
             self.async_update_listeners))
+        self.talk = client.talk(self.uid)
 
     # Connection lifecycle
     def _new_session(self) -> SessionProxy:
@@ -370,15 +374,51 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
 
     @property
     def lullaby_playing(self) -> bool:
+        return self.lullaby_track is not None
+
+    @property
+    def lullaby_track(self) -> ops.LullabyTrack | None:
+        """The lullaby playing (PLAY_ALL while cycling through them all), or None."""
         p = self.data.params if self.data else None
-        return p is not None and p.lullaby_track >= 0
+        if p is None or p.lullaby_track < 0:
+            return None
+        try:
+            return ops.LullabyTrack(p.lullaby_track)
+        except ValueError:
+            return None
+
+    async def async_play_lullaby(self, track: ops.LullabyTrack) -> None:
+        """Audible in the room."""
+        await self.async_command(lambda s: s.play_lullaby(track))
+        self._patch_lullaby(int(track))
+
+    async def async_stop_lullaby(self) -> None:
+        await self.async_command(lambda s: s.stop_lullaby())
+        self._patch_lullaby(int(ops.LullabyTrack.STOP))
+
+    async def async_set_volume(self, volume: int) -> None:
+        """Set the speaker volume on the camera's scale (ops.VOLUME_MIN..VOLUME_MAX)."""
+        volume = min(max(volume, ops.VOLUME_MIN), ops.VOLUME_MAX)
+        await self.async_command(lambda s: s.update_params(volume=volume))
+        if self.data is not None and self.data.params is not None:
+            self.async_patch_state(params=dataclasses.replace(self.data.params, volume=volume))
+
+    @callback
+    def _patch_lullaby(self, track: int) -> None:
+        """Apply an acked 0x735 now; the camera's push confirms it later."""
+        if self.data is None or self.data.params is None:
+            return
+        if self.lullaby_playing and track < 0:
+            self._lullaby_stopped = time.monotonic()
+        self.async_patch_state(params=dataclasses.replace(self.data.params, lullaby_track=track))
 
     @callback
     def _dispatch_event(self, report: ops.EventReport) -> None:
-        """Sound alerts while a lullaby plays, or within SELF_TRIGGER_S after it stops, are
+        """Sound alerts while a lullaby or talk-back plays, or within SELF_TRIGGER_S after it stops, are
         tagged self-triggered (the camera hears its own speaker)."""
         self_triggered = report.code == ops.EventCode.SOUND and (
-            self.lullaby_playing or time.monotonic() - self._lullaby_stopped < SELF_TRIGGER_S)
+            self.lullaby_playing or self.talking
+            or time.monotonic() - max(self._lullaby_stopped, self._talk_stopped) < SELF_TRIGGER_S)
         async_dispatcher_send(self.hass, SIGNAL_EVENT.format(self.config_entry.entry_id), report, self_triggered)
 
     def event_timeout_s(self) -> float:
@@ -445,7 +485,9 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             if task is not None:
                 task.cancel()
         session, self.session = self.session, None
-        await self.hass.async_add_executor_job(self.media.close)   # before the session: it uses its channel
+        # Before the session: they use its channels.
+        await self.hass.async_add_executor_job(self.talk.close)
+        await self.hass.async_add_executor_job(self.media.close)
         if session is not None:
             await self.hass.async_add_executor_job(session.close)
 
@@ -461,6 +503,37 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             raise HomeAssistantError(f"camera connection lost: {err}") from err
         except VtechError as err:
             raise HomeAssistantError(f"camera command failed: {err}") from err
+
+    async def async_talk(self, url: str) -> None:
+        """Play `url` through the camera's speaker and return when it has played. Cancelling stops it."""
+        if self.session is None:
+            raise HomeAssistantError("camera not connected")
+        loop = self.hass.loop
+        ended: asyncio.Future[VtechError | None] = loop.create_future()
+
+        def on_end(err: VtechError | None) -> None:               # client reader thread
+            loop.call_soon_threadsafe(lambda: ended.done() or ended.set_result(err))
+
+        try:
+            await self.hass.async_add_executor_job(self.talk.start, url, on_end)
+        except asyncio.CancelledError:
+            await self.hass.async_add_executor_job(self.talk.stop)     # it may have started regardless
+            raise
+        except MediaError as err:
+            raise HomeAssistantError(f"can't play the media: {err}") from err
+        except VtechError as err:
+            raise HomeAssistantError(f"talk-back failed: {err}") from err
+        self.talking = True
+        self.async_update_listeners()
+        try:
+            err = await asyncio.shield(ended)                     # a cancel must leave `ended` pending
+        finally:
+            if not ended.done():
+                await self.hass.async_add_executor_job(self.talk.stop)
+            self.talking, self._talk_stopped = False, time.monotonic()
+            self.async_update_listeners()
+        if err is not None:
+            raise HomeAssistantError(f"talk-back stopped: {err}")
 
     @callback
     def async_patch_state(self, **changes: Any) -> None:

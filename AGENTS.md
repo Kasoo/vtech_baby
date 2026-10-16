@@ -159,11 +159,11 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 | Lullaby timer | `select` 15 / 30 / 60 min / Non-stop | `0x731` word1 | `0x734 @12`; push `0x7ac` sub 0x15 |
 | Alerts | `event` motion / sound / too_hot / too_cold | — | push `0x1fff` |
 | Motion, Sound | 2 × `binary_sensor`, auto-off after the notification interval + 15 s (min 30 s) | — | push `0x1fff` |
+| Speaker | `media_player`. Sources = the 10 lullabies; stop; volume 0–5 (5 = 1.0; the range is unconfirmed). Play / announce media (TTS, media sources, http(s) URLs) as talk-back, decoded in the worker as it plays (PyAV); `play_media` returns when the media has played, new media replaces old. Media stops a lullaby; an announcement restarts it afterwards. Sound alerts from either are tagged self-triggered. | Lullaby `0x735` (ack `0x736`); volume `0x731` word2; talk-back `0x32a`, `0x820`, `0x301`, `0x350`, AV server channel, stop `0x351` (`0x300` if the live view runs) | `0x734 @4`, `@20`; push `0x7ac` sub 1, `0x14` |
 | Live view | `camera` (`STREAM`): loopback MPEG-TS (H.264 + AAC); snapshots from keyframes | — | media path |
 | Device | device registry | — | `0x330 → 0x331` model / vendor / firmware |
 
-Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`), `0x7ba`. Planned: a
-`media_player` for lullabies and talk-back (`TODO.md`).
+Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`), `0x7ba`.
 
 ### Open protocol questions
 - No ack is known for `0x790` (notification interval SET): it's fire-and-forget, confirmed by re-reading

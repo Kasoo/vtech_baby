@@ -131,15 +131,18 @@ class Sdk:
                                 C.c_char_p, C.c_int, C.POINTER(C.c_uint32))
         self._clean_video = _bind(AV, "avClientCleanVideoBuf", C.c_int, C.c_int)
         self._clean_audio = _bind(AV, "avClientCleanAudioBuf", C.c_int, C.c_int)
-        self.free_channel = _bind(IO, "IOTC_Session_Get_Free_Channel", C.c_int, C.c_int)
-        self.channel_off = _bind(IO, "IOTC_Session_Channel_OFF", C.c_int, C.c_int, C.c_ubyte)
-        self.serv_start3 = _bind(AV, "avServStart3", C.c_int, C.c_int, AUTH_FN, C.c_uint, C.c_uint,
-                                 C.c_ubyte, C.POINTER(C.c_int))
-        self.serv_stop = _bind(AV, "avServStop", None, C.c_int)
-        self.serv_exit = _bind(AV, "avServExit", None, C.c_int, C.c_ubyte)
-        self.serv_reset = _bind(AV, "avServResetBuffer", C.c_int, C.c_int, C.c_int, C.c_uint)
-        self.send_audio = _bind(AV, "avSendAudioData", C.c_int, C.c_int, C.c_char_p, C.c_int,
-                                C.c_char_p, C.c_int)
+        self._free_channel = _bind(IO, "IOTC_Session_Get_Free_Channel", C.c_int, C.c_int)
+        self._channel_off = _bind(IO, "IOTC_Session_Channel_OFF", C.c_int, C.c_int, C.c_ubyte)
+        self._serv_start3 = _bind(AV, "avServStart3", C.c_int, C.c_int, AUTH_FN, C.c_uint, C.c_uint,
+                                  C.c_ubyte, C.POINTER(C.c_int))
+        self._serv_stop = _bind(AV, "avServStop", None, C.c_int)
+        self._serv_exit = _bind(AV, "avServExit", None, C.c_int, C.c_ubyte)
+        self._serv_reset = _bind(AV, "avServResetBuffer", C.c_int, C.c_int, C.c_int, C.c_uint)
+        self._send_audio = _bind(AV, "avSendAudioData", C.c_int, C.c_int, C.c_char_p, C.c_int,
+                                 C.c_char_p, C.c_int)
+        # The camera logs in to our talk-back server with an empty account and password: accept it.
+        # Kept for the life of the process: ctypes frees the callback with this object.
+        self._accept = AUTH_FN(lambda _account, _password: 1)
         self.license_key: str | None = None
         self.max_channels = 0
 
@@ -194,6 +197,33 @@ class Sdk:
 
     def frame_reader(self, av: int) -> "FrameReader":
         return FrameReader(self, av)
+
+    # ── Talk-back (talkback.py) ──
+    def free_channel(self, sid: int) -> int:
+        """IOTC_Session_Get_Free_Channel: a free IOTC channel on the session (rc < 0 on error)."""
+        return self._free_channel(sid)
+
+    def serv_start(self, sid: int, ch: int, timeout_s: int) -> int:
+        """avServStart3 on channel `ch`, accepting any login. Blocks until the camera connects; returns
+        the AV index (rc < 0 on error)."""
+        resend = C.c_int(0)
+        return self._serv_start3(sid, self._accept, timeout_s, 0, ch, C.byref(resend))
+
+    def send_audio(self, idx: int, frame: bytes, info: bytes) -> int:
+        return self._send_audio(idx, frame, len(frame), info, len(info))
+
+    def serv_reset(self, idx: int) -> int:
+        """avServResetBuffer(idx, 1, 30), the kit's recovery when the send buffer is full (-20006)."""
+        return self._serv_reset(idx, 1, 30)
+
+    def serv_stop(self, idx: int) -> None:
+        self._serv_stop(idx)
+
+    def channel_off(self, sid: int, ch: int) -> None:
+        self._channel_off(sid, ch)
+
+    def serv_exit(self, sid: int, ch: int) -> None:
+        self._serv_exit(sid, ch)
 
     def lan_only_stats(self) -> dict[str, int]:
         """Off-link sends/connects and name lookups the companion has refused since load."""

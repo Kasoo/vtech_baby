@@ -22,7 +22,8 @@ from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_RESTART_REQUIRED
 from .manager import CameraManager, SdkSetupError, async_load_sdk
 
 PLATFORMS: list[Platform] = [
-    Platform.BINARY_SENSOR, Platform.CAMERA, Platform.EVENT, Platform.LIGHT, Platform.NUMBER, Platform.SELECT,
+    Platform.BINARY_SENSOR, Platform.CAMERA, Platform.EVENT, Platform.LIGHT, Platform.MEDIA_PLAYER,
+    Platform.NUMBER, Platform.SELECT,
     Platform.SENSOR, Platform.SWITCH,
 ]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
