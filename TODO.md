@@ -23,8 +23,12 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
 - Soak and fault tests on a real HA host: 24 h+ idle session, camera power cycle, network bounce, the HA
   entry and the reference client connected at once, repeated reload/unload.
-- Observer tests (owner at the camera): lullaby and talk-back, once built; a handset-made change
-  arriving via pushes.
+- Observer tests (owner at the camera): talk-back (`tests/live/probe_talk.py`, then the speaker entity
+  in HA), lullabies and volume on the speaker; a handset-made change arriving via pushes. Open
+  questions: the volume range (0–5 is assumed: move the handset's volume end to end and watch the
+  `0x7ac` `0x14` pushes, no sound needed); whether volume applies to talk-back; what talk-back does to a
+  playing lullaby (the speaker stops it first, which may be unnecessary); whether the live view's audio
+  track survives the gap; whether TTS needs gain.
 - Live view: the night-vision, resolution and reconnect cases; HLS open time; latency.
 - Other VTech models that use the same protocol.
 - arm64 on real hardware. It has only been tested under qemu; a native run adds the LL/SC atomics path,
@@ -32,8 +36,4 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
 ## Features
 
-- A `media_player` for lullabies and talk-back: lullaby tracks as sources (`0x735`, volume `0x731`
-  word2, state from `0x736`, `0x7ac` subtype 1 and `0x734 @4`), and `play_media` for TTS and media URLs
-  as encrypted A-law talk-back (`40-media-streaming.md`). Sound alerts it causes must be tagged as
-  self-triggered (the manager already does this for lullabies).
 - Reading the pairing QR from a photo, not only pasted text (needs a QR decoder the HA image doesn't have).

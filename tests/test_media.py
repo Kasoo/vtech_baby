@@ -77,6 +77,17 @@ def test_subscribe_starts_and_delivers_ts(cam):
     sub.close()
 
 
+def test_audio_start_left_to_a_talk_back(cam):
+    sdk, s, _, holder = cam
+    ls = LiveStream(sdk, lambda: holder["s"], name="held", grace_s=0.3, audio_held=lambda: True)
+    sink = Sink()
+    sub = ls.subscribe(sink)
+    assert wait_for(lambda: len(sink.data) > 20_000)                 # video flows without camera audio
+    assert ops.AUDIO_START.code not in sdk.sent_codes() and ops.START.code in sdk.sent_codes()
+    sub.close()
+    ls.close()
+
+
 def test_stops_after_grace_and_restarts(cam):
     sdk, _, ls, _ = cam
     sink = Sink()

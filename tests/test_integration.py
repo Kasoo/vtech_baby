@@ -680,3 +680,169 @@ async def test_parent_unit_rereads_resolution_and_blocks_1080p(hass: HomeAssista
         fake.push(0x74F, i32(0))
         await wait_until(lambda: hass.states.get(sel).state == "1080p")
         await unload(hass, entry)
+
+
+# ── Speaker (talk-back) ──────────────────────────────────────────────────────
+SPEAKER = f"media_player.{P}_speaker"
+
+
+async def play(hass, url):
+    await call(hass, "media_player", "play_media", SPEAKER, media_content_id=url, media_content_type="music")
+
+
+async def test_speaker_plays_media_and_tags_its_own_sound(hass: HomeAssistant, fake):
+    pytest.importorskip("av")
+    from fake_sdk import enable_live_view
+    from test_talkback import serve, wav
+
+    enable_live_view(fake.camera)
+    entry = await setup_entry(hass)
+    assert hass.states.get(SPEAKER).state == "idle"
+    with serve({"/tone.wav": wav(0.6, rate=8000, channels=1)}) as base:
+        task = hass.async_create_task(play(hass, f"{base}/tone.wav"))
+        await wait_until(lambda: hass.states.get(SPEAKER).state == "playing")
+        assert fake.camera.speaker_ch == 1
+        fake.push(0x1FFF, event_report(0x15))                      # the camera hears its own speaker
+        await wait_until(lambda: hass.states.get(f"event.{P}_alert").attributes.get("event_type") == "sound")
+        assert hass.states.get(f"event.{P}_alert").attributes["self_triggered"] is True
+        assert hass.states.get(f"binary_sensor.{P}_sound").state == "off"
+        await asyncio.wait_for(task, 10)                           # returns once it has played
+    assert hass.states.get(SPEAKER).state == "idle"
+    assert 29 <= len(fake.uplink) <= 31 and fake.camera.speaker_ch is None
+    await unload(hass, entry)
+
+
+async def test_speaker_stop_and_unload_while_playing(hass: HomeAssistant, fake):
+    pytest.importorskip("av")
+    from fake_sdk import enable_live_view
+    from test_talkback import serve, wav
+
+    enable_live_view(fake.camera)
+    entry = await setup_entry(hass)
+    with serve({"/long.wav": wav(30.0, rate=8000, channels=1)}) as base:
+        task = hass.async_create_task(play(hass, f"{base}/long.wav"))
+        await wait_until(lambda: hass.states.get(SPEAKER).state == "playing")
+        await call(hass, "media_player", "media_stop", SPEAKER)
+        await asyncio.wait_for(task, 10)                           # a stopped play_media just returns
+        assert hass.states.get(SPEAKER).state == "idle" and fake.camera.speaker_ch is None
+
+        hass.async_create_task(play(hass, f"{base}/long.wav"))
+        await wait_until(lambda: hass.states.get(SPEAKER).state == "playing")
+        exits = fake.calls.count("serv_exit:1")
+        await unload(hass, entry)
+    assert fake.calls.count("serv_exit:1") == exits + 1 and fake.camera.speaker_ch is None
+
+
+async def test_speaker_bad_media(hass: HomeAssistant, fake):
+    pytest.importorskip("av")
+    from homeassistant.exceptions import HomeAssistantError
+    from test_talkback import serve
+
+    entry = await setup_entry(hass)
+    sent = len(fake.sent)
+    with serve({"/text": b"not audio " * 100}) as base:
+        with pytest.raises(HomeAssistantError, match="can't play the media"):
+            await play(hass, f"{base}/text")
+    assert 0x350 not in [c for c, _ in fake.sent[sent:]] and hass.states.get(SPEAKER).state == "idle"
+    await unload(hass, entry)
+
+
+async def test_speaker_ends_when_the_worker_dies(hass: HomeAssistant, fake):
+    pytest.importorskip("av")
+    from homeassistant.exceptions import HomeAssistantError
+    from fake_sdk import enable_live_view
+    from test_talkback import serve, wav
+
+    enable_live_view(fake.camera)
+    entry = await setup_entry(hass)
+    with serve({"/long.wav": wav(30.0, rate=8000, channels=1)}) as base:
+        task = hass.async_create_task(play(hass, f"{base}/long.wav"))
+        await wait_until(lambda: hass.states.get(SPEAKER).state == "playing")
+        hass.data[mgr.DATA_CLIENT]._handle.kill()
+        with pytest.raises(HomeAssistantError, match="talk-back stopped"):
+            await asyncio.wait_for(task, 10)
+    assert hass.states.get(SPEAKER).state in ("idle", STATE_UNAVAILABLE)
+    await wait_until(lambda: fake.camera.speaker_ch is None)       # the worker's shutdown stopped it
+    await unload(hass, entry)
+
+
+def lullaby_sends(fake, since=0):
+    return [struct.unpack("<ii", p)[1] for c, p in fake.sent[since:] if c == 0x735]
+
+
+async def test_speaker_lullabies(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    st = hass.states.get(SPEAKER)
+    assert st.state == "idle" and "Brahms' Lullaby" in st.attributes["source_list"]
+    await call(hass, "media_player", "select_source", SPEAKER, source="Brahms' Lullaby")
+    st = hass.states.get(SPEAKER)
+    assert st.state == "playing" and st.attributes["source"] == "Brahms' Lullaby"
+    assert st.attributes["media_title"] == "Brahms' Lullaby" and fake.camera.params[1] == 5
+    fake.push(0x7AC, i32(1, 3))                                    # changed on the handset
+    await wait_until(lambda: hass.states.get(SPEAKER).attributes.get("source") == "Hot Cross Buns")
+    await call(hass, "media_player", "media_stop", SPEAKER)
+    assert hass.states.get(SPEAKER).state == "idle" and fake.camera.params[1] == -1
+    fake.push(0x7AC, i32(1, 0))                                    # Play All, from the handset
+    await wait_until(lambda: hass.states.get(SPEAKER).attributes.get("source") == "Play All")
+    fake.push(0x7AC, i32(1, -1))                                   # the lullaby timer ran out
+    await wait_until(lambda: hass.states.get(SPEAKER).state == "idle")
+    with pytest.raises(Exception, match="unknown lullaby"):
+        await call(hass, "media_player", "select_source", SPEAKER, source="Baa Baa Black Sheep")
+    await unload(hass, entry)
+
+
+async def test_speaker_volume(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    assert hass.states.get(SPEAKER).attributes["volume_level"] == 1.0  # 5 of 5
+    await call(hass, "media_player", "volume_set", SPEAKER, volume_level=0.4)
+    assert fake.camera.params[5] == 2 and hass.states.get(SPEAKER).attributes["volume_level"] == 0.4
+    await call(hass, "media_player", "volume_down", SPEAKER)
+    assert fake.camera.params[5] == 1
+    await call(hass, "media_player", "volume_up", SPEAKER)
+    await call(hass, "media_player", "volume_up", SPEAKER)
+    assert fake.camera.params[5] == 3
+    fake.push(0x7AC, i32(0x14, 4))                                 # changed on the handset
+    await wait_until(lambda: hass.states.get(SPEAKER).attributes["volume_level"] == 0.8)
+    assert fake.camera.params[3] == 1800 and fake.camera.params[7] == 1234     # the rest is kept
+    await unload(hass, entry)
+
+
+@pytest.mark.parametrize("announce", [False, True])
+async def test_media_stops_a_lullaby_and_an_announcement_resumes_it(hass: HomeAssistant, fake, announce):
+    pytest.importorskip("av")
+    from fake_sdk import enable_live_view
+    from test_talkback import serve, wav
+
+    enable_live_view(fake.camera)
+    entry = await setup_entry(hass)
+    await call(hass, "media_player", "select_source", SPEAKER, source="Crickets")
+    sent = len(fake.sent)
+    with serve({"/tone.wav": wav(0.3, rate=8000, channels=1)}) as base:
+        await call(hass, "media_player", "play_media", SPEAKER, media_content_id=f"{base}/tone.wav",
+                   media_content_type="music", announce=announce)
+    codes = [c for c, _ in fake.sent[sent:]]
+    assert codes.index(0x735) < codes.index(0x350)                 # stopped before talking
+    if announce:
+        assert lullaby_sends(fake, sent) == [-1, 7]
+        assert hass.states.get(SPEAKER).attributes["source"] == "Crickets"
+    else:
+        assert lullaby_sends(fake, sent) == [-1]
+        assert hass.states.get(SPEAKER).state == "idle"
+    await unload(hass, entry)
+
+
+async def test_choosing_a_lullaby_stops_media(hass: HomeAssistant, fake):
+    pytest.importorskip("av")
+    from fake_sdk import enable_live_view
+    from test_talkback import serve, wav
+
+    enable_live_view(fake.camera)
+    entry = await setup_entry(hass)
+    with serve({"/long.wav": wav(30.0, rate=8000, channels=1)}) as base:
+        task = hass.async_create_task(play(hass, f"{base}/long.wav"))
+        await wait_until(lambda: hass.states.get(SPEAKER).attributes.get("media_title") == "Talk-back")
+        await call(hass, "media_player", "select_source", SPEAKER, source="Birds")
+        await asyncio.wait_for(task, 10)
+    st = hass.states.get(SPEAKER)
+    assert st.attributes["source"] == "Birds" and fake.camera.speaker_ch is None and not entry.runtime_data.talking
+    await unload(hass, entry)

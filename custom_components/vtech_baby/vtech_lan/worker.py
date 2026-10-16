@@ -9,7 +9,8 @@ The worker:
 - answers requests from Home Assistant (`ipc.py`), each on a pool thread since SDK calls block;
 - owns the `Session`s and forwards their pushes and losses;
 - serves each camera's live view as MPEG-TS over HTTP on a loopback socket Home Assistant bound and
-  passed in, so the URL stays the same across worker restarts and decrypted frames never cross the IPC.
+  passed in, so the URL stays the same across worker restarts and decrypted frames never cross the IPC;
+- runs each camera's talk-back, fetching and decoding the media here, so audio never crosses the IPC.
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ from .errors import SdkMismatch, SessionGone, VtechError
 from .ipc import Channel
 from .media import LiveStream
 from .session import Session
+from .talkback import TalkBack
 
 _LOG = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ class Worker:
         self.media_sessions: set[int] = set()        # sessions that feed their camera's live view
         self.current: dict[str, Session] = {}        # uid -> the session the live view uses
         self.streams: dict[str, LiveStream] = {}     # uid -> live view
+        self.talks: dict[str, TalkBack] = {}         # uid -> talk-back
         self.token: str | None = None
         self.http: _MediaServer | None = None
         self._lock = threading.Lock()
@@ -96,12 +99,15 @@ class Worker:
 
     def shutdown(self) -> None:
         with self._lock:
+            talks, self.talks = list(self.talks.values()), {}
             streams, self.streams = list(self.streams.values()), {}
             sessions, self.sessions = list(self.sessions.values()), {}
             self.current.clear()
             http_server, self.http = self.http, None
+        for t in talks:
+            t.stop()                                        # before the sessions: they use their channels
         for s in streams:
-            s.close()                                       # before the sessions: it uses their channel
+            s.close()
         for s in sessions:
             s.close()
         if http_server is not None:
@@ -146,7 +152,8 @@ class Worker:
                 if uid not in self.streams:
                     self.streams[uid] = LiveStream(
                         self.sdk, lambda: self.current.get(uid), name=uid[-4:],
-                        on_running=lambda r: self._notify("running", uid, r))
+                        on_running=lambda r: self._notify("running", uid, r),
+                        audio_held=lambda: (t := self.talks.get(uid)) is not None and t.hold_audio_start())
 
     def _do_call(self, key: int, method: str, args: tuple, kwargs: dict[str, Any]) -> Any:
         s = self.sessions.get(key)
@@ -167,8 +174,12 @@ class Worker:
             self.media_sessions.discard(key)
             if s is not None and self.current.get(s._uid) is s:     # noqa: SLF001
                 del self.current[s._uid]                            # noqa: SLF001
-        if s is not None:
-            s.close()
+        if s is None:
+            return
+        talk = self.talks.get(s._uid)                               # noqa: SLF001
+        if talk is not None and talk.session is s:
+            talk.stop()                                             # its channel is on this session
+        s.close()
 
     def _on_lost(self, key: int, s: Session, err: VtechError) -> None:
         with self._lock:
@@ -190,6 +201,30 @@ class Worker:
             stream.close()
             return None
         raise AttributeError(f"no live-view method {method!r}")
+
+    def _do_talk(self, uid: str, method: str, args: tuple) -> Any:
+        """Talk-back: "start" (talk id, url) returns once the camera receives the audio, and its end
+        is reported as a ("talk", uid, talk id, error or None) message; "stop" ends it."""
+        if method == "start":
+            tid, url = args
+            if self.sdk is None:
+                raise SessionGone("the SDK isn't loaded in the worker", call="talk-back")
+            with self._lock:
+                talk = self.talks.get(uid)
+                if talk is None:
+                    talk = self.talks[uid] = TalkBack(
+                        self.sdk, lambda: self.current.get(uid), name=uid[-4:],
+                        audio_wanted=lambda: (st := self.streams.get(uid)) is not None and st.running)
+            talk.start(url, on_end=lambda err: self._notify("talk", uid, tid, err))
+            return None
+        if method == "stop":
+            if (talk := self.talks.get(uid)) is not None:
+                talk.stop()
+            return None
+        if method == "stats":
+            talk = self.talks.get(uid)
+            return {**talk.stats, "running": talk.running} if talk else {"running": False}
+        raise AttributeError(f"no talk-back method {method!r}")
 
 
 # ── Live view over loopback HTTP ─────────────────────────────────────────────

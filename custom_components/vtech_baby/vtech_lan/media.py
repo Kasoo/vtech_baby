@@ -6,7 +6,8 @@ Protocol: docs/vtech-lan-kit/docs/40, 50.
   subscriber arrives and stops `grace_s` after the last one leaves (go2rtc drops and reopens its
   connection; snapshots come and go), so short gaps don't restart the camera's stream.
 - Start: live-view key (once per session), clean the SDK buffers (so the first frame is a keyframe),
-  AUDIOSTART, full-rate, START. Stop: STOP, AUDIOSTOP. The control session is untouched; its reader
+  AUDIOSTART (unless `audio_held()`: a talk-back has camera audio stopped and restarts it itself),
+  full-rate, START. Stop: STOP, AUDIOSTOP. The control session is untouched; its reader
   thread keeps owning avRecvIOCtrl while this thread reads frames.
 - Subscribers get MPEG-TS bytes (`avmux`) through a callback run on the media thread, which must not
   block. A new subscriber starts at the next keyframe. `None` means end of stream: the session went
@@ -60,10 +61,11 @@ class LiveStream:
 
     def __init__(self, sdk: Any, get_session: Callable[[], Any], name: str = "",
                  grace_s: float = GRACE_S, first_keyframe_s: float = FIRST_KEYFRAME_S,
-                 on_running: Callable[[bool], None] | None = None):
+                 on_running: Callable[[bool], None] | None = None,
+                 audio_held: Callable[[], bool] = lambda: False):
         """`on_running(bool)` is called on the media thread when the camera's stream starts and stops."""
         self._sdk, self._get_session, self.name = sdk, get_session, name
-        self._on_running = on_running
+        self._on_running, self._audio_held = on_running, audio_held
         self._grace_s, self._first_keyframe_s = grace_s, first_keyframe_s
         self._lock = threading.Condition()
         self._subs: list[Subscription] = []
@@ -191,7 +193,9 @@ class LiveStream:
         master = session.live_view_master()
         av = session.av
         self._sdk.clean_media_buffers(av)
-        for op in (ops.AUDIO_START, ops.VIDEO_FULLRATE, ops.START):
+        if not self._audio_held():
+            session.send(ops.AUDIO_START)
+        for op in (ops.VIDEO_FULLRATE, ops.START):
             session.send(op)
         st = self.stats
         st.update(starts=st["starts"] + 1, video=0, audio=0, bad=0, keyframes=0, bytes=0)

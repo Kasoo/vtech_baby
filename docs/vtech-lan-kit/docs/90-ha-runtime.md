@@ -151,9 +151,10 @@ The `vtech_baby` integration runs out of process. What made it straightforward:
 ## 8. Talk-back
 
 The procedure is in `40-media-streaming.md`; the reference client's `talkback()` implements it.
-- **Source audio:** anything that can be decoded to 8 kHz mono 16-bit PCM, e.g. the output of a Home
-  Assistant TTS engine or a media file, converted with the `ffmpeg` binary that ships with HA. Encoding to
-  A-law and encrypting each 20 ms frame is cheap enough to do in Python in real time.
+- **Source audio:** anything that can be decoded to 8 kHz mono A-law, e.g. the output of a Home
+  Assistant TTS engine or a media file. PyAV, which ships with HA, can decode a URL to A-law as it is
+  read, so a stream plays without being downloaded first. Encrypting each 20 ms frame is cheap enough
+  to do in Python in real time.
 - **Session master:** talk-back needs the master from the `0x820`/`0x821` handshake. It does not need
   video to be running. Reuse the master if a stream is active in the same session; otherwise run the
   handshake first. The master is per session, so redo it after every reconnect (section 4).

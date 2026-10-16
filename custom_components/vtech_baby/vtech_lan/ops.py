@@ -96,6 +96,10 @@ LULLABY_NAMES = {
 #: 0x734 @12 lullaby auto-off timer values, seconds (0 = non-stop).
 LULLABY_TIMERS_S = (900, 1800, 3600, 0)
 
+#: 0x734 @20 speaker volume range. 5 is the default and 2 is audibly quieter; that 5 is the top and 0 the
+#: bottom is unconfirmed.
+VOLUME_MIN, VOLUME_MAX = 0, 5
+
 
 class EventCode(enum.IntEnum):
     """0x1fff event_code@16."""

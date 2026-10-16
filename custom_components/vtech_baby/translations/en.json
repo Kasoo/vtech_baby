@@ -82,6 +82,11 @@
         "name": "Night-light"
       }
     },
+    "media_player": {
+      "speaker": {
+        "name": "Speaker"
+      }
+    },
     "select": {
       "night_vision": {
         "name": "Night vision",
