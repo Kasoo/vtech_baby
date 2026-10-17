@@ -79,7 +79,8 @@ ARCH=aarch64 sh companion/build.sh dist/aarch64
    - **the LAN-only egress policy** (`net.c`) — `connect`/`sendto` refuse any destination outside a
      directly attached IPv4 subnet with `ENETUNREACH`, and `getaddrinfo` resolves numeric literals only, so
      the SDK can never reach ThroughTek's servers; `tk_lan_only_stats` reports the refusal counts
-     (`../docs/00-prerequisites.md`, "Host / networking");
+     (`../docs/00-prerequisites.md`, "Host / networking"). With `TK_TRACE=1` in the environment, every
+     `connect`/`sendto` is logged to stderr with its destination, length and whether it was refused;
    - **host-missing accessors** — bionic `__errno` / `__get_h_errno` / `arc4random` / `res_init` /
      `__system_property_get` (the last answers "not set" — there's no Android property service on a
      host), a libc-independent `sysconf` over bionic `_SC_*` numbers, `stat`/`fstat` forwarders (needed

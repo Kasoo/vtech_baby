@@ -11,11 +11,22 @@
 
 #define TK_HIDDEN __attribute__((visibility("hidden")))
 
+/* Debug trace to stderr. Built in only with TK_DEBUG (make DEBUG=1), and then written only when the
+ * environment has TK_TRACE=1. */
+#ifdef TK_DEBUG
+void tk_trace(const char *fmt, ...) TK_HIDDEN __attribute__((format(printf, 1, 2)));
+#else
+static inline __attribute__((format(printf, 1, 2))) void tk_trace(const char *fmt, ...) { (void)fmt; }
+#endif
+
 /* Exported functions that other files call. */
 void *tutk_platform_malloc(int size);
 void *tutk_platform_calloc(int count, int size);
 void  tutk_platform_free(void *p);
 int   tutk_platform_mutex_init(pthread_mutex_t *m);
+int   tutk_platform_mutex_destroy(pthread_mutex_t *m);
+uint64_t tutk_platform_CreateTask(int *err, TThreadStart start, void *arg, char detach, int stack_size);
+void  tutk_platform_set_thread_name(const char *name);
 int   tutk_Host_Get_Sockaddr(const char *host, int transport, uint16_t port_be, unsigned int mode,
                              struct sockaddr_in6 *out);
 int   TUTK3rdSHA256(const void *data, int len, uint8_t *out, unsigned int out_size);
@@ -45,7 +56,14 @@ const char *tk_json_obj_key(const json_object *obj, int i) TK_HIDDEN;
 json_object *tk_json_obj_value(const json_object *obj, int i) TK_HIDDEN;
 const char *tk_json_string(const json_object *obj) TK_HIDDEN;     /* NULL if not a string */
 
-/* ---- lists.c: the locked FIFO queue used by the connection manager ---- */
+/* ---- lists.c ---- */
+TList     *tlistNew(void);
+int        tlistAppend(TList *list, void *data);
+TListNode *tlistHead(TList *list);
+int        tlistRemove(TList *list, void *data);
+int        tlistDestroy(TList *list);
+
+/* The locked FIFO queue used by the connection manager. */
 typedef struct TutkList TutkList;
 
 int   TutkListNew(TutkList **out) TK_HIDDEN;

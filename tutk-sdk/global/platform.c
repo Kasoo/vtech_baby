@@ -76,6 +76,7 @@ TK_EXPORT int tutk_platform_rand_range(int high, int low) {
 }
 
 TK_EXPORT int TUTKSSL_rand(uint8_t *buf, int len) {
+    tk_trace("TUTKSSL_rand(%d)", len);
     return RAND_bytes(buf, len) == 1 ? 0 : -1;
 }
 

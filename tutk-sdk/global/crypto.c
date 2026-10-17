@@ -10,6 +10,7 @@ struct TEcdhKeyPair {
 };
 
 TK_EXPORT int TUTK3rdSHA256(const void *data, int len, uint8_t *out, unsigned int out_size) {
+    tk_trace("SHA256(len %d)", len);
     if (out_size < 32)
         return -1;
     return SHA256(data, (size_t)len, out) ? 0 : -1;
@@ -19,6 +20,7 @@ TK_EXPORT int TUTK3rdSHA1HMAC(const void *key, int key_len, const void *data, in
                               uint8_t *out, unsigned int out_size) {
     unsigned int n = 0;
 
+    tk_trace("SHA1HMAC(key_len %d, data_len %d, out_size %u)", key_len, data_len, out_size);
     if (out_size < 20)
         return -1;
     return HMAC(EVP_sha1(), key, key_len, data, (size_t)data_len, out, &n) ? 0 : -1;
@@ -147,6 +149,7 @@ TK_EXPORT TEcdhKeyPair *TUTK3rdECDHCreateKeyPair(void) {
     TEcdhKeyPair *pair;
     EC_KEY *key = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
 
+    tk_trace("ECDHCreateKeyPair");
     if (key == NULL)
         return NULL;
     if (EC_KEY_generate_key(key) != 1 || (pair = malloc(sizeof *pair)) == NULL) {

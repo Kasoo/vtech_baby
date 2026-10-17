@@ -218,6 +218,7 @@ TK_EXPORT int GetMasterDomainName(int kind, unsigned int region, const char *rea
     } else {
         region_name = region == 1 ? "cn" : licence.default_region;
     }
+    tk_trace("GetMasterDomainName(kind %d, region %u)", kind, region);
     if (SearchStandaloneDomainName(realm, out) == 0)
         return 0;
     return CreateDomainName((unsigned int)kind, out, realm, region_name);

@@ -27,12 +27,17 @@
  * The SDK's network I/O is exactly socket/bind/connect/sendto/send/write/recv* (libTUTKGlobalAPIs) plus
  * getaddrinfo (libIOTCAPIs, libTUTKGlobalAPIs); its two raw syscall() sites are mlock2 and getrandom.
  * send/write reach only a socket Connect allowed. gethostbyname/getservbyname are loud-abort stubs.
+ *
+ * DEBUG: with TK_TRACE=1 in the environment, every Connect/Sendto is logged to stderr (destination,
+ * length, and whether the policy refused it).
  */
+#include <arpa/inet.h>
 #include <errno.h>
 #include <ifaddrs.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -101,7 +106,30 @@ static int allowed(const struct sockaddr *sa, socklen_t len) {
     return 1;
 }
 
+/* Log one Connect/Sendto when TK_TRACE=1. */
+static void trace_egress(const char *call, int fd, const struct sockaddr *sa, size_t n, int ok) {
+    static int on = -1;
+    char host[INET6_ADDRSTRLEN] = "-";
+    unsigned port = 0;
+
+    if (on < 0) {
+        const char *v = getenv("TK_TRACE");
+        on = v && v[0] == '1';
+    }
+    if (!on)
+        return;
+    if (sa && sa->sa_family == AF_INET6) {
+        inet_ntop(AF_INET6, &((const struct sockaddr_in6 *)sa)->sin6_addr, host, sizeof host);
+        port = ntohs(((const struct sockaddr_in6 *)sa)->sin6_port);
+    } else if (sa && sa->sa_family == AF_INET) {
+        inet_ntop(AF_INET, &((const struct sockaddr_in *)sa)->sin_addr, host, sizeof host);
+        port = ntohs(((const struct sockaddr_in *)sa)->sin_port);
+    }
+    fprintf(stderr, "libtk: %s fd %d [%s]:%u %zu bytes%s\n", call, fd, host, port, n, ok ? "" : " REFUSED");
+}
+
 EXPORT int Connect(int fd, const struct sockaddr *sa, socklen_t len) {
+    trace_egress("connect", fd, sa, 0, allowed(sa, len));
     if (!allowed(sa, len)) {
         __atomic_add_fetch(&blocked_sends, 1, __ATOMIC_RELAXED);
         errno = ENETUNREACH;
@@ -111,6 +139,7 @@ EXPORT int Connect(int fd, const struct sockaddr *sa, socklen_t len) {
 }
 
 EXPORT ssize_t Sendto(int fd, const void *buf, size_t n, int flags, const struct sockaddr *sa, socklen_t len) {
+    trace_egress("sendto", fd, sa, n, allowed(sa, len));
     if (!allowed(sa, len)) {
         __atomic_add_fetch(&blocked_sends, 1, __ATOMIC_RELAXED);
         errno = ENETUNREACH;

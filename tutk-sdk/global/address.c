@@ -39,8 +39,10 @@ TK_EXPORT int tutk_Host_Get_Sockaddr(const char *host, int transport, uint16_t p
     hints.ai_flags = AI_NUMERICHOST;
     snprintf(service, sizeof service, "%u", ntohs(port_be));
     rc = getaddrinfo(host, port_be ? service : NULL, &hints, &res);
-    if (rc != 0 || res == NULL)
+    if (rc != 0 || res == NULL) {
+        tk_trace("Host_Get_Sockaddr(%s) not numeric: refused", host);
         return -TOS_ER_RESOLVE_FAILED;
+    }
 
     if (res->ai_family == AF_INET6) {
         memcpy(out, res->ai_addr, sizeof *out);
@@ -140,5 +142,7 @@ TK_EXPORT int tutk_Net_GetInterfaceInfo(TNetInterfaceInfo *info) {
     }
     info->count = (uint8_t)count;
     close(fd);
+    for (int i = 0; i < count; i++)
+        tk_trace("GetInterfaceInfo[%d] %08x/%08x", i, ntohl(info->addr[i]), ntohl(info->netmask[i]));
     return count;
 }

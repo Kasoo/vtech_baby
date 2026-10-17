@@ -213,7 +213,7 @@ typedef void (*TConnReadyCb)(TConnection *c, void *arg);
 /* a connection failed (from open) or errored (from the manager thread); error is a TCONN_ERR */
 typedef void (*TConnErrorCb)(TConnection *c, int error, void *arg);
 
-/* one datagram received; from_port in host byte order; data is reused after the call */
+/* one datagram received; from_port in network byte order; data is reused after the call */
 typedef void (*TRecvCb)(TConnection *c, const char *from_host, uint16_t from_port,
                         const void *data, long len, void *arg);
 
@@ -222,11 +222,11 @@ typedef struct TConnManagerVtbl {                                         /* 8 s
     int (*release)(TConnManager *m);                                      /* 0x08 */
     int (*createConnection)(TConnManager *m, int transport, int role,
                             uint32_t flags, TConnection **out);           /* 0x10 */
-    void *unused_18;                                                      /* 0x18 */
+    int (*resetListen)(TConnManager *m, TConnection *c);                  /* 0x18: TCP listeners only */
     int (*removeConnection)(TConnManager *m, TConnection *c);             /* 0x20 */
     int (*setPollIntervalMs)(TConnManager *m, int ms);                    /* 0x28 */
     int (*setTickCallback)(TConnManager *m, TConnTickCb cb, void *arg);   /* 0x30 */
-    void *unused_38;                                                      /* 0x38: sets a callback */
+    int (*callOnThread)(TConnManager *m, void (*fn)(void *), void *arg);  /* 0x38: one-shot on the thread */
 } TConnManagerVtbl;
 
 struct TConnManager {
@@ -240,19 +240,19 @@ typedef struct TConnectionVtbl {                                          /* 15 
     int (*open)(TConnection *c, const char *host, uint16_t *port, int unused,
                 TConnReadyCb ready, void *ready_arg,
                 TConnErrorCb failed, void *failed_arg);                   /* 0x10 */
-    void *unused_18;                                                      /* 0x18 */
-    void *unused_20;                                                      /* 0x20: another entry to send */
+    int (*setAcceptCallback)(TConnection *c, TConnReadyCb cb, void *arg); /* 0x18: TCP listeners only */
+    int (*sendToPeer)(TConnection *c, const void *data, int *len);        /* 0x20: send to the connected peer */
     int (*send)(TConnection *c, const char *host, uint16_t port,
                 const void *data, int *len);                              /* 0x28 */
     int (*setReceiveCallback)(TConnection *c, TRecvCb cb, void *arg);     /* 0x30 */
     int (*setErrorCallback)(TConnection *c, TConnErrorCb cb, void *arg);  /* 0x38 */
-    void *unused_40;                                                      /* 0x40 */
-    void *unused_48;                                                      /* 0x48 */
-    void *unused_50;                                                      /* 0x50 */
+    int (*getStage)(TConnection *c, int *out_stage);                      /* 0x40 */
+    int (*getLocalEndpoint)(TConnection *c, char *host, uint16_t *port);  /* 0x48 */
+    int (*setUnicastHops)(TConnection *c, int hops);                      /* 0x50: IPV6_UNICAST_HOPS */
     int (*setOption)(TConnection *c, int option, const void *value);      /* 0x58 */
-    void *unused_60;                                                      /* 0x60 */
-    void *unused_68;                                                      /* 0x68 */
-    void *unused_70;                                                      /* 0x70 */
+    int (*getOption)(TConnection *c, int option, void *out);              /* 0x60 */
+    int (*setReassemble)(TConnection *c);                                 /* 0x68: append next recv to buffer */
+    int (*clearCallbacks)(TConnection *c);                                /* 0x70 */
 } TConnectionVtbl;
 
 struct TConnection {

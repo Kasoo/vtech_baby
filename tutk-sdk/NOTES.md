@@ -41,3 +41,36 @@ python3 tests/load_test.py ../docs/vtech-lan-kit/sdk/x86_64 build/x86_64/libTUTK
 
 For musl, load `build/x86_64/patched` inside `localhost/home-assistant:2026.9.3-amd64`. The
 `ghcr.io/home-assistant/home-assistant:2026.9.3` image on this machine is the arm64 variant.
+
+Offline tests: `../.venv/bin/pytest` from this directory (its `pytest.ini` turns off Home Assistant's
+plugins, which block sockets).
+
+Live (on the NAS, in the HA image; read-only probes only):
+
+```sh
+cd ../tests/live && . $CAMERA_DIR/.camera.env && TK_TRACE=1 \
+  VTECH_LIVE_RUNNER=$CAMERA_DIR/shim/tests/live_run.sh ARCH=amd64 \
+  PATCHED=$REPO/tutk-sdk/build/x86_64/patched ./run.sh probe_phase1.py 10 1
+```
+
+A library built with `make DEBUG=1` logs each connection, task, crypto and address call to stderr when
+`TK_TRACE=1`; the default build has no trace code. A companion built from the
+current source (`../docs/vtech-lan-kit/tooling/companion/build.sh`) also logs every `sendto`/`connect`
+under the same variable; build one into a scratch directory and pass it to `tests/load_test.py` to see
+what either Global sends. That is how the stock library's traffic was compared with ours.
+
+## Status
+
+- 2026-10-17: Global's observed paths are implemented. `probe_phase1.py` (connect, every GET, events,
+  live-view key exchange, keepalive, two connect cycles) and `probe_stream.py` (snapshots, H.264/AAC
+  streaming, go2rtc RTSP and Opus) pass against the camera with our Global under the stock
+  IOTC/AV/Nebula, in the HA image (musl). `probe_talk.py` plays audio and is not run.
+
+## Known divergences from the stock library
+
+On paths that never run, where the kit allows any behaviour that keeps state intact:
+
+- `TUTK_Json_Obj_Get_Sub_Obj_String` returns `TJSON_ER_WRONG_TYPE` for a member that is not a string;
+  the stock library returns json-c's text form of it.
+- `TUTK3rdBase64Decode` rejects bad characters and misplaced padding with `TUTK_ER_INVALID_ARG`; the
+  stock library returns whatever OpenSSL's base64 BIO decodes.
