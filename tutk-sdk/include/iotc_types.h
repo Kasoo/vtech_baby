@@ -10,29 +10,77 @@ typedef struct ssl_ctx_st SSL_CTX;
 
 /* ---- docs/iotc/01-types.md ---- */
 
+typedef struct TRxPacket {          /* 0x20 (32) bytes; one received packet */
+    uint16_t len;                   /* +0x00  payload length */
+    uint16_t seq;                   /* +0x02  sequence tag: ordering and the lost-packet check */
+    uint32_t rx_index;              /* +0x04  monotonic per-channel receive index */
+    void    *data;                  /* +0x08  payload buffer (freed on dequeue) */
+    uint16_t flags;                 /* +0x10  low bits (& 3) carry the partial-encryption marker */
+    uint8_t  _reserved_12[6];
+    struct TRxPacket *next;         /* +0x18  next node in the channel queue, NULL at tail */
+} TRxPacket;
+
+typedef struct TChanRxQueue {       /* 0x10 (16) bytes; one per channel */
+    TRxPacket *head;                /* +0x00  NULL when the queue is empty */
+    TRxPacket *tail;                /* +0x08 */
+} TChanRxQueue;
+
 typedef struct TSessionInfo {           /* 0x1c30 (7216) bytes */
     uint8_t  _reserved_0000[0x19];
     uint8_t  state;                     /* +0x19  0 free, 2 established, 3 closed-by-remote,
                                                   4 remote-timeout. Read under the table lock by every
                                                   session call; 3 and 4 map to IOTC_ER_SESSION_CLOSE_
                                                   BY_REMOTE (-22) and _REMOTE_TIMEOUT_DISCONNECT (-23). */
-    uint8_t  _reserved_001a[0x80];
-    uint16_t chan_rx[32];               /* +0x9a  per-channel receive state, indexed by channel.
-                                                  Channel_OFF clears entry `channel`. Entry 0 unused. */
-    uint8_t  _reserved_00da[0x162];
+    uint8_t  _reserved_001a[2];
+    uint32_t transport_mode;            /* +0x1c  transport role/mode: selects the direct-P2P vs
+                                                  record/relay send path in 30-data.md; also read by
+                                                  IOTC_GetAuthenticationType. */
+    uint8_t  _reserved_0020[0x10];
+    void    *task_head;                 /* +0x30  head of the session task list (TSessionTaskList, below);
+                                                  nodes added by AddLanSearchTask etc. (40-discovery.md). */
+    void    *task_tail;                 /* +0x38  tail of the session task list. */
+    uint8_t  _reserved_0040[0x14];
+    uint32_t lan_search_state;          /* +0x54  1 = LAN-search task running, 2 = skipped. */
+    uint8_t  _reserved_0058[0x41];
+    uint8_t  data_pending;              /* +0x99  cleared by __Fill_ReadBuf after it queues a packet. */
+    uint16_t chan_rx[32];               /* +0x9a  per-channel expected next receive sequence, indexed by
+                                                  channel; the read's lost-packet check compares against
+                                                  it. Channel_OFF clears entry `channel`. Entry 0 unused. */
+    uint8_t  _reserved_00da[2];
+    uint8_t  peer_addr[20];             /* +0xdc  the peer's address as a TIotcNetAddr (see below);
+                                                  read by the send path. */
+    uint8_t  _reserved_00f0[0x4c];
+    uint32_t send_seq[32];              /* +0x13c per-channel send sequence counter, incremented per
+                                                  packet sent on the channel. */
+    uint32_t rx_index[32];              /* +0x1bc per-channel receive index, assigned by __Fill_ReadBuf. */
     uint8_t  chan_on[32];               /* +0x23c one byte per channel, non-zero = on. Entry 0 is set
                                                   to 1 at init and never cleared (channel 0 reserved);
                                                   1..31 are managed by Channel_ON/OFF/Get_Free_Channel
                                                   (25-channels.md). */
-    uint8_t  _reserved_025c[0x8a8];
+    uint8_t  read_abort;                /* +0x25c raises the read calls out of their wait with -14. */
+    uint8_t  _reserved_025d[1];
+    uint16_t rx_count[32];              /* +0x25e per-channel received-packet count. */
+    uint8_t  _reserved_029e[2];
+    TChanRxQueue rx_queue[32];          /* +0x2a0 per-channel receive queue head/tail. */
+    uint8_t  _reserved_04a0[0x288];
+    void    *close_cb[32];              /* +0x728 per-channel close callback (no arg); called as
+                                                  cb(sid, channel, 2) by IOTC_Session_Close. */
+    void    *close_cb_witharg[32];      /* +0x828 per-channel close callback taking an arg
+                                                  (IOTC_Session_Set_CloseCb_With_Arg). */
+    void    *close_cb_arg[32];          /* +0x928 the arg passed to close_cb_witharg[channel]. */
+    uint8_t  _reserved_0a28[0xdc];
     uint8_t  pe_capable;                /* +0xb04 peer advertised partial encryption; gate for
                                                   IOTC_Set_Partial_Encryption (-47 when 0). */
     uint8_t  pe_enabled;                /* +0xb05 partial encryption on for this session. */
-    uint8_t  _reserved_0b06[0x12];
-    void    *_handles[5];               /* +0xb18 five pointers zeroed at init; transport/queue handles
-                                                  bound during connect (roles not yet separated). */
+    uint8_t  _reserved_0b06[1];
+    uint8_t  remote_proto_version;      /* +0xb07 peer protocol version (IOTC_Get_Remote_ProtocolVersion). */
+    uint8_t  _reserved_0b08[0x10];
+    void    *_handles[5];               /* +0xb18 five pointers zeroed at init; _handles[4] (+0xb38) is
+                                                  the transport object the send path calls; the others
+                                                  are queue/transport handles bound during connect. */
     int32_t  id0;                       /* +0xb40 an id/handle initialised to -1 at init. */
-    uint8_t  _reserved_0b44[0xc20];
+    int32_t  session_id;                /* +0xb44 the slot's own session id, set by IOTC_Get_SessionID. */
+    uint8_t  _reserved_0b48[0xc1c];
     int32_t  id1;                       /* +0x1764 a second id/handle initialised to -1 at init. */
     uint8_t  _reserved_1768[0x1a];
     uint16_t nonce_a;                   /* +0x1782 a session nonce; iotcUpdateNonce avoids it (60-nat.md). */
@@ -51,7 +99,7 @@ typedef struct TSessionTaskNode {   /* 24 bytes */
     struct TSessionTaskNode *next;   /* +0x10  next node, NULL at tail */
 } TSessionTaskNode;
 
-typedef struct TSessionTaskList {   /* embedded in the session record */
+typedef struct TSessionTaskList {   /* embedded in the session record at +0x30 (head) / +0x38 (tail) */
     TSessionTaskNode *head;         /* +0x00 */
     TSessionTaskNode *tail;         /* +0x08 */
 } TSessionTaskList;

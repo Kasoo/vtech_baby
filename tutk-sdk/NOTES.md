@@ -2,8 +2,8 @@
 
 A replacement for the Kalay SDK 4.3.8.1 libraries, written from the TUTK kit
 (`$CAMERA_DIR/tutk-kit/`). Work in progress: not wired into the integration, and not documented
-for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` is done; `libIOTCAPIs.so` and
-`libAVAPIs.so` are scaffolded (every export a stub) while their kit text is written.
+for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` and `libIOTCAPIs.so` are done;
+`libAVAPIs.so` is scaffolded (every export a stub).
 `libNebulaAPIs.so` stays stock: nothing calls into it.
 
 ## Decisions (2026-10-17)
@@ -15,6 +15,8 @@ for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` is done; `libI
 - **LAN-only by design.** Global resolves numeric addresses only; every internet-bound path fails the
   way it failed under the companion's policy (`tutk-kit/docs/shared/30-lan-only.md`). Server-only paths
   (TCP, TLS, client connections, curl, NAT64) are stubs or clean failures.
+- **IOTC connects LAN-direct only.** `IOTC_Connect_ByUIDEx` runs just the LAN-local sequence; the
+  master-name resolution, knock-retry task, ECDH key pair, TryPort and relay send paths are left out.
 - **OpenSSL from the host.** The 42 `tutk_third_*` imports are tail-jumps to the host's `libssl.so.3` /
   `libcrypto.so.3` (`DT_NEEDED libssl.so.3`). Android's system libssl is BoringSSL, so running on
   Android would need an OpenSSL 3 shipped alongside.
@@ -33,6 +35,7 @@ for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` is done; `libI
 | `global/`, `iotc/`, `av/` | Each library's hand-written sources, one file per kit area document. `imports.txt` is its drop-in surface: every function the other stock libraries import from it, plus the entry points the integration calls on it (`tools/gen_imports.sh LIB SDK_DIR`). |
 | `Makefile`, `lib.mk` | `make` builds the three in order; `lib.mk` builds one. |
 | `tools/gen_stubs.py` | Run by `make`: abort stubs for every import the hand-written objects don't define, and (Global only) the OpenSSL forwarders. It prints how many of each library's imports are implemented. |
+| `tools/iotc_decode.sh` | Prints a capture's UDP datagrams with the IOTC payloads unscrambled (`iotc/wire.c` via `tools/iotc_decode.c`). The licence in use has no keyMask, so the key is the bare constant. |
 | `tests/load_test.py` | Patches any mix of our libraries and the stock ones, and loads the set with every symbol bound. |
 
 The drop-in surfaces (the x86_64 and arm64 SDKs agree): Global 151 (108 TUTK functions, 42
@@ -85,6 +88,20 @@ what either Global sends. That is how the stock library's traffic was compared w
 - 2026-10-18: IOTC and AV scaffolded from the kit's skeleton: per-area source files, generated type
   headers, stubbed surfaces. All seven mixes of ours and stock load (glibc offline; the all-ours set
   on musl in the HA image too); all three build for aarch64.
+- 2026-10-18: IOTC: 34 of 37 exports written from the kit (init, session table and guards, channels,
+  receive queues and reads, DTLS with its BIO and PSK registries, NAT, task lists, addresses, error
+  mapping, the `99-stubs.md` entries), plus the scramble, checked against the kit's worked example and
+  inverted for every length. Still stubs: `IOTC_Connect_ByUIDEx`, `IOTC_Session_Write` and
+  `IOTC_Session_Write_DTLS`, waiting on kit gaps (credentials on the wire, connect sequence, data
+  header, acks, keepalive and close); the close datagrams and the keepalive task body wait on the same.
+- 2026-10-18: IOTC complete: all 37 exports. The LAN-direct connect (signed `0xcc51` record and probe
+  broadcast every 100 ms, the camera's long-form `0x602`, our probe and `0x0402` ack), `0x0407` data
+  out and `0x0408` in, keepalive (`0x0427`, 1 s tick, 60 s silence → -23) and the 3× `0x0417` close.
+  `tests/test_iotc_peer.py` drives it against a fake camera on a local socket (connect, -68, -13
+  timeout, data both ways, close). Live, with our Global and IOTC under stock AV/Nebula in the HA image
+  (musl): `probe_phase1.py` (10 s × 1 and 70 s × 2 cycles, every GET, events, live-view key exchange)
+  and `probe_stream.py` (snapshots, H.264/AAC, go2rtc RTSP and Opus, no bad frames) pass. `tools/
+  iotc_decode.sh` decodes captures (both version bytes, `0x1d` ours and `0x1b` the camera's).
 
 ## Known divergences from the stock library
 
@@ -94,3 +111,13 @@ On paths that never run, where the kit allows any behaviour that keeps state int
   the stock library returns json-c's text form of it.
 - `TUTK3rdBase64Decode` rejects bad characters and misplaced padding with `TUTK_ER_INVALID_ARG`; the
   stock library returns whatever OpenSSL's base64 BIO decodes.
+
+In IOTC, where the kit leaves a choice open (to revisit when it is pinned):
+
+- The session slot layout is our own: nothing outside IOTC reads it.
+- The DTLS handshake loop treats `SSL_ERROR_SYSCALL` (the BIO's `-13` read timeout, which sets no retry
+  flag) as a retry alongside want-read/want-write.
+- The broadcast search repeats every 100 ms (the task manager's tick); the stock library's interval is
+  about 105 ms.
+- `translate_Error` maps reasons `0x119` and `0x3fc` to `-50002` and every other reason to
+  `-52000 - reason`; the kit does not say which reasons give `-50003`.
