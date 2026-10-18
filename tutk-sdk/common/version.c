@@ -1,10 +1,11 @@
+/* Linked into every library: the version string, the abort stub and the debug trace. */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#include "tk.h"
+#include "tk_common.h"
 
 /* The SDK patcher identifies each library's SDK version by a string of this shape. */
 __attribute__((used)) static const char tk_sdk_version[] = "4.3.8.1-tutk-sdk-lan-only";

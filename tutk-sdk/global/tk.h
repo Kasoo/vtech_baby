@@ -7,17 +7,7 @@
 #include <stdint.h>
 
 #include "tutk_shared.h"
-#include "tk_stub.h"
-
-#define TK_HIDDEN __attribute__((visibility("hidden")))
-
-/* Debug trace to stderr. Built in only with TK_DEBUG (make DEBUG=1), and then written only when the
- * environment has TK_TRACE=1. */
-#ifdef TK_DEBUG
-void tk_trace(const char *fmt, ...) TK_HIDDEN __attribute__((format(printf, 1, 2)));
-#else
-static inline __attribute__((format(printf, 1, 2))) void tk_trace(const char *fmt, ...) { (void)fmt; }
-#endif
+#include "tk_common.h"
 
 /* Exported functions that other files call. */
 void *tutk_platform_malloc(int size);

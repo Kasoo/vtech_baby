@@ -2,7 +2,9 @@
 
 A replacement for the Kalay SDK 4.3.8.1 libraries, written from the TUTK kit
 (`$CAMERA_DIR/tutk-kit/`). Work in progress: not wired into the integration, and not documented
-for release until it covers the whole SDK. The first library is `libTUTKGlobalAPIs.so`.
+for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` is done; `libIOTCAPIs.so` and
+`libAVAPIs.so` are scaffolded (every export a stub) while their kit text is written.
+`libNebulaAPIs.so` stays stock: nothing calls into it.
 
 ## Decisions (2026-10-17)
 
@@ -26,24 +28,34 @@ for release until it covers the whole SDK. The first library is `libTUTKGlobalAP
 
 | Path | What |
 |---|---|
-| `include/tutk_shared.h` | Generated from the kit's shared docs by `tools/gen_header.py KIT_DIR`. |
-| `global/` | Hand-written sources. `imports.txt` is every symbol the stock IOTC/AV/Nebula import from Global plus `TUTK_SDK_Set_License_Key` (`tools/gen_imports.sh SDK_DIR`). |
-| `tools/gen_stubs.py` | Run by `make`: abort stubs for every import the hand-written objects don't define, and the OpenSSL forwarders. |
-| `tests/load_test.py` | Patches stock IOTC/AV/Nebula with our Global and loads the set with every symbol bound. |
+| `include/` | Generated from the kit by `tools/gen_header.py KIT_DIR`: `tutk_shared.h` (shared errors and types), `iotc_types.h` and `av_types.h` (each library's `01-types.md`). |
+| `common/` | Linked into every library: the version string the patcher checks, the abort stub, the debug trace. |
+| `global/`, `iotc/`, `av/` | Each library's hand-written sources, one file per kit area document. `imports.txt` is its drop-in surface: every function the other stock libraries import from it, plus the entry points the integration calls on it (`tools/gen_imports.sh LIB SDK_DIR`). |
+| `Makefile`, `lib.mk` | `make` builds the three in order; `lib.mk` builds one. |
+| `tools/gen_stubs.py` | Run by `make`: abort stubs for every import the hand-written objects don't define, and (Global only) the OpenSSL forwarders. It prints how many of each library's imports are implemented. |
+| `tests/load_test.py` | Patches any mix of our libraries and the stock ones, and loads the set with every symbol bound. |
+
+The drop-in surfaces (the x86_64 and arm64 SDKs agree): Global 151 (108 TUTK functions, 42
+`tutk_third_*`, the licence call); IOTC 37 (the 30 functions stock AV imports and the integration's 8
+calls, one shared); AV 14 (the integration's calls). IOTC links against Global and AV against both,
+by soname, so each of ours runs over either the stock build or ours of the libraries below it. IOTC
+and AV reach OpenSSL as the stock ones do, through Global's `tutk_third_*` forwarders.
 
 ## Build and test
 
 ```sh
-make                                   # ARCH=x86_64 (default) or aarch64
-python3 tests/load_test.py ../docs/vtech-lan-kit/sdk/x86_64 build/x86_64/libTUTKGlobalAPIs.so \
-    ../custom_components/vtech_baby/native/x86_64/libtk.so build/x86_64/patched
+make                     # all three, or make global|iotc|av; ARCH=x86_64 (default) or aarch64
+python3 tests/load_test.py ../docs/vtech-lan-kit/sdk/x86_64 \
+    ../custom_components/vtech_baby/native/x86_64/libtk.so build/x86_64/patched \
+    build/x86_64/libTUTKGlobalAPIs.so    # name libIOTCAPIs.so / libAVAPIs.so too to swap those in
 ```
 
 For musl, load `build/x86_64/patched` inside `localhost/home-assistant:2026.9.3-amd64`. The
 `ghcr.io/home-assistant/home-assistant:2026.9.3` image on this machine is the arm64 variant.
 
 Offline tests: `../.venv/bin/pytest` from this directory (its `pytest.ini` turns off Home Assistant's
-plugins, which block sockets).
+plugins, which block sockets). They load all three of ours in-process (fixtures `g`, `iotc`, `av`,
+`tk`), and check that every mix of ours and stock loads, each mix in its own process.
 
 Live (on the NAS, in the HA image; read-only probes only):
 
@@ -65,6 +77,14 @@ what either Global sends. That is how the stock library's traffic was compared w
   live-view key exchange, keepalive, two connect cycles) and `probe_stream.py` (snapshots, H.264/AAC
   streaming, go2rtc RTSP and Opus) pass against the camera with our Global under the stock
   IOTC/AV/Nebula, in the HA image (musl). `probe_talk.py` plays audio and is not run.
+- 2026-10-17: also passing: `probe_sps.py` (30 s, steady 10 fps, a keyframe every 2 s, one SPS),
+  `probe_restart.py` (15 stop/start cycles, each starting on a keyframe, no bad frames) and
+  `probe_stall.py` in the scenarios that write current values only (`none`, `731`, `790+731`,
+  `burst`: no stall, every GET under 0.11 s, settings unchanged). Still to do: talk-back (needs
+  someone at the camera) and a first arm64 run.
+- 2026-10-18: IOTC and AV scaffolded from the kit's skeleton: per-area source files, generated type
+  headers, stubbed surfaces. All seven mixes of ours and stock load (glibc offline; the all-ours set
+  on musl in the HA image too); all three build for aarch64.
 
 ## Known divergences from the stock library
 
