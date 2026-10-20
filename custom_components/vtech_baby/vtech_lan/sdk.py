@@ -25,6 +25,8 @@ from .errors import (
 )
 
 LIBS = ("libtk.so", "libTUTKGlobalAPIs.so", "libNebulaAPIs.so", "libIOTCAPIs.so", "libAVAPIs.so")
+#: A host-built set (tutk-host/): no companion, no Nebula; Global carries the LAN-only policy.
+HOST_LIBS = ("libTUTKGlobalAPIs.so", "libIOTCAPIs.so", "libAVAPIs.so")
 IOCTRL_BUF = 2048
 # The camera answers LAN search on 32762; the SDK's built-in default (32761) goes unanswered, so without
 # this only ThroughTek's master can find the camera (docs/vtech-lan-kit/docs/00-prerequisites.md).
@@ -102,12 +104,14 @@ class Sdk:
         self.libdir = libdir
         self.arch = preflight(libdir)
         mode = os.RTLD_NOW | os.RTLD_LOCAL
-        # Companion first, then dependency order; DT_RUNPATH $ORIGIN resolves siblings on glibc and musl.
-        h = {name: C.CDLL(os.path.join(libdir, name), mode=mode) for name in LIBS}
+        # A patched set loads the companion first; a host-built set has none. Then dependency order;
+        # DT_RUNPATH $ORIGIN resolves siblings on glibc and musl.
+        names = LIBS if os.path.exists(os.path.join(libdir, "libtk.so")) else HOST_LIBS
+        h = {name: C.CDLL(os.path.join(libdir, name), mode=mode) for name in names}
         G, IO, AV = h["libTUTKGlobalAPIs.so"], h["libIOTCAPIs.so"], h["libAVAPIs.so"]
-        # The companion's LAN-only egress policy (companion/net.c). Bound so a companion without it
-        # fails at load rather than letting the SDK reach ThroughTek's servers.
-        self._lan_only_stats = _bind(h["libtk.so"], "tk_lan_only_stats", None,
+        # The LAN-only egress policy: the companion's (companion/net.c) or, in a host-built set,
+        # Global's. Bound so a set without it fails at load rather than reaching ThroughTek's servers.
+        self._lan_only_stats = _bind(h.get("libtk.so", G), "tk_lan_only_stats", None,
                                      C.POINTER(C.c_ulong), C.POINTER(C.c_ulong))
 
         self._set_license = _bind(G, "TUTK_SDK_Set_License_Key", C.c_int, C.c_char_p)

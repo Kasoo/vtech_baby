@@ -1,5 +1,9 @@
 # tutk-sdk: working notes
 
+**Archived 2026-10-20** at tag `tutk-sdk-dropin-v1`. Development continues in `../tutk-host/`, built
+for the host libc without the NDK, the patcher or `libtk`. This tree stays for drop-in testing
+against the stock libraries.
+
 A replacement for the Kalay SDK 4.3.8.1 libraries, written from the TUTK kit
 (`$CAMERA_DIR/tutk-kit/`). Work in progress: not wired into the integration, and not documented
 for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` and `libIOTCAPIs.so` are done;
