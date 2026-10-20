@@ -124,6 +124,10 @@ typedef struct Stream {
     Frame *ready, *ready_tail;    /* complete frames, oldest first */
     int    ready_count;
     int    lost;                  /* incomplete frames dropped since the last read */
+    /* cumulative, for tk_av_recv_stats */
+    uint32_t given_up;            /* frames dropped as incomplete */
+    uint32_t late;                /* frames completed LATE_MS or more after their first fragment */
+    uint32_t overflow;            /* complete frames dropped because the reader fell behind */
 } Stream;
 
 /* ---- The AV object behind one AV index ---- */
@@ -162,6 +166,7 @@ typedef struct AvObj {
     bool            ack_urgent;
     uint16_t        ack_seq;
     uint32_t        ack_ms, report_ms, nak_ms;
+    uint32_t        naks_sent;       /* media packets asked for again, cumulative */
     bool            rtt_due;
     uint16_t        rtt_echo;        /* the camera report's timestamp to echo */
     uint16_t        rtt_ms;          /* our RTT estimate */
@@ -173,6 +178,8 @@ typedef struct AvObj {
     uint32_t        tx_frame;        /* next media frame number, from 0 */
     uint32_t        tx_audio;        /* audio frames sent */
 } AvObj;
+
+#define TK_AV_RECV_STATS 7    /* the counters tk_av_recv_stats fills */
 
 static inline bool seq_after(uint16_t a, uint16_t b) { return (int16_t)(a - b) > 0; }
 

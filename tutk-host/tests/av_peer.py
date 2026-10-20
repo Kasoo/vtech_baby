@@ -197,6 +197,12 @@ class Peer:
                                       C.byref(info_len), C.byref(number))
         return rc, buf.raw[:max(rc, 0)], info.raw[:info_len.value], number.value, expected.value
 
+    def recv_stats(self):
+        """tk_av_recv_stats: packets asked for again; video given up, late, overflow; audio the same."""
+        out = (C.c_uint32 * 7)()
+        check(self.av.tk_av_recv_stats(0, out) == 0, "tk_av_recv_stats")
+        return list(out)
+
     def recv_audio(self, size=4096):
         buf, info, number = C.create_string_buffer(size), C.create_string_buffer(64), C.c_uint()
         rc = self.av.avRecvAudioData(0, buf, size, info, 16, C.byref(number))
@@ -382,6 +388,8 @@ def s_media(p):
     r = p.recv_audio()
     check(r[0] == 320 and r[1] == audio and r[3] == 5, f"audio {r[0]}")
     check(p.recv_audio()[0] == AV_ER_DATA_NOREADY, "audio drained")
+    stats = p.recv_stats()
+    check(stats[1:] == [1, 3, 0, 0, 0, 0], f"given up: frame 3; late: 11, 12, 4 ({stats})")
     big = os.urandom(5000)
     cam.send_frame(5, pn, 6, big, info)
     time.sleep(0.1)
@@ -415,6 +423,8 @@ def s_media_ack(p):
     cam.push(cam.media(3, 0x4001, 2, 0, b"c", b"", 0, 1))      # the resend
     cam.wait(lambda: last_ack() == (0x4002, 0x4002), what="gap filled")
     check(len(acks()[-1]) == 0x18 and struct.unpack_from("<H", acks()[-1], 0x0e)[0] == 0, "no NAK after")
+    naks = sum(struct.unpack_from("<H", pk, 0x0e)[0] for pk in acks())
+    check(p.recv_stats()[0] == naks >= 1, f"packets asked for again: {p.recv_stats()[0]}, ACKs named {naks}")
 
     cam.push(cam.media(3, 0x4004, 3, 0, b"d", b"", 0, 1))      # 0x4003 never comes
     time.sleep(0.15)

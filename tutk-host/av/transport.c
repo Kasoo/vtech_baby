@@ -98,8 +98,10 @@ static void send_ack(AvObj *o, uint32_t now) {
     av_put16(pkt + 0x08, o->pn_cum);
     av_put16(pkt + 0x0a, o->pn_high);
     av_put16(pkt + 0x0c, o->ctrl_in);
-    if (now - o->nak_ms >= NAK_REPEAT_MS && (n = av_media_naks(o, naks, NAK_MAX)) > 0)
+    if (now - o->nak_ms >= NAK_REPEAT_MS && (n = av_media_naks(o, naks, NAK_MAX)) > 0) {
         o->nak_ms = now;
+        o->naks_sent += (uint32_t)n;
+    }
     av_put16(pkt + 0x0e, (uint16_t)n);
     av_put16(pkt + 0x10, o->ack_urgent);
     av_put16(pkt + 0x12, o->ack_seq++);

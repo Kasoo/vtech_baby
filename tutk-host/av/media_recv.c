@@ -19,6 +19,7 @@
 #define AUDIO_QUEUE       200
 #define GAP_SKIP_MS       300     /* acknowledge past a missing packet after this long */
 #define PARTIAL_WAIT_MS   500     /* how long an incomplete frame holds back the frames after it */
+#define LATE_MS           100     /* a frame completing this long after its first fragment counts as late */
 
 /* Received media packet numbers ahead of pn_cum, by pn & (WINDOW - 1). */
 #define WINDOW            0x1000
@@ -136,10 +137,13 @@ static void release(Stream *s, int limit, uint32_t now) {
             *oldest = f->next;
             frame_free(f);
             s->lost++;
+            s->given_up++;
             continue;
         }
         *oldest = f->next;
         f->next = NULL;
+        if (now - f->first_ms >= LATE_MS)
+            s->late++;
         /* Fragments are stored MEDIA_FRAG apart; any but the last may be shorter, so close the gaps. */
         for (int i = 0; i < f->count; i++) {
             memmove(f->data + f->size, f->data + (size_t)i * MEDIA_FRAG, (size_t)(f->seen[i] - 1));
@@ -159,6 +163,7 @@ static void release(Stream *s, int limit, uint32_t now) {
             s->ready_count--;
             frame_free(old);
             s->lost++;
+            s->overflow++;
         }
     }
 }
@@ -314,6 +319,34 @@ static int clean(int av_index, bool audio) {
         rc = av_media_reset(o);
     av_slot_release(av_index);
     return rc;
+}
+
+/* Receive counters since the channel started, for the integration's diagnostics: media packets asked
+ * for again, then for video and for audio: frames given up on as incomplete, frames completed late,
+ * frames dropped because the reader fell behind. */
+TK_EXPORT int tk_av_recv_stats(int av_index, uint32_t out[TK_AV_RECV_STATS]) {
+    AvObj *o;
+
+    if (!av_initialized())
+        return AV_ER_NOT_INITIALIZED;
+    if (!out)
+        return AV_ER_INVALID_ARG;
+    o = av_slot_acquire(av_index);
+    if (!o)
+        return AV_ER_INVALID_ARG;
+    pthread_mutex_lock(&o->lock);
+    release(&o->video, VIDEO_QUEUE, av_now_ms());
+    release(&o->audio, AUDIO_QUEUE, av_now_ms());
+    out[0] = o->naks_sent;
+    out[1] = o->video.given_up;
+    out[2] = o->video.late;
+    out[3] = o->video.overflow;
+    out[4] = o->audio.given_up;
+    out[5] = o->audio.late;
+    out[6] = o->audio.overflow;
+    pthread_mutex_unlock(&o->lock);
+    av_slot_release(av_index);
+    return 0;
 }
 
 TK_EXPORT int avClientCleanVideoBuf(int av_index) { return clean(av_index, false); }
