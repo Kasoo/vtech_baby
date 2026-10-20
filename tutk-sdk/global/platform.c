@@ -53,13 +53,12 @@ TK_EXPORT void tutk_platform_set_thread_name(const char *name) {}
 
 TK_EXPORT int tutk_platform_mutex_init(pthread_mutex_t *m) {
     pthread_mutexattr_t attr;
-    int rc;
 
+    /* attr holds no resources, so it is not destroyed (the stock libraries never import
+     * pthread_mutexattr_destroy). */
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    rc = pthread_mutex_init(m, &attr);
-    pthread_mutexattr_destroy(&attr);
-    return rc;
+    return pthread_mutex_init(m, &attr);
 }
 
 TK_EXPORT int tutk_platform_mutex_destroy(pthread_mutex_t *m) { return pthread_mutex_destroy(m); }

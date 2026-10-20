@@ -2,7 +2,7 @@
  * a list ordered by id, which a pass walks in order. */
 #include <stdlib.h>
 #include <sys/time.h>
-#include <time.h>
+#include <unistd.h>
 
 #include "tk.h"
 
@@ -39,11 +39,7 @@ static uint32_t now_ms(void) {
     return (uint32_t)((uint64_t)tv.tv_sec * 1000 + (uint64_t)tv.tv_usec / 1000);
 }
 
-static void sleep_ms(uint32_t ms) {
-    struct timespec ts = {ms / 1000, (long)(ms % 1000) * 1000000};
-
-    nanosleep(&ts, NULL);
-}
+static void sleep_ms(uint32_t ms) { usleep((useconds_t)ms * 1000); }
 
 static uint32_t gcd(uint32_t a, uint32_t b) {
     while (b) {

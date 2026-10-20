@@ -9,6 +9,8 @@
 #define CLOSECB_MAGIC (-0x27955e4)
 #define CLOSE_REASON  2
 #define SINFO_CLASSIC  0x5c
+#define SINFOEX_MODE    0x04
+#define SINFOEX_VERSION 0x54
 #define SINFO_EXTENDED 0xa0
 
 /* The connect input struct: its size, auth type, authKey, timeout and security mode. */
@@ -40,8 +42,12 @@ TK_EXPORT int IOTC_Get_SessionID(void) {
     return sid;
 }
 
+/* Fills the size-prefixed St_SInfoEx: the caller's size stays at +0x00, the mode is at +0x04 and the
+ * camera's IOTC version (from its LAN reply) at +0x54. Like the stock library it clears 0xa0 bytes
+ * whatever the declared size. */
 TK_EXPORT int IOTC_Session_Check_Ex(int session_id, void *info) {
-    uint32_t size;
+    uint8_t *b = info;
+    uint32_t size, version;
     IotcSession *s;
     int rc;
 
@@ -50,21 +56,30 @@ TK_EXPORT int IOTC_Session_Check_Ex(int session_id, void *info) {
     memcpy(&size, info, sizeof size);
     if (size != SINFO_CLASSIC && size != SINFO_EXTENDED)
         return IOTC_ER_INVALID_ARG;
-    memset(info, 0, size);
+    memset(info, 0, SINFO_EXTENDED);
+    memcpy(info, &size, sizeof size);
     rc = iotc_session_enter(session_id, &s);
-    if (rc != 0)
+    if (rc != 0) {
+        tk_trace("IOTC_Session_Check_Ex(%d, size 0x%x) -> %d", session_id, size, rc);
         return rc;
-    ((st_IOTCSessInfo *)info)->mode = s->mode;
+    }
+    b[SINFOEX_MODE] = s->mode;
+    version = s->remote_iotc_version;
     iotc_unlock();
+    memcpy(b + SINFOEX_VERSION, &version, sizeof version);
+    tk_trace("IOTC_Session_Check_Ex(%d, size 0x%x) -> 0, mode %d", session_id, size, b[SINFOEX_MODE]);
     return 0;
 }
 
+/* The classic St_SInfo, repacked from the Ex block: the mode at byte 0. */
 TK_EXPORT int IOTC_Session_Check(int session_id, void *info) {
-    uint8_t block[SINFO_CLASSIC] = {SINFO_CLASSIC};
+    uint8_t block[SINFO_EXTENDED] = {SINFO_CLASSIC};
     int rc = IOTC_Session_Check_Ex(session_id, block);
 
-    if (rc == 0 && info)
-        memcpy(info, block, sizeof block);
+    if (rc == 0 && info) {
+        memset(info, 0, SINFO_CLASSIC);
+        ((st_IOTCSessInfo *)info)->mode = block[SINFOEX_MODE];
+    }
     return rc;
 }
 

@@ -264,6 +264,7 @@ static int conn_send(TConnection *tc, const char *host, uint16_t port, const voi
         n = sendto(fd, data, (size_t)*len, 0, NULL, 0);
     }
     tk_trace("send(%p, %s, %u, %d) -> %zd", (void *)c, host ? host : "NULL", ntohs(port), *len, n);
+    tk_hex("udp", 'W', ntohs(port), data, (int)n);
     if (n < 0)
         return socket_error(errno);
     *len = (int)n;
@@ -383,6 +384,7 @@ static void conn_receive(ConnManager *m, Connection *c) {
         from_port = v4->sin_port;
     }
     tk_trace("receive(%p) %zd bytes from [%s]:%u", (void *)c, n, from_host, ntohs(from_port));
+    tk_hex("udp", 'R', ntohs(from_port), c->recv_buf, (int)n);
     if (c->recv_cb)
         c->recv_cb((TConnection *)c, from_host, from_port, c->recv_buf, (long)n, c->recv_arg);
     pthread_mutex_unlock(&c->recv_lock);

@@ -2,7 +2,7 @@
 #
 #   make [global|iotc|av] [ARCH=x86_64|aarch64] [DEBUG=1] [NDK=/path/to/ndk]
 #
-# With no target, builds all three. Switching DEBUG needs a `make clean` first.
+# With no target, builds all three, into build/ARCH (build/ARCH-debug with DEBUG=1).
 #
 # The results are patched and loaded exactly like the stock libraries (SDK patcher + companion), in
 # any mix with the stock ones (tests/load_test.py).

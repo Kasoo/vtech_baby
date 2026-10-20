@@ -76,6 +76,8 @@ static void handle_lan_reply(const uint8_t *pkt, int len, const char *host, uint
         if (s == NULL)
             return;
         s->remote_proto_version = version;
+        if (len >= 0x34)
+            memcpy(&s->remote_iotc_version, pkt + 0x30, sizeof s->remote_iotc_version);
         if (result != 1 && result != 7) {
             s->connect_error = reject_code(result);
             return;
@@ -107,8 +109,11 @@ static void handle_data(const uint8_t *pkt, int len) {
     int n = iotc_get16(pkt + 4) - skip;
     IotcSession *s = find_established(pkt, len, IOTC_HEADER_LEN + 4);
 
-    if (s == NULL || n < 0 || IOTC_HEADER_LEN + skip + n > len)
+    if (s == NULL || n < 0 || IOTC_HEADER_LEN + skip + n > len) {
+        tk_trace("iotc: dropped data, %s, len %d", s ? "bad length" : "no session", len);
+        tk_hex("iotc-drop", 'R', -1, pkt, len);
         return;
+    }
     s->silence_ticks = 0;
     __Fill_ReadBuf(s->session_id, pkt + IOTC_HEADER_LEN + skip, (uint16_t)n, iotc_get16(pkt + 6),
                    pkt[0xe], pkt[0xf]);
@@ -145,6 +150,8 @@ void iotc_on_datagram(TConnection *c, const char *from_host, uint16_t from_port,
             s->state = SESSION_CLOSED_BY_REMOTE;
         break;
     default:
+        tk_trace("iotc: ignored opcode 0x%04x len %d", iotc_get16(pkt + 8), n);
+        tk_hex("iotc-drop", 'R', -1, pkt, n);
         break;
     }
     iotc_unlock();

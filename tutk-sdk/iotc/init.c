@@ -16,12 +16,7 @@ static pthread_once_t locks_once = PTHREAD_ONCE_INIT;
 
 /* The mutexes outlive IOTC_DeInitialize, so they are created once per process. */
 static void create_locks(void) {
-    pthread_mutexattr_t attr;
-
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&iotc.table_lock, &attr);
-    pthread_mutexattr_destroy(&attr);
+    tutk_platform_mutex_init(&iotc.table_lock);
     tutk_platform_mutex_init(&iotc.task_lock);
 }
 

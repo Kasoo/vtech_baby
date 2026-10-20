@@ -16,6 +16,7 @@ TK_EXPORT int IOTC_Session_Get_Free_Channel(unsigned int session_id) {
         }
     }
     iotc_unlock();
+    tk_trace("IOTC_Session_Get_Free_Channel(%u) -> %d", session_id, rc);
     return rc;
 }
 
@@ -30,6 +31,7 @@ TK_EXPORT int IOTC_Session_Channel_ON(unsigned int session_id, unsigned char cha
     else
         s->chan_on[channel] = true;
     iotc_unlock();
+    tk_trace("IOTC_Session_Channel_ON(%u, %u) -> %d", session_id, channel, rc);
     return rc;
 }
 

@@ -3,10 +3,11 @@
 Runs inside the HA image, on a host on the camera's LAN, via run.sh ($VTECH_LIVE_RUNNER):
 
     cd tests/live && ./run.sh probe_talk.py --owner-present [media URL]
+    cd tests/live && ./run.sh probe_talk.py --silent
 
 Plays a 3 s tone (440 Hz, then 880 Hz) through the camera's speaker with the real
 vtech_lan.talkback.TalkBack, served from a loopback HTTP server so it goes through the same PyAV path as
-any URL. Then plays it again with the live view running, and reports whether camera audio comes back
+any URL. With --silent it plays 3 s of digital silence instead, which needs nobody at the camera. Then plays it again with the live view running, and reports whether camera audio comes back
 afterwards. With a media URL, that is played instead of the tone. Changes no settings; the speaker
 volume (0x734 @20) is read and reported only.
 """
@@ -39,10 +40,11 @@ def license_key():
         return next(ln.split("license_key=", 1)[1].strip() for ln in f if "license_key=" in ln)
 
 
-def tone_wav() -> bytes:
+def tone_wav(silent: bool = False) -> bytes:
     rate, out = 8000, []
     for freq in (440, 880):
-        out += [int(6000 * math.sin(2 * math.pi * freq * i / rate)) for i in range(int(1.5 * rate))]
+        amp = 0 if silent else 6000
+        out += [int(amp * math.sin(2 * math.pi * freq * i / rate)) for i in range(int(1.5 * rate))]
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)
@@ -91,6 +93,8 @@ def play(talk: TalkBack, url: str) -> None:
 
 def main() -> int:
     args = sys.argv[1:]
+    if "--silent" in args:
+        args = ["--owner-present", serve(tone_wav(silent=True))]
     if "--owner-present" not in args:
         print("This probe makes sound at the camera. Run it only with the owner there, "
               "and pass --owner-present.", file=sys.stderr)

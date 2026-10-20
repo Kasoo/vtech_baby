@@ -104,6 +104,7 @@ typedef struct IotcSession {
     int          auth_type;                         /* returned by IOTC_GetAuthenticationType */
     uint8_t      mode;                              /* st_IOTCSessInfo.mode: 2 = LAN-direct */
     uint8_t      remote_proto_version;
+    uint32_t     remote_iotc_version;              /* the camera's long LAN reply +0x30; St_SInfoEx +0x54 */
     bool         pe_capable;
     bool         pe_enabled;
     bool         chan_on[IOTC_MAX_CHANNELS];

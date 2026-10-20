@@ -10,6 +10,7 @@ typedef struct bio_st BIO;
 typedef struct rsa_st RSA;
 typedef struct ec_key_st EC_KEY;
 typedef struct evp_md_st EVP_MD;
+typedef struct ssl_st SSL;
 
 #define RSA_NO_PADDING            3
 #define NID_X9_62_prime256v1      415
@@ -33,6 +34,8 @@ OSSL_FN(int, RSA_private_decrypt, (int n, const unsigned char *from, unsigned ch
 OSSL_FN(EC_KEY *, EC_KEY_new_by_curve_name, (int nid))
 OSSL_FN(int, EC_KEY_generate_key, (EC_KEY *k))
 OSSL_FN(void, EC_KEY_free, (EC_KEY *k))
+OSSL_FN(int, SSL_read, (SSL *s, void *buf, int num))
+OSSL_FN(int, SSL_write, (SSL *s, const void *buf, int num))
 
 #undef OSSL_FN
 

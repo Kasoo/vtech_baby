@@ -7,7 +7,7 @@ BIN  := $(NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
 CC   := $(BIN)/$(ARCH)-linux-android$(API)-clang
 NM   := $(BIN)/llvm-nm
 
-OUT  := build/$(ARCH)
+OUT  := build/$(ARCH)$(if $(filter 1,$(DEBUG)),-debug)
 DIR  := $(OUT)/$(LIB)
 
 SONAME_global := libTUTKGlobalAPIs.so

@@ -3,7 +3,7 @@
 A replacement for the Kalay SDK 4.3.8.1 libraries, written from the TUTK kit
 (`$CAMERA_DIR/tutk-kit/`). Work in progress: not wired into the integration, and not documented
 for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` and `libIOTCAPIs.so` are done;
-`libAVAPIs.so` is scaffolded (every export a stub).
+`libAVAPIs.so` is written and live-tested (2026-10-20, uncommitted).
 `libNebulaAPIs.so` stays stock: nothing calls into it.
 
 ## Decisions (2026-10-17)
@@ -22,9 +22,25 @@ for release until it covers the whole SDK. `libTUTKGlobalAPIs.so` and `libIOTCAP
   Android would need an OpenSSL 3 shipped alongside.
 - **Written from the kit only**, not from the decompiled library. A gap in the kit is raised and fixed
   in the kit.
+- **Import only the libc the stock libraries import.** The patcher and companion are built and
+  audited for exactly the libc surface the stock SDK libraries use: they rename and adapt the
+  ABI-divergent imports (pthread mutexes and threads go through the companion's side table) and pass
+  the rest straight to the host libc. A libc function the stock libraries never import gets no such
+  review. It may bypass the side table, as `pthread_cond_*` did (a condition-variable wait never
+  released a companion-managed mutex), or differ between bionic and musl in a struct layout, a
+  constant or a data symbol. Before using a new libc function, check that a stock library imports
+  it (`llvm-nm -D --undefined-only` on the stock set) and that it means the same in each libc; if
+  none does, find another way or raise it with the companion first. After each build, compare our
+  libraries' undefined libc symbols against the stock ones.
+  As of 2026-10-19 the only libc imports outside the stock set are `nanosleep` (Global) and
+  `pthread_mutexattr_destroy` (Global, IOTC). Both look harmless (identical `timespec` on 64-bit;
+  musl's `pthread_mutexattr_destroy` is a no-op), but they break the rule and should be removed. The
+  OpenSSL names beyond the stock set are Global's own calls to the host libssl, which is expected.
 - **Unimplemented symbols abort** with `unimplemented: <name>` on stderr.
-- **Live probes** may connect and stream (audio, video, decryption). They must not change camera
-  settings, switch LEDs or play audio, so `probe_talk.py` is excluded.
+- **Live probes** may connect and stream (audio, video, decryption). Since 2026-10-20 they may also
+  run talk-back with silence (`probe_talk.py --silent`) and briefly switch the LEDs and temperature
+  thresholds when every value is restored (`probe_control.py --allow-writes`). Audible talk-back
+  (`probe_talk.py --owner-present`) still needs someone at the camera.
 
 ## Layout
 
@@ -65,10 +81,10 @@ Live (on the NAS, in the HA image; read-only probes only):
 ```sh
 cd ../tests/live && . $CAMERA_DIR/.camera.env && TK_TRACE=1 \
   VTECH_LIVE_RUNNER=$CAMERA_DIR/shim/tests/live_run.sh ARCH=amd64 \
-  PATCHED=$REPO/tutk-sdk/build/x86_64/patched ./run.sh probe_phase1.py 10 1
+  PATCHED=$REPO/tutk-sdk/build/x86_64-debug/patched ./run.sh probe_phase1.py 10 1
 ```
 
-A library built with `make DEBUG=1` logs each connection, task, crypto and address call to stderr when
+A library built with `make DEBUG=1` (into `build/x86_64-debug`) logs each connection, task, crypto and address call to stderr when
 `TK_TRACE=1`; the default build has no trace code. A companion built from the
 current source (`../docs/vtech-lan-kit/tooling/companion/build.sh`) also logs every `sendto`/`connect`
 under the same variable; build one into a scratch directory and pass it to `tests/load_test.py` to see
@@ -121,3 +137,60 @@ In IOTC, where the kit leaves a choice open (to revisit when it is pinned):
   about 105 ms.
 - `translate_Error` maps reasons `0x119` and `0x3fc` to `-50002` and every other reason to
   `-52000 - reason`; the kit does not say which reasons give `-50003`.
+
+## AV status (2026-10-20, uncommitted)
+
+All 14 exports are written, including the talk-back server. All three of our libraries pass, in the
+HA image on the NAS (musl), against the camera:
+- `probe_phase1`;
+- `probe_stream`: snapshots, H.264/AAC, go2rtc RTSP and Opus, no bad frames;
+- `probe_sps`: 10 fps, a keyframe every 2 s;
+- `probe_restart`: 25 cycles, no bad frames;
+- `probe_stall`: none, 731, 790+731 and burst, settings unchanged;
+- `probe_talk --silent`: 300 frames, all acknowledged by the camera, 3.3 s per 150 frames as stock,
+  camera audio paused while talking and resumed afterwards.
+- `probe_control --allow-writes`: the night-light and status-LED switches read back and push 0x7ac,
+  and a threshold change pushes 0x738 TOO_HOT (4 s) then IN_RANGE (6 s). Every value is restored.
+  Stock gives the same pushes and timings.
+
+Differential runs against stock AV:
+- GET latency is the same on the stall probe: median 0.04-0.05 s, max 0.24 s stock and 0.19 s ours.
+- `probe_restart` (it now counts lost frames): stock lost 0 frames in 40 cleaned restarts and ours
+  lost 19. The cause was not wire loss. The camera also sends frame kind 8 (a P-frame like 7, but
+  covered by FEC; kit 3eb8dcf), whose fragments before the
+  last can be shorter than 1024 bytes (1021 seen). We rejected those, NAKed them, and rejected the
+  camera's resend (same media packet number) too. Fragments are now placed by their actual length.
+  Since then, 50 cycles: 0 lost, 0 bad, every cleaned cycle starts on a keyframe, matching stock.
+- The ACK now carries the NAK list (count at +0x0e, offsets from +0x16), repeated every 50 ms while a
+  packet is missing. Frames are released in frame order: an incomplete frame holds later ones for up to
+  500 ms while its resend arrives, then counts as lost.
+
+How it was found, and what is left:
+- **Talk-back on LAN is plain IOTC, not DTLS.** The camera opens the channel with a DTLS ClientHello
+  (IOTC datatype 1), and stock AV answers in plain data with `recv dtls data!`. The camera then logs
+  in plainly (sub-types 0x00/0x20, empty account and password), the server answers 0x21 and sends an
+  internal hello (0x10/0x40, payload `00 01 00 00`), and audio flows as kind-3 media. Packet and frame
+  numbers start at 0, the FEC group is pn/20 and the index pn%20, and the checksum is a byte sum
+  (kit `80-fec.md`; checked on 40 captured packets). We send no parity packets.
+- **Our IOTC under stock AV fails talk-back** (`avServStart3` -20011). Stock AV's server read thread
+  stops after `IOTC_Session_Check_Ex(0xa0)`. `Check_Ex` now fills the size-prefixed St_SInfoEx (size
+  kept, mode at +4; kit cad6715), but -20011 remains, so the cause is elsewhere and still open. +0x54 is
+  the camera's long LAN reply +0x30, as stock (0 for this camera; kit cdb7fc7). Our AV does not call
+  `Check_Ex`, so all-ours works.
+- Debug taps (`TK_TRACE=2`, debug builds in `build/x86_64-debug`): `tk-ssl` (DTLS plaintext),
+  `tk-iotc` (channel data in and out), `tk-udp` (every datagram; `build/iotc_decode` unscrambles the
+  lines), `tk-iotc-drop` (packets IOTC drops). `TK_TRACE=2` slows the process enough to stretch
+  talk-back timing, so use it for captures only.
+- AV waits by sleeping 5 ms, not on condition variables (the patcher leaves `pthread_cond_*` going
+  straight to libc, which never released a companion-managed mutex: the first live hang).
+- Offline tests: `tests/test_av_peer.py` runs our AV against a fake camera (`tests/av_peer.py`) over
+  a stand-in IOTC (`tests/fake_iotc.c`). It covers login, IOCtrl both ways, retransmit, media assembly
+  and loss, ACK/report cadence, the reset, close, and talk-back. `tests/test_surface.py` checks the
+  libc-imports rule.
+- Open with the kit agent: the `Check_Ex` layout; the server-side 0x21 fields; the login deadline
+  operand; `avClientCleanBuf` (exported by us as clean audio + clean video); FEC; report +0x0a;
+  multi-fragment control frames; -20009.
+- Not done: FEC (parity) recovery on receive, parity on send, the stats block in media packets. None
+  is needed on LAN so far. Also open: our IOTC under stock AV for talk-back (above).
+- Next: commit; then archive this build and fork it without the Android build and the
+  `libtk` companion (a host-built library loses drop-in testing against stock). Captures in the camera repo's `av-tap/` contain credentials and stay there.

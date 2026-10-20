@@ -47,6 +47,8 @@ int IOTC_Session_Read_Check_Lost_Data_And_Datatype(unsigned int session_id, void
         uint8_t channel, unsigned int *out_flags) {
     unsigned int tries = timeout_ms / WAIT_STEP_MS + 1;
 
+    if (channel)
+        tk_trace("IOTC_Session_Read(%u, size %u, %u ms, ch %u)", session_id, buf_size, timeout_ms, channel);
     if (channel >= IOTC_MAX_CHANNELS)
         return IOTC_ER_CH_NOT_ON;
     for (;;) {
@@ -75,6 +77,7 @@ int IOTC_Session_Read_Check_Lost_Data_And_Datatype(unsigned int session_id, void
             s->rx_queue[channel].tail = NULL;
         n = p->len < buf_size ? p->len : (int)buf_size;
         memcpy(buf, p->data, (size_t)n);
+        tk_hex("iotc", 'R', channel, buf, n);
         if (out_seq)
             *out_seq = p->seq;
         if (out_lost)
@@ -136,6 +139,7 @@ int IOTC_Session_Write_Data_And_Datatype(int session_id, const void *data, unsig
 
     if (len > IOTC_MAX_PAYLOAD || channel >= IOTC_MAX_CHANNELS)
         return IOTC_ER_INVALID_ARG;
+    tk_hex("iotc", 'W', channel, data, (int)len);
     rc = iotc_session_enter(session_id, &s);
     if (rc != 0)
         return rc;
