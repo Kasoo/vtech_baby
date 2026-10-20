@@ -14,7 +14,10 @@ TUTK = HERE.parent
 ROOT = TUTK.parent
 sys.path.insert(0, str(HERE))
 
-BUILD = TUTK / "build" / f"{platform.machine()}-{'musl' if platform.libc_ver()[0] != 'glibc' else 'glibc'}"
+#: The set under test: TK_BUILD names a prebuilt one (a release set), else the host build, made on demand.
+PREBUILT = os.environ.get("TK_BUILD")
+BUILD = pathlib.Path(PREBUILT).resolve() if PREBUILT else \
+    TUTK / "build" / f"{platform.machine()}-{'musl' if platform.libc_ver()[0] != 'glibc' else 'glibc'}"
 #: Each library we build, by file name, and its source directory (whose imports.txt is its surface).
 OURS = {"libTUTKGlobalAPIs.so": "global", "libIOTCAPIs.so": "iotc", "libAVAPIs.so": "av"}
 
@@ -26,7 +29,8 @@ def surface(name):
 
 @pytest.fixture(scope="session")
 def libs():
-    subprocess.run(["make", "-C", str(TUTK)], check=True, capture_output=True)
+    if not PREBUILT:
+        subprocess.run(["make", "-C", str(TUTK)], check=True, capture_output=True)
     mode = os.RTLD_NOW | os.RTLD_LOCAL
     return {name: C.CDLL(str(BUILD / name), mode=mode) for name in OURS}
 

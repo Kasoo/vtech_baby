@@ -52,6 +52,24 @@ cd ../tests/live && . $CAMERA_DIR/.camera.env && \
   PATCHED=$REPO/tutk-host/build/x86_64-musl ./run.sh probe_phase1.py 10 1
 ```
 
+Release sets (what the integration ships), each built in a container for its libc:
+
+```sh
+./release.sh                       # build/release/{x86_64,aarch64}-{musl,glibc}/, stripped
+TK_BUILD=build/release/x86_64-glibc ../.venv/bin/pytest     # offline tests against a prebuilt set
+../sync_sdk.sh                     # release.sh, then install into the package's native/<arch>-<libc>/
+```
+
+musl sets build in Alpine 3.24, glibc sets in manylinux2014 (glibc 2.17 floor). Both link against
+generated stand-ins for `libssl.so.3`/`libcrypto.so.3` carrying the `OPENSSL_3.0.0` symbol version
+(`OSSL_STANDIN=1`), so no container needs OpenSSL 3. The old linker there writes `DT_RPATH $ORIGIN`
+instead of `DT_RUNPATH`, which loads the same way.
+`release.sh` fails if a set imports anything outside `tools/imports-allowed.txt`. Beyond the stock
+libraries' imports, the list has only toolchain references (`__register_frame_info`, `_ITM_*`,
+`__gmon_start__`, `__getauxval` for arm64 outline atomics, `__stack_chk_guard`), libc spellings of the
+same calls (`__errno_location`, glibc's `__ctype_*_loc` and `__res_init`), byte-order and ctype helpers
+bionic inlines, `in6addr_any`, and `getifaddrs`/`freeifaddrs` for the LAN-only rule.
+
 `DEBUG=1` builds the trace and the `TK_TRACE=2` taps described in `../tutk-sdk/NOTES.md`.
 
 ## Status

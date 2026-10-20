@@ -2,7 +2,8 @@
 #
 #   make -f lib.mk LIB=global|iotc|av
 
-OUT  := build/$(ARCH)-$(LIBC)$(if $(filter 1,$(DEBUG)),-debug)
+BUILD ?= build
+OUT  := $(BUILD)/$(ARCH)-$(LIBC)$(if $(filter 1,$(DEBUG)),-debug)
 DIR  := $(OUT)/$(LIB)
 
 SONAME_global := libTUTKGlobalAPIs.so
@@ -33,9 +34,13 @@ SO   := $(OUT)/$(SONAME_$(LIB))
 # Global alone forwards the tutk_third_ calls to OpenSSL (libssl.so.3); IOTC and AV reach OpenSSL
 # through those forwarders.
 ifeq ($(LIB),global)
-GEN_SSL  := $(DIR)/ssl_fwd.S $(DIR)/ssl_link.c
+GEN_SSL  := $(DIR)/ssl_fwd.S $(DIR)/ssl_link.c $(DIR)/crypto_link.c
 GEN_ARGS := --ossl global/ossl.h
+ifeq ($(OSSL_STANDIN),1)
+LINK_SSL := $(DIR)/ssl_fwd.o $(DIR)/standin/libssl.so.3 $(DIR)/standin/libcrypto.so.3
+else
 LINK_SSL := $(DIR)/ssl_fwd.o -lssl -lcrypto
+endif
 endif
 
 all: $(SO)
@@ -47,7 +52,7 @@ $(DIR)/common-%.o: common/%.c $(HDRS) | $(DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(DIR)/defined.txt: $(OBJS)
-	$(NM) --defined-only --extern-only --format=just-symbols $(OBJS) | sort -u > $@
+	$(NM) --defined-only --extern-only -P $(OBJS) | awk '{print $$1}' | sort -u > $@
 
 $(DIR)/stubs.c $(GEN_SSL) &: $(LIB)/imports.txt $(DIR)/defined.txt tools/gen_stubs.py $(filter-out --ossl,$(GEN_ARGS))
 	python3 tools/gen_stubs.py $(LIB)/imports.txt $(DIR)/defined.txt $(DIR) $(GEN_ARGS)
@@ -58,7 +63,16 @@ $(DIR)/stubs.o: $(DIR)/stubs.c common/tk_common.h
 $(DIR)/ssl_fwd.o: $(DIR)/ssl_fwd.S
 	$(CC) -c $< -o $@
 
-$(SO): $(OBJS) $(DIR)/stubs.o $(filter %.o,$(LINK_SSL)) $(NEEDS_$(LIB))
+# Link-time stand-ins for the host's OpenSSL 3, carrying its symbol version; never shipped.
+$(DIR)/standin/libssl.so.3: $(DIR)/ssl_link.c tools/openssl3.map
+	mkdir -p $(@D)
+	$(CC) -shared -fPIC -Wl,-soname,libssl.so.3 -Wl,--version-script,tools/openssl3.map $< -o $@
+
+$(DIR)/standin/libcrypto.so.3: $(DIR)/crypto_link.c tools/openssl3.map
+	mkdir -p $(@D)
+	$(CC) -shared -fPIC -Wl,-soname,libcrypto.so.3 -Wl,--version-script,tools/openssl3.map $< -o $@
+
+$(SO): $(OBJS) $(DIR)/stubs.o $(filter-out -l%,$(LINK_SSL)) $(NEEDS_$(LIB))
 	$(CC) -Wl,-soname,$(SONAME_$(LIB)) -o $@ $(OBJS) $(DIR)/stubs.o $(LINK_SSL) $(NEEDS_$(LIB)) $(LDFLAGS)
 
 $(DIR):
