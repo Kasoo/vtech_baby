@@ -59,7 +59,7 @@ def main():
             rc = "-"
         for op in order:
             s.send(op)
-        frames = idr = sps = bad = 0
+        frames = idr = sps = bad = lost = 0
         first_idr = first_frame = None
         while time.monotonic() - t0 < SECS:
             r = s_dk.recv_frame(av, fbuf, len(fbuf), C.byref(a), C.byref(e), finfo, 64, C.byref(ai), C.byref(fi))
@@ -77,11 +77,13 @@ def main():
                 if 5 in n:
                     idr += 1
                     first_idr = first_idr or round(time.monotonic() - t0, 2)
-            elif r <= 0 and r not in (-20013, -20014):
+            elif r == -20014:
+                lost += 1
+            elif r <= 0 and r != -20013:
                 time.sleep(0.003)
         s.send(ops.STOP)
         print(f"  {label:34} clean={str(clean):5} rc={rc} frames={frames:3} ({frames/SECS:4.1f} fps) idr={idr:2} "
-              f"sps={sps:2} bad={bad} first_frame={first_frame} first_idr={first_idr}", flush=True)
+              f"sps={sps:2} bad={bad} lost={lost} first_frame={first_frame} first_idr={first_idr}", flush=True)
         time.sleep(pre_stop_wait)
 
     FR, ST = ops.VIDEO_FULLRATE, ops.START
