@@ -33,6 +33,7 @@ GRACE_S = 5.0                 # keep streaming this long after the last subscrib
 FIRST_KEYFRAME_S = 10.0       # give up a start that produces no keyframe in this time
 SNAPSHOT_MAX_AGE_S = 60.0     # when idle, reuse a snapshot this recent instead of starting the stream
 IDLE_SLEEP_S = 0.005          # back-off when no frame is ready (avRecvFrameData2 never blocks)
+RECV_STATS_S = 30.0           # how often the SDK's receive counters are refreshed while streaming
 
 OnData = Callable[[bytes | None], None]
 
@@ -198,13 +199,27 @@ class LiveStream:
         for op in (ops.VIDEO_FULLRATE, ops.START):
             session.send(op)
         st = self.stats
-        st.update(starts=st["starts"] + 1, video=0, audio=0, bad=0, keyframes=0, bytes=0)
+        st.update(starts=st["starts"] + 1, video=0, audio=0, bad=0, keyframes=0, bytes=0, receive=None)
         self._set_running(True)
         started = t0 = time.monotonic()
         idle_since: float | None = None
         reader = self._sdk.frame_reader(av)
         mux: AvTsMuxer | None = None
+        recv_at = started
         _LOG.debug("%s: live view started", self.name)
+
+        def update_receive() -> None:
+            """Refresh the SDK's receive counters, logging frames given up on or dropped since the last."""
+            get = getattr(self._sdk, "recv_stats", None)
+            now = get(av) if get else None
+            if now is None:
+                return
+            before = st.get("receive") or {}
+            lost = {k: now[k] - before.get(k, 0) for k in now
+                    if k.endswith(("given_up", "overflow")) and now[k] > before.get(k, 0)}
+            if lost:
+                _LOG.debug("%s: frames lost: %s (receive counters %s)", self.name, lost, now)
+            st["receive"] = now
 
         def pts() -> int:
             return int((time.monotonic() - t0) * 90_000)
@@ -238,6 +253,9 @@ class LiveStream:
                         idle_since = time.monotonic()
                     elif time.monotonic() - idle_since > self._grace_s:
                         return
+                if time.monotonic() - recv_at >= RECV_STATS_S:
+                    recv_at = time.monotonic()
+                    update_receive()
                 if mux is None and time.monotonic() - started > self._first_keyframe_s:
                     raise VtechError(f"no keyframe within {self._first_keyframe_s:.0f} s of START",
                                      call="live view")
@@ -281,6 +299,7 @@ class LiveStream:
                     if mux is not None:
                         emit(mux.audio(alaw, pts()))
         finally:
+            update_receive()
             for op in (ops.STOP, ops.AUDIO_STOP):
                 try:
                     session.send(op)
@@ -290,4 +309,4 @@ class LiveStream:
                 mux.close()
             self._set_running(False)
             _LOG.debug("%s: live view stopped (%s)", self.name,
-                       {k: st[k] for k in ("video", "audio", "keyframes", "bad", "bytes")})
+                       {k: st[k] for k in ("video", "audio", "keyframes", "bad", "bytes", "receive")})

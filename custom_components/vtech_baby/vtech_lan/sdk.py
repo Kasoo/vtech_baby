@@ -27,6 +27,9 @@ from .errors import (
 LIBS = ("libtk.so", "libTUTKGlobalAPIs.so", "libNebulaAPIs.so", "libIOTCAPIs.so", "libAVAPIs.so")
 #: A host-built set (tutk-host/): no companion, no Nebula; Global carries the LAN-only policy.
 HOST_LIBS = ("libTUTKGlobalAPIs.so", "libIOTCAPIs.so", "libAVAPIs.so")
+#: tk_av_recv_stats counters, in order (our own AV only).
+RECV_STATS = ("packets_requested", "video_given_up", "video_late", "video_overflow",
+              "audio_given_up", "audio_late", "audio_overflow")
 IOCTRL_BUF = 2048
 # The camera answers LAN search on 32762; the SDK's built-in default (32761) goes unanswered, so without
 # this only ThroughTek's master can find the camera (docs/vtech-lan-kit/docs/00-prerequisites.md).
@@ -144,6 +147,11 @@ class Sdk:
         self._serv_reset = _bind(AV, "avServResetBuffer", C.c_int, C.c_int, C.c_int, C.c_uint)
         self._send_audio = _bind(AV, "avSendAudioData", C.c_int, C.c_int, C.c_char_p, C.c_int,
                                  C.c_char_p, C.c_int)
+        # Receive counters: our own AV has them, the vendor's doesn't.
+        self._recv_stats = getattr(AV, "tk_av_recv_stats", None)
+        if self._recv_stats is not None:
+            self._recv_stats.restype = C.c_int
+            self._recv_stats.argtypes = [C.c_int, C.POINTER(C.c_uint32 * len(RECV_STATS))]
         # The camera logs in to our talk-back server with an empty account and password: accept it.
         # Kept for the life of the process: ctypes frees the callback with this object.
         self._accept = AUTH_FN(lambda _account, _password: 1)
@@ -234,6 +242,15 @@ class Sdk:
         sends, lookups = C.c_ulong(), C.c_ulong()
         self._lan_only_stats(C.byref(sends), C.byref(lookups))
         return {"refused_sends": sends.value, "refused_lookups": lookups.value}
+
+    def recv_stats(self, av: int) -> dict[str, int] | None:
+        """Media receive counters since the channel started (RECV_STATS); None with the vendor's AV."""
+        if self._recv_stats is None:
+            return None
+        out = (C.c_uint32 * len(RECV_STATS))()
+        if self._recv_stats(av, C.byref(out)) != 0:
+            return None
+        return dict(zip(RECV_STATS, out))
 
     def session_mode(self, sid: int) -> int:
         """IOTC_Session_Check st_SInfo byte 0: 0 = P2P, 1 = relay, 2 = LAN (rc < 0 on error).

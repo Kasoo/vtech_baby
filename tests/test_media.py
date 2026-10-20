@@ -77,6 +77,36 @@ def test_subscribe_starts_and_delivers_ts(cam):
     sub.close()
 
 
+def test_receive_counters_refresh_and_log_losses(cam, monkeypatch, caplog):
+    sdk, _, ls, _ = cam
+    monkeypatch.setattr(media, "RECV_STATS_S", 0.05)
+    zero = dict.fromkeys(("packets_requested", "video_given_up", "video_late", "video_overflow",
+                          "audio_given_up", "audio_late", "audio_overflow"), 0)
+    sdk.recv = dict(zero)
+    caplog.set_level("DEBUG", logger=media.__name__)
+    sink = Sink()
+    sub = ls.subscribe(sink)
+    assert wait_for(lambda: ls.stats.get("receive") == zero)
+    sdk.recv = {**zero, "packets_requested": 4, "video_late": 1}
+    assert wait_for(lambda: ls.stats["receive"]["packets_requested"] == 4)
+    assert "frames lost" not in caplog.text
+    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 2}
+    assert wait_for(lambda: "frames lost: {'video_given_up': 2}" in caplog.text)
+    sub.close()
+    assert wait_for(lambda: not ls.running)
+    assert ls.stats["receive"]["video_given_up"] == 2
+
+
+def test_no_receive_counters_with_the_vendor_sdk(cam):
+    _, _, ls, _ = cam
+    sink = Sink()
+    sub = ls.subscribe(sink)
+    assert wait_for(lambda: sink.chunks)
+    sub.close()
+    assert wait_for(lambda: not ls.running)
+    assert ls.stats["receive"] is None
+
+
 def test_audio_start_left_to_a_talk_back(cam):
     sdk, s, _, holder = cam
     ls = LiveStream(sdk, lambda: holder["s"], name="held", grace_s=0.3, audio_held=lambda: True)

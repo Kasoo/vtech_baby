@@ -6,6 +6,7 @@ __pycache__/
 /docs/vtech-lan-kit/sdk/*/
 *.so
 !/custom_components/vtech_baby/native/*/libtk.so
+!/custom_components/vtech_baby/native/*-*/lib*APIs.so
 # Credentials
 LICENSE_KEY.txt
 .env

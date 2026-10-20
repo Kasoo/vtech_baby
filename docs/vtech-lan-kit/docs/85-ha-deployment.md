@@ -4,6 +4,21 @@ This describes how an integration packages and prepares the native layer (the SD
 companion) on a Home Assistant host. `90-ha-runtime.md` covers what happens after the libraries are
 loaded.
 
+## Shipping a reimplementation instead
+
+An integration that ships its own implementation of the three libraries it calls (Global, IOTC, AV)
+needs none of the patching or the companion below: it ships one prebuilt set per arch and libc, chosen
+at setup, and only falls back to this document's patched path on a host it has no set for.
+
+- Build musl sets on Alpine and glibc sets on an old glibc (manylinux2014, glibc 2.17), so one glibc
+  set loads on any newer host. Each library finds the others through `$ORIGIN`.
+- Link against the host's OpenSSL 3 (`libssl.so.3`, `libcrypto.so.3`, symbol version `OPENSSL_3.0.0`).
+  The Home Assistant images and current glibc distributions provide it.
+- Detect the libc at run time: glibc if `platform.libc_ver()` says so, musl if `/lib/ld-musl-*.so.1`
+  exists, otherwise no set applies.
+- Report an SDK version the camera accepts: 4.3.8.1 and 4.3.8.100 both are. Whether it enforces a
+  minimum is unknown.
+
 ## Constraints
 
 - **No compiler on the host.** Home Assistant installations (HA OS, Container, Supervised) run the

@@ -50,7 +50,7 @@ def fake():
 @pytest.fixture
 def sdk():
     """SDK state on the fake host: whether libraries are already there, which dirs fail to load, uploads."""
-    return {"present": False, "bad": set(), "installed": []}
+    return {"present": False, "bad": set(), "installed": [], "bundled": None}
 
 
 REAL_INSTALL = cf._install
@@ -91,6 +91,7 @@ def sdk_patch(fake, sdk):
          patch.object(mgr, "make_client", lambda on_crash: thread_client(fake, on_crash=on_crash)), \
          patch.object(native, "host_supported", lambda: "x86_64"), \
          patch.object(native, "sdk_present", lambda d: sdk["present"]), \
+         patch.object(native, "bundled_libdir", lambda: sdk["bundled"]), \
          patch.object(mgr, "RECONNECT_MIN_S", 0.05), patch.object(mgr, "RECONNECT_MAX_S", 0.1):
         yield
 
@@ -151,6 +152,18 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, sdk):
     assert r["title"] == "VTECH_5754_test"
     assert r["data"] == {**entry_data(), CONF_SDK_DIR: sdk_dir}
     assert r["result"].unique_id == UID
+    await hass.async_block_till_done()
+    assert hass.states.get(TEMP).state == "21"
+    await unload(hass, r["result"])
+
+
+async def test_user_flow_with_bundled_sdk_skips_the_upload(hass: HomeAssistant, sdk):
+    sdk["bundled"] = "/pkg/native/x86_64-glibc"
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
+    assert r["type"] is FlowResultType.CREATE_ENTRY
+    assert sdk["installed"] == []
     await hass.async_block_till_done()
     assert hass.states.get(TEMP).state == "21"
     await unload(hass, r["result"])

@@ -1,5 +1,5 @@
-"""Config flow: the SDK (uploaded once per HA instance as the Kalay Mobile app), then the camera's
-pairing QR; reauth = fresh QR.
+"""Config flow: the SDK (bundled, or, on a host without a bundled set, uploaded once per HA instance as
+the Kalay Mobile app), then the camera's pairing QR; reauth = fresh QR.
 
 The SDK libraries are extracted from the user's upload by
 native.install_sdk (docs/vtech-lan-kit/docs/85-ha-deployment.md); the upload itself is deleted afterwards.
@@ -76,9 +76,16 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
                         "required": native.SDK_VERSION, "version": "", "found": "", "missing": "", "error": ""}
 
         if user_input is None:
-            # Already here: an existing camera's SDK, or the app uploaded before on this host.
             existing = self._async_current_entries(include_ignore=False)
             self._sdk_dir = existing[0].data[CONF_SDK_DIR] if existing else self.hass.config.path(*SDK_SUBDIR)
+            # The integration's own libraries need no upload; a load failure is reported at the camera step.
+            if await self.hass.async_add_executor_job(native.bundled_libdir):
+                try:
+                    self._handle = await async_load_sdk(self.hass, self._sdk_dir)
+                except SdkSetupError as err:
+                    _LOG.warning("the bundled SDK is not usable: %s", err)
+                return await self.async_step_camera()
+            # Already here: an existing camera's SDK, or the app uploaded before on this host.
             if existing or await self.hass.async_add_executor_job(native.sdk_present, self._sdk_dir):
                 try:
                     self._handle = await async_load_sdk(self.hass, self._sdk_dir)
