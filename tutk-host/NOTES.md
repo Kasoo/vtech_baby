@@ -79,7 +79,16 @@ bionic inlines, `in6addr_any`, and `getifaddrs`/`freeifaddrs` for the LAN-only r
   record and the connect ack, where the stock libraries send 4.3.8.1. Live, the musl set in the HA
   image passes probe_phase1 (2 x 70 s), probe_stream (0 bad), probe_restart (25 cycles, 0 lost),
   probe_talk --silent, probe_control --allow-writes and probe_stall none.
-- Next: make the host build the integration's library set (packaging, install, arm64 and a portable
+- 2026-10-20: release sets shipped in the integration (`../sync_sdk.sh`), with AV receive counters
+  (`tk_av_recv_stats`, shown in live-view diagnostics). Live: probe_stream on the x86_64-musl set, 0 bad,
+  all counters 0. Next: a soak test in the production HA, then retire the patcher path.
+- Next (agreed): parity recovery. The camera sends one Reed-Solomon parity packet per group, for k=20
+  and k=25. The generator rows, the field and the 1044-byte zero-padded blocks are in the kit's
+  `docs/av/80-fec.md`. The recovered block starts with its own media sub-header (plen +0x08, count
+  +0x04, index +0x06, frame +0x0c), so it can be fed straight into reassembly. The parity packet's own
+  sub-header fields are zero, so they must not be passed to reassembly. Recovery can cover kind 7 too,
+  which stock leaves to resends. Test offline with parity generated from those rows.
+- Earlier: make the host build the integration's library set (packaging, install, arm64 and a portable
   glibc build, e.g. in the manylinux2014 image), then retire the patcher path. Open from the drop-in
   build: FEC parity, the stats block in media packets.
 
