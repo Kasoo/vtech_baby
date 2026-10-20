@@ -82,15 +82,15 @@ bionic inlines, `in6addr_any`, and `getifaddrs`/`freeifaddrs` for the LAN-only r
 - 2026-10-20: release sets shipped in the integration (`../sync_sdk.sh`), with AV receive counters
   (`tk_av_recv_stats`, shown in live-view diagnostics). Live: probe_stream on the x86_64-musl set, 0 bad,
   all counters 0. Next: a soak test in the production HA, then retire the patcher path.
-- Next (agreed): parity recovery. The camera sends one Reed-Solomon parity packet per group, for k=20
-  and k=25. The generator rows, the field and the 1044-byte zero-padded blocks are in the kit's
-  `docs/av/80-fec.md`. The recovered block starts with its own media sub-header (plen +0x08, count
-  +0x04, index +0x06, frame +0x0c), so it can be fed straight into reassembly. The parity packet's own
-  sub-header fields are zero, so they must not be passed to reassembly. Recovery can cover kind 7 too,
-  which stock leaves to resends. Test offline with parity generated from those rows.
+- 2026-10-20: parity recovery (`av/fec.c`). The camera sends one Reed-Solomon parity packet per group
+  of 20 or 25 (generator rows from the kit's `docs/av/80-fec.md`), and the single missing packet of a
+  group is rebuilt and fed to reassembly; kind 7 is covered too, unlike stock. Count in
+  `tk_av_recv_stats` (`packets_recovered`). Offline: `av_peer.py parity`. Live, with a debug build
+  dropping 1 packet in 50 (`TK_DROP=50`, debug builds only): 35 packets rebuilt (25 from 20-groups,
+  10 from 25-groups), 0 bad frames.
 - Earlier: make the host build the integration's library set (packaging, install, arm64 and a portable
   glibc build, e.g. in the manylinux2014 image), then retire the patcher path. Open from the drop-in
-  build: FEC parity, the stats block in media packets.
+  build: the stats block in media packets (camera to client only; not needed).
 
 ## Known divergences from the stock library
 

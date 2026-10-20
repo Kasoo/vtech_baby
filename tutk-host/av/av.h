@@ -167,6 +167,8 @@ typedef struct AvObj {
     uint16_t        ack_seq;
     uint32_t        ack_ms, report_ms, nak_ms;
     uint32_t        naks_sent;       /* media packets asked for again, cumulative */
+    struct FecState *fec;            /* fec.c's error-correction groups in progress */
+    uint32_t        fec_recovered;   /* media packets rebuilt from parity, cumulative */
     bool            rtt_due;
     uint16_t        rtt_echo;        /* the camera report's timestamp to echo */
     uint16_t        rtt_ms;          /* our RTT estimate */
@@ -179,7 +181,7 @@ typedef struct AvObj {
     uint32_t        tx_audio;        /* audio frames sent */
 } AvObj;
 
-#define TK_AV_RECV_STATS 7    /* the counters tk_av_recv_stats fills */
+#define TK_AV_RECV_STATS 8    /* the counters tk_av_recv_stats fills */
 
 static inline bool seq_after(uint16_t a, uint16_t b) { return (int16_t)(a - b) > 0; }
 
@@ -219,6 +221,11 @@ int    av_media_naks(AvObj *o, uint16_t *out, int max) TK_HIDDEN;
 void   av_ctrl_free(AvObj *o) TK_HIDDEN;
 int    av_media_reset(AvObj *o) TK_HIDDEN;
 void   av_media_free(AvObj *o) TK_HIDDEN;
+
+/* ---- Parity recovery (fec.c) ---- */
+void   av_fec_on_packet(AvObj *o, const uint8_t *fec, const uint8_t *f, int flen) TK_HIDDEN;
+void   av_fec_reset(AvObj *o) TK_HIDDEN;
+void   av_fec_free(AvObj *o) TK_HIDDEN;
 
 /* ---- Talk-back server (talkback.c) ---- */
 void   av_serv_on_dtls(AvObj *o) TK_HIDDEN;

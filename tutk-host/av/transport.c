@@ -1,5 +1,6 @@
 /* The new-protocol transport: inbound dispatch, and the task that sends acknowledgements, reports,
  * RTT echoes and control-frame retransmissions (kit: av/90-fifos.md, av/70-congestion.md). */
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -39,8 +40,23 @@ static void on_report(AvObj *o, const uint8_t *p, int len) {
     pthread_mutex_unlock(&o->lock);
 }
 
-/* A class-0x0c packet: an error-correction group header at B, then a control frame (byte 0 = 0)
- * or a media fragment. Parity packets (kind 0x0c) are not used. */
+#ifdef TK_DEBUG
+/* TK_DROP=N (debug builds only): drop every Nth media or parity packet on arrival, to exercise
+ * recovery on a clean network. Called from the read task only. */
+static bool debug_drop(void) {
+    static int every = -1;
+    static unsigned n;
+
+    if (every < 0) {
+        const char *v = getenv("TK_DROP");
+        every = v ? atoi(v) : 0;
+    }
+    return every > 0 && ++n % (unsigned)every == 0;
+}
+#endif
+
+/* A class-0x0c packet: an error-correction group header at B, then a control frame (byte 0 = 0), a
+ * media fragment, or the group's parity (kind 0x0c). */
 static void on_data(AvObj *o, const uint8_t *p, int len) {
     int b = p[1] & FLAG_STATS ? 0x10 : 0x08;
     const uint8_t *f = p + b + 8;
@@ -48,10 +64,17 @@ static void on_data(AvObj *o, const uint8_t *p, int len) {
 
     if (flen < 0x14)
         return;
-    if (f[0] == 0)
+    if (f[0] == 0) {
         av_ctrl_on_frame(o, f, flen);
-    else if (f[0] != CLASS_DATA)
+        return;
+    }
+#ifdef TK_DEBUG
+    if (debug_drop())
+        return;
+#endif
+    if (f[0] != CLASS_DATA)
         av_media_on_packet(o, f, flen);
+    av_fec_on_packet(o, p + b, f, flen);
 }
 
 void av_on_packet(AvObj *o, const uint8_t *p, int len) {

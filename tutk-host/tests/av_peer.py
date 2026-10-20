@@ -50,6 +50,22 @@ class AvOut(C.Structure):
 AUTH_FN = C.CFUNCTYPE(C.c_int, C.c_char_p, C.c_char_p)
 
 
+# Parity: GF(2^8) with polynomial 0x11d, the camera's generator row for each group size.
+FEC_BLOCK = 1044
+FEC_ROWS = {20: bytes.fromhex("8fae5b70d0cd544339a3c9581bbbb3181b1c1214"),
+            25: bytes.fromhex("19196f6f53532424b0b0d0d09292f3f39e9e8989f7f7e1e101")}
+GF_EXP, GF_LOG = [0] * 510, [0] * 256
+_x = 1
+for _i in range(255):
+    GF_EXP[_i] = GF_EXP[_i + 255] = _x
+    GF_LOG[_x] = _i
+    _x = (_x << 1) ^ (0x11d if _x & 0x80 else 0)
+
+
+def gf_mul(a, b):
+    return GF_EXP[GF_LOG[a] + GF_LOG[b]] if a and b else 0
+
+
 def check(cond, what):
     if not cond:
         raise AssertionError(what)
@@ -126,14 +142,26 @@ class Camera:
         self.push(self.ctrl_packet(cls, ctype, payload, frame))
         return frame
 
-    def media(self, kind, pn, frame_no, stream_count, payload, info, index, count):
-        """One media fragment: the error-correction group header, then the fragment."""
+    def media(self, kind, pn, frame_no, stream_count, payload, info, index, count, fec=None):
+        """One media fragment: the error-correction group header (group, index, k; by default group 0,
+        the fragment index, 20), then the fragment."""
         last = index == count - 1
         body = payload + (info if last else b"")
         w6 = len(info) if last else index
         frag = struct.pack("<BBHHHHHII", kind, 1 if last else 0, pn, count, w6, len(body), 0, frame_no,
                            stream_count) + body
-        return self.header(0x0c, 0x05) + struct.pack("<HBBI", 0, index, 20, 1) + frag
+        group, fec_index, k = fec or (0, index, 20)
+        return self.header(0x0c, 0x05) + struct.pack("<HBBI", group, fec_index, k, 1) + frag
+
+    def parity(self, group, packets):
+        """The group's parity packet, over the media packets made by media(fec=...), in FEC index order."""
+        k = len(packets)
+        out = bytearray(FEC_BLOCK)
+        for coeff, pkt in zip(FEC_ROWS[k], packets):
+            for j, byte in enumerate(pkt[0x10:].ljust(FEC_BLOCK, b"\0")):
+                out[j] ^= gf_mul(coeff, byte)
+        sub = struct.pack("<BBHHHHHII", 0x0c, 0, 0, 0, 0, FEC_BLOCK, 0, 0, 0)
+        return self.header(0x0c, 0x05) + struct.pack("<HBBI", group, k, k, 1) + sub + bytes(out)
 
     def send_frame(self, kind, pn, frame_no, data, info, stream_count=0, order=None, skip=(), frag=1024):
         """Send `data` as one frame in `frag`-byte fragments; returns the next packet number."""
@@ -198,8 +226,9 @@ class Peer:
         return rc, buf.raw[:max(rc, 0)], info.raw[:info_len.value], number.value, expected.value
 
     def recv_stats(self):
-        """tk_av_recv_stats: packets asked for again; video given up, late, overflow; audio the same."""
-        out = (C.c_uint32 * 7)()
+        """tk_av_recv_stats: packets asked for again; video given up, late, overflow; audio the same;
+        packets rebuilt from parity."""
+        out = (C.c_uint32 * 8)()
         check(self.av.tk_av_recv_stats(0, out) == 0, "tk_av_recv_stats")
         return list(out)
 
@@ -389,13 +418,74 @@ def s_media(p):
     check(r[0] == 320 and r[1] == audio and r[3] == 5, f"audio {r[0]}")
     check(p.recv_audio()[0] == AV_ER_DATA_NOREADY, "audio drained")
     stats = p.recv_stats()
-    check(stats[1:] == [1, 3, 0, 0, 0, 0], f"given up: frame 3; late: 11, 12, 4 ({stats})")
+    check(stats[1:] == [1, 3, 0, 0, 0, 0, 0], f"given up: frame 3; late: 11, 12, 4 ({stats})")
     big = os.urandom(5000)
     cam.send_frame(5, pn, 6, big, info)
     time.sleep(0.1)
     r = p.recv_video(size=4096)
     check(r[0] == AV_ER_BUFPARA_MAXSIZE_INSUFF and r[4] == 5000, f"small buffer {r[0]} {r[4]}")
     p.av.avClientStop(0)
+    cam.close()
+
+
+def s_parity(p):
+    """A group's one missing media packet is rebuilt from the parity and the rest, whatever its kind and
+    length (the rebuilt sub-header gives the real length and frame info). Two missing packets, or no
+    parity, rebuild nothing."""
+    cam = Camera(p.fake)
+    check(p.start()[0] == 0, "start")
+    check(p.av.avClientCleanVideoBuf(0) == 0, "stream start reset")
+    info = bytes(range(16))
+
+    def group(gid, k, frames):
+        """Media packets for `frames` [(kind, frame_no, data)], numbered from pn 0x4000 + 0x40 * gid and
+        indexed 0..k-1 in the group."""
+        pkts, pn = [], 0x4000 + 0x40 * gid
+        for kind, number, data in frames:
+            chunks = [data[i:i + 1024] for i in range(0, len(data), 1024)]
+            for i, chunk in enumerate(chunks):
+                pkts.append(cam.media(kind, pn, number, 0, chunk, info, i, len(chunks), fec=(gid, len(pkts), k)))
+                pn += 1
+        check(len(pkts) == k, f"group of {len(pkts)}")
+        return pkts
+
+    def wait_video(number, size, timeout=0.3):
+        end = time.monotonic() + timeout
+        while (r := p.recv_video(1 << 16))[0] == AV_ER_DATA_NOREADY and time.monotonic() < end:
+            time.sleep(0.005)
+        check(r[0] == size and r[2] == info and r[3] == number, f"video frame {number}: {r[0]} {r[3]}")
+        return r[1]
+
+    # k=20: one keyframe of 20 full fragments, fragment 13 lost
+    key = os.urandom(19 * 1024 + 1000)             # the last fragment, with the info, fits a block
+    pkts = group(1, 20, [(5, 0, key)])
+    for i, pkt in enumerate(pkts):
+        if i != 13:
+            cam.push(pkt)
+    cam.push(cam.parity(1, pkts))
+    check(wait_video(0, len(key)) == key, "keyframe rebuilt")
+    check(p.recv_stats()[7] == 1, "one packet rebuilt")
+
+    # k=25: an audio frame, then a P-frame of 23 full fragments and a short last one, which is lost
+    audio, pframe = os.urandom(320), os.urandom(23 * 1024 + 500)
+    pkts = group(2, 25, [(3, 1, audio), (7, 2, pframe)])
+    for pkt in pkts[:-1]:
+        cam.push(pkt)
+    cam.push(cam.parity(2, pkts))
+    check(wait_video(2, len(pframe)) == pframe, "P-frame with a short last fragment rebuilt")
+    r = p.recv_audio()
+    check(r[0] == 320 and r[1] == audio, f"audio {r[0]}")
+    check(p.recv_stats()[7] == 2, "two packets rebuilt")
+
+    # k=20 with two packets lost: the parity cannot help
+    frames = os.urandom(19 * 1024 + 1000)
+    pkts = group(3, 20, [(7, 3, frames)])
+    for i, pkt in enumerate(pkts):
+        if i not in (4, 5):
+            cam.push(pkt)
+    cam.push(cam.parity(3, pkts))
+    time.sleep(0.1)
+    check(p.recv_video()[0] == AV_ER_DATA_NOREADY and p.recv_stats()[7] == 2, "nothing rebuilt")
     cam.close()
 
 

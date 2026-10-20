@@ -67,6 +67,7 @@ void av_media_free(AvObj *o) {
     stream_clear(&o->audio);
     free(o->media_state);
     o->media_state = NULL;
+    av_fec_free(o);
 }
 
 /* Track packet `pn` for the ACK: advance pn_cum over every contiguous packet received, and past
@@ -312,6 +313,8 @@ static int clean(int av_index, bool audio) {
     stream_clear(audio ? &o->audio : &o->video);
     if (!audio && o->media_state)
         memset(o->media_state, 0, sizeof(MediaState));
+    if (!audio)
+        av_fec_reset(o);
     rc = av_check(o);
     pthread_mutex_unlock(&o->lock);
     if (!rc && !audio)
@@ -323,7 +326,7 @@ static int clean(int av_index, bool audio) {
 /* Receive counters since the channel started, for the integration's diagnostics: media packets asked
  * for again, then for video and for audio: frames given up on as incomplete, frames delivered after a
  * resend was asked for while they waited,
- * frames dropped because the reader fell behind. */
+ * frames dropped because the reader fell behind; then media packets rebuilt from parity. */
 TK_EXPORT int tk_av_recv_stats(int av_index, uint32_t out[TK_AV_RECV_STATS]) {
     AvObj *o;
 
@@ -344,6 +347,7 @@ TK_EXPORT int tk_av_recv_stats(int av_index, uint32_t out[TK_AV_RECV_STATS]) {
     out[4] = o->audio.given_up;
     out[5] = o->audio.late;
     out[6] = o->audio.overflow;
+    out[7] = o->fec_recovered;
     pthread_mutex_unlock(&o->lock);
     av_slot_release(av_index);
     return 0;
