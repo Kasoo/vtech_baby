@@ -19,7 +19,6 @@
 #define AUDIO_QUEUE       200
 #define GAP_SKIP_MS       300     /* acknowledge past a missing packet after this long */
 #define PARTIAL_WAIT_MS   500     /* how long an incomplete frame holds back the frames after it */
-#define LATE_MS           100     /* a frame completing this long after its first fragment counts as late */
 
 /* Received media packet numbers ahead of pn_cum, by pn & (WINDOW - 1). */
 #define WINDOW            0x1000
@@ -121,7 +120,7 @@ int av_media_naks(AvObj *o, uint16_t *out, int max) {
 /* Move frames to the ready queue in frame order: the oldest goes once complete, or is dropped as lost
  * once it has waited PARTIAL_WAIT_MS for a missing fragment (the camera resends what the ACK's NAK list
  * names, under a new packet number). Caller holds o->lock. */
-static void release(Stream *s, int limit, uint32_t now) {
+static void release(AvObj *o, Stream *s, int limit, uint32_t now) {
     for (;;) {
         Frame **oldest = NULL, *f;
 
@@ -142,8 +141,8 @@ static void release(Stream *s, int limit, uint32_t now) {
         }
         *oldest = f->next;
         f->next = NULL;
-        if (now - f->first_ms >= LATE_MS)
-            s->late++;
+        if (o->naks_sent && (int32_t)(o->nak_ms - f->first_ms) >= 0)
+            s->late++;                      /* a resend was asked for while this frame waited */
         /* Fragments are stored MEDIA_FRAG apart; any but the last may be shorter, so close the gaps. */
         for (int i = 0; i < f->count; i++) {
             memmove(f->data + f->size, f->data + (size_t)i * MEDIA_FRAG, (size_t)(f->seen[i] - 1));
@@ -223,7 +222,7 @@ void av_media_on_packet(AvObj *o, const uint8_t *f, int len) {
         fr->info_len = info_len;
         memcpy(fr->info, f + 0x14 + plen - info_len, (size_t)info_len);
     }
-    release(s, s == &o->audio ? AUDIO_QUEUE : VIDEO_QUEUE, av_now_ms());
+    release(o, s, s == &o->audio ? AUDIO_QUEUE : VIDEO_QUEUE, av_now_ms());
 out:
     pthread_mutex_unlock(&o->lock);
 }
@@ -246,7 +245,7 @@ static int take_frame(int av_index, bool audio, char *buf, int buf_size, int *ou
         return AV_ER_INVALID_ARG;
     s = audio ? &o->audio : &o->video;
     pthread_mutex_lock(&o->lock);
-    release(s, audio ? AUDIO_QUEUE : VIDEO_QUEUE, av_now_ms());
+    release(o, s, audio ? AUDIO_QUEUE : VIDEO_QUEUE, av_now_ms());
     if ((rc = av_check(o)) != 0) {
     } else if (s->lost) {
         s->lost--;
@@ -322,7 +321,8 @@ static int clean(int av_index, bool audio) {
 }
 
 /* Receive counters since the channel started, for the integration's diagnostics: media packets asked
- * for again, then for video and for audio: frames given up on as incomplete, frames completed late,
+ * for again, then for video and for audio: frames given up on as incomplete, frames delivered after a
+ * resend was asked for while they waited,
  * frames dropped because the reader fell behind. */
 TK_EXPORT int tk_av_recv_stats(int av_index, uint32_t out[TK_AV_RECV_STATS]) {
     AvObj *o;
@@ -335,8 +335,8 @@ TK_EXPORT int tk_av_recv_stats(int av_index, uint32_t out[TK_AV_RECV_STATS]) {
     if (!o)
         return AV_ER_INVALID_ARG;
     pthread_mutex_lock(&o->lock);
-    release(&o->video, VIDEO_QUEUE, av_now_ms());
-    release(&o->audio, AUDIO_QUEUE, av_now_ms());
+    release(o, &o->video, VIDEO_QUEUE, av_now_ms());
+    release(o, &o->audio, AUDIO_QUEUE, av_now_ms());
     out[0] = o->naks_sent;
     out[1] = o->video.given_up;
     out[2] = o->video.late;

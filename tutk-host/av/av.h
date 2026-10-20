@@ -126,7 +126,7 @@ typedef struct Stream {
     int    lost;                  /* incomplete frames dropped since the last read */
     /* cumulative, for tk_av_recv_stats */
     uint32_t given_up;            /* frames dropped as incomplete */
-    uint32_t late;                /* frames completed LATE_MS or more after their first fragment */
+    uint32_t late;                /* frames delivered after a resend was asked for while they waited */
     uint32_t overflow;            /* complete frames dropped because the reader fell behind */
 } Stream;
 
