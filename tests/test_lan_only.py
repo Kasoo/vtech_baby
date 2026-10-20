@@ -114,7 +114,8 @@ def test_refusals_are_counted(tk):
 
 
 @pytest.mark.skipif(not os.path.isdir(HOST_SDK), reason="needs the development SDK in docs/vtech-lan-kit/sdk/")
-def test_patched_sdk_routes_network_calls_through_the_companion(tmp_path):
+def test_patched_sdk_routes_network_calls_through_the_companion(tmp_path, monkeypatch):
+    monkeypatch.setattr(native, "bundled_libdir", lambda: None)      # the patched path, not our own set
     libdir = native.prepare(HOST_SDK, str(tmp_path)).libdir
     imports = set()
     for lib in ("libTUTKGlobalAPIs.so", "libIOTCAPIs.so", "libAVAPIs.so", "libNebulaAPIs.so"):

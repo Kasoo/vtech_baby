@@ -1,0 +1,14 @@
+avClientCleanAudioBuf
+avClientCleanVideoBuf
+avClientStartEx
+avClientStop
+avInitialize
+avRecvAudioData
+avRecvFrameData2
+avRecvIOCtrl
+avSendAudioData
+avSendIOCtrl
+avServExit
+avServResetBuffer
+avServStart3
+avServStop

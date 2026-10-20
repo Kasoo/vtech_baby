@@ -26,6 +26,12 @@ pytestmark = pytest.mark.skipif(
     reason="needs an x86_64 or aarch64 host and the development SDK (docs/vtech-lan-kit/sdk/ or $VTECH_SDK_DIR)")
 
 
+@pytest.fixture(autouse=True)
+def no_bundled(monkeypatch):
+    """These tests cover the patched path, which only runs on a host without a bundled set."""
+    monkeypatch.setattr(native, "bundled_libdir", lambda: None)
+
+
 def snapshot(libdir):
     return {n: os.stat(os.path.join(libdir, n)).st_ino for n in os.listdir(libdir)}
 

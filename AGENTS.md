@@ -6,22 +6,26 @@ Notes for working on this repo. User-facing docs are in `README.md`; keep that s
 
 A Home Assistant integration (domain `vtech_baby`) that controls and monitors the **VTech RM5754HD**
 baby-monitor camera **LAN-direct, with no cloud**. The camera speaks only ThroughTek's Kalay P2P
-protocol (TUTK), so the integration drives the vendor's Android SDK libraries, in a worker process of
-its own so a crash in them can't take Home Assistant down. They are patched at setup to load on HA's
-musl or glibc libc. Everything above the transport (opcodes, live-view
+protocol (TUTK), so the integration drives a TUTK SDK, in a worker process of its own so a crash in it
+can't take Home Assistant down. It ships its own implementation of the SDK libraries (`tutk-host/`), one
+set per arch and libc; on a host without a set it falls back to the vendor's Android libraries, uploaded
+by the user and patched at setup to load on HA's musl or glibc libc. Everything above the transport (opcodes, live-view
 crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (protocol library), `tooling/` (vendored SDK patcher), `native/<arch>/libtk.so` (prebuilt companion, built from `docs/vtech-lan-kit/tooling/companion/`), `brand/`. |
+| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (protocol library), `tooling/` (vendored SDK patcher), `native/<arch>-<libc>/` (our SDK libraries, built from `tutk-host/`), `native/<arch>/libtk.so` (prebuilt companion for the patched fallback, built from `docs/vtech-lan-kit/tooling/companion/`), `brand/`. |
+| `tutk-host/` | Our implementation of the three TUTK SDK libraries, built for the host libc; `release.sh` builds the shipped sets. See `tutk-host/NOTES.md`. |
+| `tutk-sdk/` | Archived (tag `tutk-sdk-dropin-v1`): the drop-in build of the same libraries for the patched path. |
 | `docs/vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. |
 | `docs/vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
 | `tests/` | Offline tests (fake SDK, fake manager); `tests/live/` probes for a real camera. |
 | `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns. |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork) and `render.sh` (needs inkscape) for `brand/`. |
-| `sync_vendored.sh` | Refreshes `tooling/` and `native/` from the kit. |
+| `sync_vendored.sh` | Refreshes `tooling/` and `native/<arch>/libtk.so` from the kit. |
+| `sync_sdk.sh` | Builds `tutk-host/` release sets and installs them into `native/<arch>-<libc>/`, recording the revision in `native/SDK_SOURCE`. |
 
 ## Read first
 
@@ -37,11 +41,14 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 ## Rules
 
 ### Proprietary material and secrets
-- **The SDK libraries are user-supplied**: the user uploads ThroughTek's Kalay Mobile app (or any zip
+- **Our own SDK libraries** (`native/<arch>-<libc>/`) are built only by `sync_sdk.sh`, never by hand, so
+  `native/SDK_SOURCE` always names the `tutk-host/` revision they came from. Their imports are limited to
+  `tutk-host/tools/imports-allowed.txt`; widening it is a deliberate, reviewed change.
+- **The vendor's SDK libraries are user-supplied** (the patched fallback): the user uploads ThroughTek's Kalay Mobile app (or any zip
   of the four libraries) in the config flow, and `tooling/extract_sdk.py` keeps the four libraries. Only SDK **4.3.8.1** is accepted (checked
   from the libraries' version string, not a hash). The package must never ship, download or commit them,
   patched or not (`docs/vtech-lan-kit/sdk/README.md`, `docs/85-ha-deployment.md`). `.gitignore` excludes
-  `docs/vtech-lan-kit/sdk/*/` and every `.so` except our own `libtk.so`.
+  `docs/vtech-lan-kit/sdk/*/` and every `.so` except our own (`libtk.so` and `native/<arch>-<libc>/`).
 - The SDK license key and the QR/HKDF provisioning constants are app-wide values **embedded** in the
   package (`vtech_lan/sdk.py`, `vtech_lan/provision.py`), matching the kit's reference client (a test
   enforces it). They live in code only: the docs name and describe them but never print the values.

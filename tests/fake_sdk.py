@@ -225,6 +225,10 @@ class FakeSdk:
     def frame_reader(self, av):
         return FakeFrameReader(self)
 
+    def recv_stats(self, av):
+        """Our AV's receive counters; None (the vendor's AV) unless a test sets `recv`."""
+        return dict(self.recv) if getattr(self, "recv", None) is not None else None
+
     # Talk-back surface (TalkBack)
     def free_channel(self, sid):
         self.calls.append("free_channel")

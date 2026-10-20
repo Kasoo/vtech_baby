@@ -152,7 +152,7 @@ def main():
         t = time.monotonic()
         log(ffprobe(url, ("-analyzeduration", "1000000", "-probesize", "200000")), f"in {time.monotonic() - t:.1f}s")
         log("idle after grace:", wait_idle(media), {k: media.stats.get(k) for k in
-            ("starts", "video", "audio", "keyframes", "bad", "bytes", "last_error")})
+            ("starts", "video", "audio", "keyframes", "bad", "bytes", "receive", "last_error")})
 
     g, api, rtsp = go2rtc(url)
     log(f"=== go2rtc api :{api} rtsp :{rtsp}")
@@ -168,7 +168,7 @@ def main():
     log("snapshot while go2rtc may still hold the stream:", len(media.snapshot()), "B")
     g.terminate(); g.wait(5)
     log("idle after go2rtc left:", wait_idle(media), {k: media.stats.get(k) for k in
-        ("starts", "video", "audio", "keyframes", "bad", "last_error")})
+        ("starts", "video", "audio", "keyframes", "bad", "receive", "last_error")})
     srv.shutdown()
     media.close()
     s.close()

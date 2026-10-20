@@ -1,13 +1,17 @@
-"""Install and prepare the user's SDK for this host: extract it from the app package the user uploads,
-then patch it with the vendored tooling and the prebuilt companion.
+"""Prepare the SDK for this host. The integration ships its own replacement libraries for each supported
+arch and libc (native/<arch>-<libc>/), used whenever this host has a set. Otherwise: extract the user's
+SDK from the app package they upload, then patch it with the vendored tooling and the prebuilt companion.
 
 Authority: docs/vtech-lan-kit/docs/85-ha-deployment.md ("Setup flow on the host", "Updates"). Blocking file
 I/O and hashing: run in an executor. No Home Assistant imports.
 """
 from __future__ import annotations
 
+import glob
+import hashlib
 import json
 import os
+import platform
 from dataclasses import dataclass
 
 from .tooling import extract_sdk as _extract
@@ -22,6 +26,7 @@ NotAPackage, WrongArch = _extract.NotAPackage, _extract.WrongArch
 MissingLibs, WrongVersion = _extract.MissingLibs, _extract.WrongVersion
 SDK_VERSION = _patch.SDK_VERSION
 ABI_OF = _extract.ABI_OF            # our arch name -> Android ABI directory name
+BUNDLED_VERSION = "4.3.8.100"       # the SDK version our libraries report
 
 
 @dataclass(frozen=True)
@@ -36,13 +41,33 @@ def companion_path(arch: str) -> str:
     return os.path.join(PKG, "native", arch, "libtk.so")
 
 
+def host_libc() -> str | None:
+    """This host's C library, "glibc" or "musl", or None if neither is recognised."""
+    if platform.libc_ver()[0] == "glibc":
+        return "glibc"
+    return "musl" if glob.glob("/lib/ld-musl-*.so.1") else None
+
+
+def bundled_libdir() -> str | None:
+    """The directory of our own libraries for this host, if the integration ships a set for it."""
+    try:
+        arch = _sdk.host_arch()
+    except UnsupportedHost:
+        return None
+    libc = host_libc()
+    if libc is None:
+        return None
+    libdir = os.path.join(PKG, "native", f"{arch}-{libc}")
+    return libdir if all(os.path.isfile(os.path.join(libdir, lib)) for lib in _sdk.HOST_LIBS) else None
+
+
 def host_supported() -> str | None:
     """This host's architecture if this build of the integration can run on it, else None."""
     try:
         arch = _sdk.host_arch()
     except UnsupportedHost:
         return None
-    return arch if os.path.isfile(companion_path(arch)) else None
+    return arch if bundled_libdir() or os.path.isfile(companion_path(arch)) else None
 
 
 def install_sdk(package: str, sdk_dir: str) -> str:
@@ -66,13 +91,23 @@ def sdk_present(sdk_dir: str) -> bool:
 
 
 def prepare(sdk_dir: str, lib_root: str) -> Prepared:
-    """Patch `sdk_dir` into `lib_root/<arch>/` (cached) and check the result can load on this host.
+    """Our bundled set if this host has one; otherwise patch `sdk_dir` into `lib_root/<arch>/` (cached).
+    Either way, check the result can load on this host.
 
     The SDK is loaded by the worker process, never here. Patching writes each file as a new inode, so a
     running worker keeps the set it mapped; a changed fingerprint makes the client restart it.
     Raises UnsupportedHost or PatchError with a user-presentable message.
     """
     arch = _sdk.host_arch()
+    bundled = bundled_libdir()
+    if bundled is not None:
+        _sdk.preflight(bundled)
+        digests = {}
+        for lib in _sdk.HOST_LIBS:
+            with open(os.path.join(bundled, lib), "rb") as f:
+                digests[lib] = hashlib.sha256(f.read()).hexdigest()
+        return Prepared(bundled, arch, BUNDLED_VERSION,
+                        json.dumps({"bundled": digests, "version": BUNDLED_VERSION}, sort_keys=True))
     libdir = os.path.join(lib_root, arch)
     companion = companion_path(arch)
     if not os.path.isfile(companion):
