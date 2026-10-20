@@ -81,7 +81,7 @@ def test_receive_counters_refresh_and_log_losses(cam, monkeypatch, caplog):
     sdk, _, ls, _ = cam
     monkeypatch.setattr(media, "RECV_STATS_S", 0.05)
     zero = dict.fromkeys(("packets_requested", "video_given_up", "video_late", "video_overflow",
-                          "audio_given_up", "audio_late", "audio_overflow"), 0)
+                          "audio_given_up", "audio_late", "audio_overflow", "packets_recovered"), 0)
     sdk.recv = dict(zero)
     caplog.set_level("DEBUG", logger=media.__name__)
     sink = Sink()

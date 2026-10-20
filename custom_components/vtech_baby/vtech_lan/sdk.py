@@ -29,7 +29,7 @@ LIBS = ("libtk.so", "libTUTKGlobalAPIs.so", "libNebulaAPIs.so", "libIOTCAPIs.so"
 HOST_LIBS = ("libTUTKGlobalAPIs.so", "libIOTCAPIs.so", "libAVAPIs.so")
 #: tk_av_recv_stats counters, in order (our own AV only).
 RECV_STATS = ("packets_requested", "video_given_up", "video_late", "video_overflow",
-              "audio_given_up", "audio_late", "audio_overflow")
+              "audio_given_up", "audio_late", "audio_overflow", "packets_recovered")
 IOCTRL_BUF = 2048
 # The camera answers LAN search on 32762; the SDK's built-in default (32761) goes unanswered, so without
 # this only ThroughTek's master can find the camera (docs/vtech-lan-kit/docs/00-prerequisites.md).
