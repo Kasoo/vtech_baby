@@ -19,6 +19,7 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 | `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (protocol library), `tooling/` (vendored SDK patcher), `native/<arch>-<libc>/` (our SDK libraries, built from `tutk-host/`), `native/<arch>/libtk.so` (prebuilt companion for the patched fallback, built from `docs/vtech-lan-kit/tooling/companion/`), `brand/`. |
 | `tutk-host/` | Our implementation of the three TUTK SDK libraries, built for the host libc; `release.sh` builds the shipped sets. See `tutk-host/NOTES.md`. |
 | `tutk-sdk/` | Archived (tag `tutk-sdk-dropin-v1`): the drop-in build of the same libraries for the patched path. |
+| `docs/vtech-link-design/` | Detailed design (not yet built) of `vtech-link`, the Rust/PyO3 replacement for `tutk-host` and the ctypes/worker layer. Start at its `README.md`. |
 | `docs/vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. |
 | `docs/vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
 | `tests/` | Offline tests (fake SDK, fake manager); `tests/live/` probes for a real camera. |

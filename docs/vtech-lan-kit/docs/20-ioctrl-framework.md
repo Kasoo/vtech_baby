@@ -27,6 +27,14 @@ Because responses and pushes are interleaved on one channel, a caller that wants
 read messages in a loop and match on the expected response opcode, dispatching or ignoring unrelated
 messages that arrive first.
 
+## Pacing
+
+- **The camera sends its IOCtrl messages one at a time.** It sends the next only after the client's
+  AV acknowledgement covers the previous one. A client that acknowledges late slows every reply: with
+  several requests outstanding, replies arrive one acknowledgement interval apart. Acknowledge within
+  about 10 ms of each message.
+- **The camera accepts several unacknowledged requests** (at least 8) and answers each in order.
+
 ## Encoding conventions
 
 - Integers are 32-bit little-endian unless stated. `word0` = payload bytes `@0..3`, `word1` = `@4..7`, …

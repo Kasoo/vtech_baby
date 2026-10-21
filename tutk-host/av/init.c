@@ -145,6 +145,14 @@ int av_chan_open(AvChan *c, int session_id, uint8_t channel, bool dtls, const ch
     if (rc < 0 || !c->ctx)
         return AV_ER_SDK_NOT_SUPPORT_DTLS;
     IOTC_sCHL_CTX_set_psk_client_callback(c->ctx, (void (*)())psk_client_cb, c);
+#ifdef TK_DEBUG
+    /* TK_CIPHERS (debug builds only): the OpenSSL cipher list to offer, to see which suites the
+     * camera accepts. */
+    const char *ciphers = getenv("TK_CIPHERS");
+
+    if (ciphers && ciphers[0])
+        IOTC_sCHL_CTX_set_cipher_list(c->ctx, ciphers);
+#endif
     return 0;
 }
 
