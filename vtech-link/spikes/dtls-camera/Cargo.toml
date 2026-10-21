@@ -1,0 +1,18 @@
+[package]
+name = "dtls-camera"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Phase 0 spike: dimpl's PSK client against the camera over a hand-rolled IOTC session.
+[dependencies]
+dimpl = { path = "../../third_party/dimpl", default-features = false, features = ["rust-crypto"] }
+hmac = "0.12"
+sha1 = "0.10"
+getrandom = "0.2"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 2
+
+[workspace]

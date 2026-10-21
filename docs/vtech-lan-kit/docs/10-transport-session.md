@@ -79,8 +79,10 @@ server:
   The ServerKeyExchange carries an empty identity hint.
 - **Other suites** the camera accepts when offered alone: `TLS_PSK_WITH_AES_128_GCM_SHA256`,
   `TLS_PSK_WITH_CHACHA20_POLY1305_SHA256` and `TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256`. It does not
-  accept the PSK AES-CCM or AES-CCM_8 suites. A ClientHello it can't serve gets no answer at all, not
-  an alert.
+  accept the PSK AES-CCM or AES-CCM_8 suites. It answers a ClientHello it can't serve with a
+  `handshake_failure` alert or not at all, depending on the hello.
+- **A wrong AV password** (a PSK mismatch): the camera sends its ServerHello flight, then never answers
+  the client's Finished. There is no alert.
 - **No HelloVerifyRequest**: the camera answers the first ClientHello directly.
 - The camera agrees to the **extended master secret** when offered, and sends a NewSessionTicket
   when the client offers the session-ticket extension.

@@ -63,9 +63,9 @@ Read in order.
 ## Decisions at a glance
 
 1. **Rust, memory-safe, no C dependencies.** `#![forbid(unsafe_code)]` in every protocol crate. No
-   OpenSSL. DTLS is `dimpl`, a sans-IO pure-Rust crate, with one PSK suite the camera accepts added
-   upstream. Our own small client for the camera's suite is the fallback (`30-dtls.md`, "Prior art, and
-   the choice").
+   OpenSSL. DTLS is `dimpl`, a sans-IO pure-Rust crate, with `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`
+   (what the camera negotiates today) and `PSK_WITH_AES_128_GCM_SHA256` added by us. Both were proven
+   against the camera in a spike on 2026-10-21. Our own small client stays the fallback (`30-dtls.md`).
 2. **Sans-IO protocol core.** Every layer is a state machine that takes datagrams, commands and the
    time, and returns datagrams, events and its next deadline. The same code runs on the reactor
    thread, in a deterministic simulator and under fuzzers (`10-architecture.md`).

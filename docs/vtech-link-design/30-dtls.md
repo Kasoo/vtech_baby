@@ -47,10 +47,11 @@ Offering one suite at a time, with a debug-only knob in `tutk-host` (`TK_CIPHERS
 | `PSK_WITH_CHACHA20_POLY1305_SHA256` | `ccab` | accepted; connected |
 | `ECDHE_PSK_WITH_AES_128_CBC_SHA256` | `c037` | accepted; connected |
 | `PSK_WITH_AES_128_CCM` | `c0a4` | **no answer**: the ClientHello was retransmitted until the deadline |
-| `PSK_WITH_AES_128_CCM_8` | `c0a8` | **no answer** (offered with `@SECLEVEL=0`; OpenSSL refuses CCM_8 at its default level) |
+| `PSK_WITH_AES_128_CCM_8` | `c0a8` | **refused**: no answer to OpenSSL's hello (offered with `@SECLEVEL=0`, since OpenSSL refuses CCM_8 at its default level); a fatal `handshake_failure` (40) alert in answer to dimpl's hello |
 
-The camera **does not send an alert** for a hello it can't serve. It stays silent, so a client sees a
-timeout. With the full hello, the camera picks the first PSK suite it supports in the client's order
+To a hello it can't serve, the camera sends either a `handshake_failure` alert or nothing at all,
+depending on the hello. A client must therefore treat silence after its ClientHello as "refused or
+unreachable". With the full hello, the camera picks the first PSK suite it supports in the client's order
 (DHE_PSK and RSA_PSK come earlier in OpenSSL's list but aren't usable). That shows it follows the
 client's order.
 
@@ -66,7 +67,8 @@ The commands: `TK_CIPHERS=<openssl name>` with the `TK_TRACE=2` probe above.
 | **`dimpl`** (algesten, pure Rust, MIT/Apache, built for str0m) | **Not as published**: its only PSK suite is `PSK_AES128_CCM_8`, which the camera ignores | **Exactly our shape**: sans-IO and synchronous (`handle_packet` / `poll_output` / `handle_timeout`); DTLS 1.2 PSK client via `new_12_psk`; RustCrypto backends. It already has AES-GCM and ChaCha20-Poly1305 record protection for its ECDHE_ECDSA suites | **Recommended, with one suite added** (below). |
 | **Our own client** (the rest of this document) | Yes, for `ccac` | Exactly our shape | Fallback if `dimpl` won't take the suite and a fork is unattractive. |
 
-**Recommendation: `dimpl`, plus a PSK suite the camera accepts, contributed upstream.**
+**Decision (2026-10-21, after the spike below): `dimpl`, with two suites added, upstream if they'll
+take them.**
 - **The suite to add is `PSK_WITH_AES_128_GCM_SHA256`** (`00a8`). It is the smallest change: dimpl's
   existing PSK key exchange combined with its existing AES-128-GCM record protection.
 - **`ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`** (`ccac`) would keep the forward secrecy that today's
@@ -78,8 +80,57 @@ The commands: `TK_CIPHERS=<openssl name>` with the `TK_TRACE=2` probe above.
 - **Dependency risk**: dimpl is young (0.8.0, 2026-10-19; 35 releases in 13 months) and also
   implements DTLS 1.3 and ECDSA, which we don't need. Pin the version, review each upgrade, and enable
   only the features we use.
-- **Phase 0 spike**: dimpl with the added suite against the camera. If upstream declines the suite,
-  carry it as a small patch (`[patch.crates-io]` to a fork) or fall back to our own client.
+- **Phase 0 spike, done** (below): both suites are added to dimpl and work against the camera.
+
+### The dimpl change and the spike (2026-10-21)
+
+**The change** is `vtech-link/third_party/dimpl-psk-suites.patch`, against dimpl 0.8.0 (`f68b009`).
+It adds `TLS_PSK_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` for DTLS
+1.2, client and server: about 480 lines added, a third of them tests.
+- **Key exchange**: a new `KeyExchangeAlgorithm::ECDHE_PSK`.
+- **ServerKeyExchange**: `EcdhePskParams`, which is the hint followed by unsigned ECDH parameters.
+- **ClientKeyExchange**: `ClientEcdhePskKeys`, which is the identity followed by the client's point.
+- **Pre-master secret**: `CryptoContext::compute_ecdhe_psk_pre_master_secret`, which builds
+  `u16(len Z) || Z || u16(len psk) || psk`.
+- **Suite entries** in both crypto providers, reusing the existing AES-128-GCM and ChaCha20-Poly1305
+  ciphers.
+- **Config**: ECDHE_PSK still needs a key exchange group, and the kx-group validation now accounts for
+  that.
+- **Tests**: dimpl's PSK tests (self-handshake, application data both ways, mismatched keys) now run
+  over all three PSK suites. dimpl's whole test suite passes on both crypto backends
+  (`rust-crypto`: 307 library tests plus the integration suites; the default `aws-lc-rs`: 369 plus the
+  integration suites).
+
+**The spike**, `vtech-link/spikes/dtls-camera/`, is about 500 lines. It is a minimal IOTC session
+(the scramble checked against the kit's worked example; probe, record, connect ack, data), dimpl's PSK
+client on channel 0, the AV login, and a DEVINFO request. It was run from the NAS against the camera,
+read-only:
+
+| Run | Result |
+|---|---|
+| `ecdhe-psk-chacha` | IOTC up in 7 ms; DTLS connected in 31 ms with `0xccac`; AV login accepted 8 ms later; DEVINFO `0x331` reply (`RM5754`, `vtech`). Three more runs: DTLS in 34–38 ms, all PASS. |
+| `psk-gcm` | DTLS in 20 ms with `0x00a8`; login accepted; DEVINFO replied. |
+| `psk-ccm8` | fatal alert `handshake_failure` (40) 10 ms after the ClientHello. |
+| `ecdhe-psk-chacha --wrong-pwd` | the ServerHello arrives (`0xccac`), then **nothing** after our Finished: no alert, no server Finished, until the 20 s deadline. |
+| `psk-gcm --wrong-pwd` | the same: ServerHello `0x00a8`, then silence. |
+
+The same command:
+
+```sh
+. $CAMERA_DIR/.camera.env; scp target-alpine/x86_64-alpine-linux-musl/release/dtls-camera $HOST:/tmp/
+ssh $HOST "VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=… /tmp/dtls-camera ecdhe-psk-chacha 192.0.2.10"
+```
+
+**What this settles**:
+- **dimpl's ClientHello is accepted.** It carries `use_srtp` and `signature_algorithms`, offers one
+  suite, and has no session-ticket extension (Q1).
+- **A wrong AV password leaves a signature** (Q2): the ServerHello arrives, then the server's Finished
+  never does. The link reports `AvAuthFailed` when our Finished has gone out and nothing comes back
+  within a short wait (3 s; the camera answers a good Finished within 40 ms). It doesn't wait out the
+  whole AV timeout.
+- **The link offers `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`**, which is what the camera negotiates
+  today and which keeps forward secrecy. `PSK_WITH_AES_128_GCM_SHA256` is a tested alternative behind
+  a config value.
 
 The rest of this document specifies **our own client**. It stays the fallback, and is the reference
 for what a `dimpl` integration must do: the PSK identity and key, the record size, and the timers.
@@ -214,14 +265,13 @@ type u8 | version u16 (fefd; feff on the first ClientHello) | epoch u16 | seq u4
 | Event | Result |
 |---|---|
 | Fatal alert before our Finished (e.g. `handshake_failure` 40, `illegal_parameter` 47) | `LinkError::Protocol("dtls handshake refused")` with the alert code in the log |
-| Fatal alert after our Finished: `bad_record_mac` 20, `decrypt_error` 51, or `unknown_psk_identity` 115 | `AvAuthFailed(DtlsAlert(code))`: the camera rejected our PSK, so the AV password is wrong (R4) |
+| No answer to our Finished within 3 s (the camera's behaviour for a wrong PSK, observed 2026-10-21), or a fatal alert after our Finished (`bad_record_mac` 20, `decrypt_error` 51, `unknown_psk_identity` 115) | `AvAuthFailed(..)`: the AV password is wrong (R4) |
 | Server `Finished` mismatch | `AvAuthFailed(DtlsAlert(0))` (a PSK mismatch shows up here too) |
 | `close_notify` (0) or any fatal alert once connected | `Closed(DtlsAlert(code))` |
 | Suite, group or version not what we offered | `Protocol("dtls: unexpected server parameters")` |
 
-The wrong-password mapping is a hypothesis to confirm in Phase 0, with a deliberately wrong AV
-password against the real camera (`95-open-questions.md` Q2). It is read-only and safe. Today the
-same case surfaces as `AV_ER_TIMEOUT` → `Unreachable` (`av/session.c:217`).
+The wrong-password row is from the spike (above). Today the same case surfaces as `AV_ER_TIMEOUT` →
+`Unreachable` (`av/session.c:217`).
 
 ## Crypto dependencies
 
