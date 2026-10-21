@@ -25,7 +25,7 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 | `mio` (`net`, `os-poll`) | the reactor | core |
 | `socket2` | socket options before handing the socket to mio | core |
 | `if-addrs` | `getifaddrs` | core |
-| `dimpl` (git dependency on the fork's `psk-suites` branch, pinned by commit; `default-features = false`, `rust-crypto`; `30-dtls.md`) | DTLS 1.2 PSK client | core |
+| `dimpl` (`"0.8"`, `default-features = false`, `rust-crypto`; from our fork until upstream has the PSK suites, below) | DTLS 1.2 PSK client | core |
 | `x25519-dalek` (`static_secrets`) | live-view key exchange (and DTLS ECDHE in the own-client fallback) | core |
 | `sha2`, `sha1`, `hmac` | PRF, transcript, connect-record HMAC, PSK | core |
 | `chacha20poly1305`, `chacha20` | DTLS records, frame crypto, key unwrap | core |
@@ -42,6 +42,31 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 Each added crate is a reviewed decision, as the import allow-list was for `tutk-host`. `cargo deny`
 fails the build on an unlisted licence (MIT, Apache-2.0, BSD-3-Clause and Unicode are allowed), a
 RustSec advisory, or a banned crate (`openssl`, `openssl-sys`, `ring` and any `*-sys` that builds C).
+
+## dimpl from our fork
+
+dimpl needs two suites that upstream doesn't have yet (`30-dtls.md`). We use Cargo's standard
+mechanism for a pending upstream change: the code depends on the crates.io crate, and the workspace
+root swaps in our fork.
+
+```toml
+# core/Cargo.toml
+dimpl = { version = "0.8", default-features = false, features = ["rust-crypto"] }
+
+# Cargo.toml (workspace root)
+[patch.crates-io]
+dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
+```
+
+- **Tag, not branch.** Each fork revision gets a new tag (`vtech-<upstream version>-psk.<n>`), so a
+  rebase of `psk-suites` never orphans a commit a build uses. `Cargo.lock` records the commit, and
+  builds run with `--locked`.
+- **The https URL**, so the release containers need no SSH key.
+- **Moving back to upstream**: delete the `[patch]` entry and bump the version, once upstream ships the
+  suites.
+- **Offline builds**, if wanted: `release.sh` runs `cargo vendor` before starting the containers and
+  passes the vendor directory and its `.cargo/config.toml` in. `vendor/` is not committed.
+- Proven by the spike (`spikes/dtls-camera/Cargo.toml`), which builds from the tag with `--locked`.
 
 ## The four builds (R35)
 
@@ -91,6 +116,9 @@ dynamic symbols (`nm -D --undefined-only`) and fail if any is outside
   self-contained, with no package index and no network at install. It also keeps the existing
   "built only by the sync script" rule. Publishing wheels to PyPI later is possible without changing the
   code; only the loader would change.
+- **Licence notices**: the module compiles in dimpl and the RustCrypto crates (MIT/Apache), whose
+  notices must travel with the binaries. `sync_link.sh` writes
+  `native/THIRD_PARTY_LICENSES` with `cargo about generate`.
 - Size: about 1 MB per build stripped. Today's C sets are about 300 KB each, so the four builds add
   about 3 MB to the HACS download.
 - `link.py` loads the module with `ExtensionFileLoader("_vtech_link", path)`. The init symbol is
