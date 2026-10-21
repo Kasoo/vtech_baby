@@ -35,7 +35,56 @@ Observed: **no HelloVerifyRequest** (the camera does not use cookies); each side
 IOTC datagram; the handshake takes about 80 ms. Recorded in the kit
 (`docs/vtech-lan-kit/docs/10-transport-session.md`) and passed on to the TUTK kit.
 
-## Scope
+## Which suites the camera accepts (live, 2026-10-21)
+
+Offering one suite at a time, with a debug-only knob in `tutk-host` (`TK_CIPHERS`, `av/init.c`
+`av_chan_open`) and the same probe, read-only:
+
+| Suite offered alone | Id | Result |
+|---|---|---|
+| `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` | `ccac` | accepted (what the full OpenSSL hello negotiates) |
+| `PSK_WITH_AES_128_GCM_SHA256` | `00a8` | accepted; ServerHello, ServerHelloDone, connected, DEVINFO replied |
+| `PSK_WITH_CHACHA20_POLY1305_SHA256` | `ccab` | accepted; connected |
+| `ECDHE_PSK_WITH_AES_128_CBC_SHA256` | `c037` | accepted; connected |
+| `PSK_WITH_AES_128_CCM` | `c0a4` | **no answer**: the ClientHello was retransmitted until the deadline |
+| `PSK_WITH_AES_128_CCM_8` | `c0a8` | **no answer** (offered with `@SECLEVEL=0`; OpenSSL refuses CCM_8 at its default level) |
+
+The camera **does not send an alert** for a hello it can't serve. It stays silent, so a client sees a
+timeout. With the full hello, the camera picks the first PSK suite it supports in the client's order
+(DHE_PSK and RSA_PSK come earlier in OpenSSL's list but aren't usable). That shows it follows the
+client's order.
+
+The commands: `TK_CIPHERS=<openssl name>` with the `TK_TRACE=2` probe above.
+
+## Prior art, and the choice
+
+| Option | Fits the camera? | Fits this design? | Verdict |
+|---|---|---|---|
+| **rustls** | — | — | No DTLS support at all. |
+| **`openssl` crate** (rust-openssl, `vendored`) | Yes: it's today's stack | DTLS and PSK callbacks work. But it brings back C (a static OpenSSL built in four containers), against R36, and an OpenSSL bug is a process crash, against R34 | Fallback only. |
+| **`webrtc-dtls`** (webrtc-rs, pure Rust) | Yes, via `PSK_WITH_AES_128_GCM_SHA256` (accepted above) | Async and tokio-based, built around its own `Conn`; not sans-IO, so no deterministic simulation (R38); a large dependency tree; plain PSK only, so no forward secrecy | No. |
+| **`dimpl`** (algesten, pure Rust, MIT/Apache, built for str0m) | **Not as published**: its only PSK suite is `PSK_AES128_CCM_8`, which the camera ignores | **Exactly our shape**: sans-IO and synchronous (`handle_packet` / `poll_output` / `handle_timeout`); DTLS 1.2 PSK client via `new_12_psk`; RustCrypto backends. It already has AES-GCM and ChaCha20-Poly1305 record protection for its ECDHE_ECDSA suites | **Recommended, with one suite added** (below). |
+| **Our own client** (the rest of this document) | Yes, for `ccac` | Exactly our shape | Fallback if `dimpl` won't take the suite and a fork is unattractive. |
+
+**Recommendation: `dimpl`, plus a PSK suite the camera accepts, contributed upstream.**
+- **The suite to add is `PSK_WITH_AES_128_GCM_SHA256`** (`00a8`). It is the smallest change: dimpl's
+  existing PSK key exchange combined with its existing AES-128-GCM record protection.
+- **`ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`** (`ccac`) would keep the forward secrecy that today's
+  link has, but needs an ECDHE_PSK key exchange that dimpl doesn't have.
+- **What plain PSK gives up**: anyone who records the LAN traffic and later learns the AV password
+  can decrypt the control channel. The media is separately encrypted under the per-session live-view
+  key, so it stays protected. The AV password rotates only on a re-pair. This is a small loss, but a
+  real one, so offer `ccac` first if dimpl gains it, and `00a8` otherwise.
+- **Dependency risk**: dimpl is young (0.8.0, 2026-10-19; 35 releases in 13 months) and also
+  implements DTLS 1.3 and ECDSA, which we don't need. Pin the version, review each upgrade, and enable
+  only the features we use.
+- **Phase 0 spike**: dimpl with the added suite against the camera. If upstream declines the suite,
+  carry it as a small patch (`[patch.crates-io]` to a fork) or fall back to our own client.
+
+The rest of this document specifies **our own client**. It stays the fallback, and is the reference
+for what a `dimpl` integration must do: the PSK identity and key, the record size, and the timers.
+
+## Scope (own client)
 
 **Implemented**: the client side of one full handshake for suite `0xCCAC`, with x25519 and the extended
 master secret; HelloVerifyRequest (the camera doesn't send one, but it costs 30 lines and a

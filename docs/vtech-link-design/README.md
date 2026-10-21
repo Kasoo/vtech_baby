@@ -29,7 +29,7 @@ Read in order.
 | [`05-current-setup.md`](05-current-setup.md) | Analysis of today's stack (C mirror + ctypes + worker): what it carries that we don't need, and its costs. |
 | [`10-architecture.md`](10-architecture.md) | Layers, crates, the one-thread-per-link reactor, data flow, ownership, what moves from Python to Rust. |
 | [`20-iotc.md`](20-iotc.md) | The IOTC layer: datagram codec, scramble, discovery and connect, data channels, keepalive, close. |
-| [`30-dtls.md`](30-dtls.md) | A minimal DTLS 1.2 client for the one cipher suite the camera negotiates (`ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`). |
+| [`30-dtls.md`](30-dtls.md) | DTLS: what the camera negotiates and accepts, the prior art (dimpl recommended), and a minimal own client as the fallback. |
 | [`40-av-client.md`](40-av-client.md) | The AV client channel: login, the reliable control stream, ACK/NAK, reports and RTT. |
 | [`45-media-receive.md`](45-media-receive.md) | Media fragments, the packet window, frame assembly, parity recovery, the reset handshake, counters. |
 | [`50-talkback.md`](50-talkback.md) | The talk-back server channel: the plain login, media send and pacing. |
@@ -63,7 +63,9 @@ Read in order.
 ## Decisions at a glance
 
 1. **Rust, memory-safe, no C dependencies.** `#![forbid(unsafe_code)]` in every protocol crate. No
-   OpenSSL: DTLS is our own client for one cipher suite, on RustCrypto primitives (`30-dtls.md`).
+   OpenSSL. DTLS is `dimpl`, a sans-IO pure-Rust crate, with one PSK suite the camera accepts added
+   upstream. Our own small client for the camera's suite is the fallback (`30-dtls.md`, "Prior art, and
+   the choice").
 2. **Sans-IO protocol core.** Every layer is a state machine that takes datagrams, commands and the
    time, and returns datagrams, events and its next deadline. The same code runs on the reactor
    thread, in a deterministic simulator and under fuzzers (`10-architecture.md`).

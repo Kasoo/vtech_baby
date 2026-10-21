@@ -6,7 +6,8 @@ Each item says what is unknown, why it matters, how it gets settled, and the def
 
 | ID | Question | Matters for | Settled by | Default |
 |---|---|---|---|---|
-| Q1 | Does the camera accept our reduced ClientHello (one suite, four extensions)? | `30-dtls.md` | Phase 0 spike 1 | Send OpenSSL's ClientHello byte for byte and still only complete `0xCCAC` |
+| Q1 | Does the camera accept a minimal ClientHello offering one suite: dimpl's, or our own reduced hello? | `30-dtls.md` | Phase 0 spike 1. The suite itself is settled: `00a8`, `ccab`, `ccac` and `c037` are accepted, and the CCM suites are ignored (`30-dtls.md`) | Send OpenSSL's ClientHello extensions byte for byte |
+| Q13 | Will dimpl upstream take `PSK_WITH_AES_128_GCM_SHA256` (and later `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`)? | The DTLS choice | An issue/PR on `algesten/dimpl` | Carry the suite as a patch on a fork; else our own client |
 | Q2 | Which alert, if any, does the camera send for a wrong AV password (a PSK mismatch)? | R4: telling a wrong password from an unreachable camera | Phase 0 spike 2 (read-only) | Treat any fatal alert after our Finished, or a silent handshake timeout after our Finished, as `AvAuthFailed` |
 | Q3 | Does the camera handle several sessions from one host on separate source ports? | `70-runtime.md` socket per link | Phase 0 spike 3 | Share one socket per process and demultiplex by token, as `tutk-host` does |
 | Q4 | What does control-frame `+0x12` mean: frame number low bits (as `tutk-host` writes and reads it), or fragment index (kit)? | Multi-fragment inbound frames (R16) | Read `_sendIOorIOInnerFrame` and the inbound admit again in the binary (TUTK kit agent), or catch a multi-fragment frame live | Keep `tutk-host`'s reading; reassemble multi-fragment frames only by `+0x1c` frame number and treat `+0x12` as opaque |
@@ -38,3 +39,6 @@ Each item says what is unknown, why it matters, how it gets settled, and the def
   live `TK_TRACE=2` capture on 2026-10-21 (`30-dtls.md`). This is what makes a dependency-free DTLS
   client a small job rather than a general TLS stack.
 - **libgcc_s in HA's image**: present (Q8).
+- **Which suites the camera accepts**: plain PSK with AES-128-GCM or ChaCha20, and ECDHE_PSK with
+  ChaCha20 or AES-128-CBC; not CCM or CCM_8. It ignores an unacceptable hello rather than alerting
+  (`30-dtls.md`).
