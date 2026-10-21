@@ -69,6 +69,19 @@ authKey returns `-68`.
 The output struct returns, among other fields, the negotiated server type and security mode; a
 `security_mode` of `1` in the output confirms the DTLS channel.
 
+## The DTLS channel
+
+The AV channel's DTLS runs over IOTC channel 0 as IOTC data of datatype 1. The camera is the DTLS 1.2
+server:
+
+- **Cipher suite**: `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` (`0xCCAC`), with the x25519 group.
+- **PSK**: identity `AUTHPWD_<account>` (e.g. `AUTHPWD_admin`); key `SHA-256(AV password)`, 32 bytes.
+  The ServerKeyExchange carries an empty identity hint.
+- **No HelloVerifyRequest**: the camera answers the first ClientHello directly.
+- The camera agrees to the **extended master secret** when offered, and sends a NewSessionTicket
+  when the client offers the session-ticket extension.
+- Each side's flight arrives as one IOTC datagram holding several records.
+
 ## Session lifetime
 
 - One AV channel (`av`) is used for all IOCtrl and media.

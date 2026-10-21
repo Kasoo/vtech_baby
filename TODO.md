@@ -15,6 +15,12 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
   far, 2026-10-10), as `README.md` tells users to download it. If it doesn't, find another public
   source or rethink the instructions.
 
+## vtech-link
+
+- Build `vtech-link` (Rust core + PyO3 module) to `docs/vtech-link-design/`, starting with the
+  phase 0 spikes in `90-migration.md`. Waits on the end of the `tutk-host` production soak only for
+  phase 3 onwards.
+
 ## Packaging
 
 - A live-test runner in this repo, so `tests/live/` doesn't depend on a script kept elsewhere.
