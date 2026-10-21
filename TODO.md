@@ -15,6 +15,16 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
   far, 2026-10-10), as `README.md` tells users to download it. If it doesn't, find another public
   source or rethink the instructions.
 
+## tutk-host
+
+- Inbound control frames are ordered by `+0x12` (the camera's per-fragment packet number), and
+  multi-fragment ones are dropped (`tutk-host/av/ioctrl.c` `av_ctrl_on_frame`). After the first
+  multi-fragment message from the camera, every later frame would be dropped and the control channel
+  would stall until reconnect. Fix: key on the frame number at `+0x1c` with the fragment index at
+  `+0x16` and count at `+0x14`, reassemble, and advance `ctrl_in` per message
+  (`docs/vtech-link-design/40-av-client.md`, "Inbound frames"). Not seen live. Fix after the production
+  soak, or sooner if a control stall appears.
+
 ## vtech-link
 
 - Build `vtech-link` (Rust core + PyO3 module) to `docs/vtech-link-design/`, starting with the

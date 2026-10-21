@@ -115,26 +115,33 @@ must be ≥ `0x14`.
 
 ## The control stream (`control.rs`)
 
-**Outbound frame** (`av/ioctrl.c:21` `av_ctrl_send`), `0x28 + len` bytes:
+**The control frame** (both directions; `tutk-kit/docs/av/40-ioctrl.md` as corrected in kit commit
+`4da044d`, from `_sendIOorIOInnerFrame`, the inbound admit `FUN_0011bed0` and the completion
+`FUN_0011c920`). Offsets are datagram-absolute, without the stats block:
 
-| Offset | Value |
+| Offset | Field |
 |---|---|
 | `+0x00` | class `0x0c`, flags 0, version, counter |
-| `+0x08` | 8 zero bytes (group header; `tutk-host` leaves it zero for control frames) |
-| `+0x10` | `00` (control), `+0x11` control class `0x70` (user) or `0x10` (internal) |
-| `+0x12` | u16 frame number, low 16 bits |
-| `+0x14` | u32 `1` (fragment count) |
-| `+0x18` | u32 `4 + len` (type + payload) |
-| `+0x1c` | u32 frame number |
+| `+0x08` | 8 zero bytes (group header; zero for control frames) |
+| `+0x10` | u8 `00` (control) |
+| `+0x11` | u8 control class: `0x70` user, `0x10` internal |
+| `+0x12` | u16 **packet number**: a running counter, incremented once per fragment and never reset; the receiver uses it only as a duplicate gate |
+| `+0x14` | u16 fragment count |
+| `+0x16` | u16 fragment index, from 0 |
+| `+0x18` | u16 this fragment's body length (type + payload on fragment 0, the raw chunk after) |
+| `+0x1a` | u16 `0` |
+| `+0x1c` | u32 **frame number**: one per message, from 0, the same on every fragment; shared by user and internal frames |
 | `+0x20` | u32 `0` |
-| `+0x24` | u32 IOCtrl type |
-| `+0x28` | payload, `len ≤ 0x3fc` (1020) bytes |
+| `+0x24` | u32 IOCtrl type, **fragment 0 only**; later fragments carry payload from `+0x24` |
+| `+0x28` | payload |
 
-Our frame numbers count from 0 and are shared by user and internal frames. **`+0x12` carries the
-frame number in both directions, as `tutk-host` does** (`av/ioctrl.c:21` writes it, `:100` reads it),
-and that is proven live. The kit calls `+0x12` the "fragment index" (`tutk-kit/docs/av/40-ioctrl.md`).
-The two agree for frame 0 and for every single-fragment frame the camera has acknowledged so far.
-`95-open-questions.md` Q4 tracks reconciling them.
+Fragmenting: `count = (len + 4 + 0x3ff) >> 10`. Fragment 0 carries the type and up to 1020 payload
+bytes; each later fragment carries up to 1024. We send single-fragment frames only (R10: payload ≤ 1020),
+so we write count 1, index 0, and a packet-number counter of our own.
+
+`tutk-host` writes the frame number's low 16 bits at `+0x12` (`av/ioctrl.c:21`) and the u32 pairs
+`1` and `4 + len` at `+0x14` and `+0x18`, which are the same bytes as count 1 / index 0 and
+length / 0. That works because the camera keys on `+0x1c` and only needs `+0x12` to advance.
 
 **Sending policy.** User frames go out through a window of **8 unacknowledged frames**
 (`ctrl_window`, configurable), with a FIFO behind it. Internal frames (the reset) bypass the window.
@@ -166,18 +173,25 @@ below is what lets a full state re-read (about 12 requests) finish in about 0.4 
   queued until it is ACKed or the link closes (the camera may still act on it). Q6 revisits this once
   the histogram has data.
 
-**Inbound frames** (`av/ioctrl.c:100` `av_ctrl_on_frame`): every inbound control frame sets `ack_due`.
-A frame is accepted when its number (u16 at `f+2`) is `ctrl_in + 1`, the u32 at `f+8` (body length) is
-≥ 4 and fits the packet, and the u32 at `f+4` (fragment count) is 1. Then `ctrl_in` advances.
-Duplicates and frames out of order are dropped; the camera resends anything we haven't ACKed.
+**Inbound frames**, per stock's admit and completion: every inbound control fragment sets
+`ack_due`. Fragments are stored keyed by **frame number (`+0x1c`) and fragment index (`+0x16`)**, and
+duplicates are dropped. A message is delivered when its frame number is `ctrl_in + 1` and all `count`
+fragments are present. The fragments are joined in index order (type from fragment 0), and `ctrl_in`,
+the frame number our ACK reports at `+0x0c`, advances by one. `ctrl_in` counts messages, not fragments.
+Frames ahead of `ctrl_in + 1` are held (at most 16 fragments, 16 KiB); stale ones are dropped. The camera
+resends anything we haven't ACKed.
+
+**A latent bug in `tutk-host`**, found from this: `av_ctrl_on_frame` (`av/ioctrl.c:100`) orders inbound
+frames by `+0x12` (the packet number) and drops anything with a fragment count other than 1. While the
+camera sends only single-fragment messages, its packet number equals its frame number and this works.
+After one multi-fragment message, the two counters diverge. Every later frame then fails the
+`ctrl_in + 1` check, the ACK stops advancing, and the control channel stalls until the link is
+dropped. No multi-fragment inbound message has been seen yet. The fix is listed in `TODO.md`.
 - User class `0x70`: emit `Event::Control { type: u32 at f+0x14, payload: f[0x18 .. 0x18 + body − 4] }`.
 - Internal class `0x10`, type `0x25` (reset ack), with a u16 payload equal to our last reset sequence:
   complete the pending reset (`45-media-receive.md`).
-- **Multi-fragment frames** (count > 1, R16): new. Fragments sharing a frame number are collected by
-  index until all `count` have arrived (at most 16 fragments, 16 KiB), and then delivered as one
-  message. Today these are dropped (`av/ioctrl.c:107`, logged as "dropped a %u-fragment control
-  frame"). The fragment-index field is ambiguous (Q4), so until a multi-fragment frame has been seen
-  live this path is only exercised in simulation, and it logs at WARNING when it runs.
+- **Multi-fragment messages** (R16) are reassembled as above. None has been seen live, so the path
+  is exercised in simulation, and it logs at DEBUG when it runs.
 
 ## Errors
 
