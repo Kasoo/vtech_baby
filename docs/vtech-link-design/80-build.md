@@ -25,7 +25,7 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 | `mio` (`net`, `os-poll`) | the reactor | core |
 | `socket2` | socket options before handing the socket to mio | core |
 | `if-addrs` | `getifaddrs` | core |
-| `dimpl` (pinned, minimal features; `30-dtls.md`) | DTLS 1.2 PSK client | core |
+| `dimpl` (git dependency on the fork's `psk-suites` branch, pinned by commit; `default-features = false`, `rust-crypto`; `30-dtls.md`) | DTLS 1.2 PSK client | core |
 | `x25519-dalek` (`static_secrets`) | live-view key exchange (and DTLS ECDHE in the own-client fallback) | core |
 | `sha2`, `sha1`, `hmac` | PRF, transcript, connect-record HMAC, PSK | core |
 | `chacha20poly1305`, `chacha20` | DTLS records, frame crypto, key unwrap | core |

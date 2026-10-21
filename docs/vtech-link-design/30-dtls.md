@@ -84,7 +84,10 @@ take them.**
 
 ### The dimpl change and the spike (2026-10-21)
 
-**The change** is `vtech-link/third_party/dimpl-psk-suites.patch`, against dimpl 0.8.0 (`f68b009`).
+**The change** is branch `psk-suites` on our fork, `git@github.com:Kasoo/dimpl.git` (commit `a72d63a`, on
+dimpl 0.8.0 `f68b009`). It is held there for now, with no upstream PR yet; what a PR would still need is
+listed in the local checkout's uncommitted `TODO.md`. `vtech-link/third_party/dimpl-psk-suites.patch` is
+the same commit as a patch.
 It adds `TLS_PSK_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` for DTLS
 1.2, client and server: about 480 lines added, a third of them tests.
 - **Key exchange**: a new `KeyExchangeAlgorithm::ECDHE_PSK`.
