@@ -16,7 +16,7 @@ Small throwaway programs in `vtech-link/spikes/`, all read-only against the came
    OpenSSL's (in `30-dtls.md`). If dimpl is a dead end, run the same spike with our own client for
    `ccac`.
 2. **Done 2026-10-21.** **Wrong AV password** with the same spike. Record which alert the camera sends, if any. Settles Q2.
-3. **One socket per link, two links at once**, while HA's own session runs. Pass: three independent
+3. **Done 2026-10-21.** **One socket per link, two links at once**, while HA's own session runs. Pass: three independent
    sessions answer. Settles Q3.
 4. **libgcc_s** in the HA image: done, it's there (`80-build.md`).
 5. **A PyO3 abi3 hello-world** built by `release.sh` for all four targets and imported by

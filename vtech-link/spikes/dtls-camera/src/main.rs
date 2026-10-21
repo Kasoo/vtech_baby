@@ -1,9 +1,15 @@
 //! Phase 0 spike: connect to the camera over a minimal IOTC session, run dimpl's DTLS 1.2 PSK
 //! client on channel 0, log in to the AV channel and ask for the device info.
 //!
-//!   VTECH_UID=... VTECH_AUTHKEY=... VTECH_PWD=... dtls-camera <suite> [camera-ip] [--wrong-pwd]
+//!   VTECH_UID=... VTECH_AUTHKEY=... VTECH_PWD=... dtls-camera <suite> [camera-ip] [options]
 //!
-//! <suite> is one of ecdhe-psk-chacha, psk-gcm, psk-ccm8. Read-only: it sends DEVINFO only.
+//! <suite> is one of ecdhe-psk-chacha, psk-gcm, psk-ccm8. Options:
+//!   --wrong-pwd          log in with a wrong AV password
+//!   --sdk-version 0xNN   the SDK version advertised (default 0x04030864, 4.3.8.100)
+//!   --window N           after DEVINFO, send N read-only GETs back to back, unacknowledged
+//!   --ack-ms N           send an ACK every N ms (default 100)
+//!   --hold S             keep the link up S seconds (keepalives and ACKs), then DEVINFO again
+//! Read-only: it sends DEVINFO and GETs only.
 use std::collections::HashMap;
 use std::env;
 use std::net::{SocketAddr, UdpSocket};
@@ -17,7 +23,6 @@ use hmac::{Hmac, Mac};
 use sha1::Sha1;
 
 const KEY: &[u8; 16] = b"Charlie is the d";
-const SDK_VERSION: u32 = 0x0403_0864;
 const SEARCH_PORT: u16 = 32762;
 const ROT: [u32; 4] = [1, 5, 9, 13];
 
@@ -134,6 +139,7 @@ struct Iotc {
     pe: bool,
     seq: [u16; 32],
     inv: [u8; 128],
+    sdk_version: u32,
 }
 
 impl Iotc {
@@ -153,7 +159,7 @@ impl Iotc {
         header(&mut p, 0, 0x48, 0x0601, 0x0021);
         p[0x0f] = 1;
         p[0x10..0x24].copy_from_slice(&self.uid);
-        p[0x34..0x38].copy_from_slice(&SDK_VERSION.to_le_bytes());
+        p[0x34..0x38].copy_from_slice(&self.sdk_version.to_le_bytes());
         p[0x38..0x40].copy_from_slice(&self.token);
         p[0x40..0x44].copy_from_slice(&1u32.to_le_bytes());
         p[0x4a..0x52].copy_from_slice(&self.authkey);
@@ -167,7 +173,7 @@ impl Iotc {
         r[5] = 0x10;
         r[6..8].copy_from_slice(&0x28u16.to_le_bytes());
         r[0x10..0x18].copy_from_slice(&self.token);
-        r[0x18..0x1c].copy_from_slice(&SDK_VERSION.to_le_bytes());
+        r[0x18..0x1c].copy_from_slice(&self.sdk_version.to_le_bytes());
         r[0x1c] = 0x1d;
         let mut key = [0u8; 28];
         key[..20].copy_from_slice(&self.uid);
@@ -183,7 +189,7 @@ impl Iotc {
         header(&mut a, 0, 0x24, 0x0402, 0x0033);
         a[0x10..0x24].copy_from_slice(&self.uid);
         a[0x24..0x2c].copy_from_slice(&self.token);
-        a[0x30..0x34].copy_from_slice(&SDK_VERSION.to_le_bytes());
+        a[0x30..0x34].copy_from_slice(&self.sdk_version.to_le_bytes());
         a
     }
 
@@ -352,6 +358,13 @@ fn main() {
     };
     let camera_ip = args.get(2).filter(|a| !a.starts_with("--")).cloned();
     let wrong_pwd = args.iter().any(|a| a == "--wrong-pwd");
+    let opt = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    let sdk_version = opt("--sdk-version")
+        .map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).expect("--sdk-version hex"))
+        .unwrap_or(0x0403_0864);
+    let window: usize = opt("--window").map(|v| v.parse().expect("--window N")).unwrap_or(0);
+    let ack_ms: u64 = opt("--ack-ms").map(|v| v.parse().expect("--ack-ms N")).unwrap_or(100);
+    let hold: u64 = opt("--hold").map(|v| v.parse().expect("--hold S")).unwrap_or(0);
     let var = |k: &str| env::var(k).unwrap_or_else(|_| panic!("{k} not set"));
     let (uid_s, authkey_s, mut password) = (var("VTECH_UID"), var("VTECH_AUTHKEY"), var("VTECH_PWD"));
     if wrong_pwd {
@@ -369,7 +382,7 @@ fn main() {
     let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
     sock.set_broadcast(true).unwrap();
     sock.set_read_timeout(Some(Duration::from_millis(10))).unwrap();
-    let mut iotc = Iotc { sock, uid, authkey, token, peer: None, pe: false, seq: [0; 32], inv: inverse_map() };
+    let mut iotc = Iotc { sock, uid, authkey, token, peer: None, pe: false, seq: [0; 32], inv: inverse_map(), sdk_version };
 
     // Discovery and IOTC connect.
     let t0 = Instant::now();
@@ -408,8 +421,9 @@ fn main() {
     let peer = iotc.peer.unwrap();
     iotc.send(peer, iotc.probe(), true);
     iotc.send(peer, iotc.connect_ack(), true);
-    println!("iotc: established with {peer} in {} ms, camera version 0x{version:x}, pe_capable {pe_capable}",
-             t0.elapsed().as_millis());
+    println!("iotc: established with {peer} from local port {} in {} ms, camera version 0x{version:x}, \
+              pe_capable {pe_capable}, advertised 0x{sdk_version:08x}",
+             iotc.sock.local_addr().unwrap().port(), t0.elapsed().as_millis());
     iotc.pe = pe_capable;
 
     // DTLS over channel 0, datatype 1.
@@ -492,45 +506,98 @@ fn main() {
     }
     println!("dtls: connected in {} ms, suite 0x{:04x}", t1.elapsed().as_millis(), negotiated.unwrap_or(0));
 
-    // AV login, then DEVINFO.
+    // AV login, then DEVINFO, the window of GETs, the hold, and DEVINFO again.
     let mut nonce = [0u8; 4];
     getrandom::getrandom(&mut nonce).unwrap();
     let nonce = u32::from_le_bytes(nonce) | 1;
-    let mut counter: u16 = 0;
-    let mut ctrl_in: u16 = 0xffff;
-    let mut ack_seq: u16 = 0;
+    let mut av = Av::default();
     let t2 = Instant::now();
-    let mut logged_in = false;
-    let mut sent_devinfo = false;
+    let mut stage = 0; // 0 login, 1 DEVINFO, 2 window, 3 hold, 4 DEVINFO again, 5 done
+    let mut stage_deadline = Instant::now() + Duration::from_secs(15);
     let mut next_login = Instant::now();
     let mut next_ack = Instant::now();
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut next_alive = Instant::now() + Duration::from_secs(1);
+    let mut hold_until: Option<Instant> = None;
+    let mut waiting: Vec<(u32, Instant, &'static str)> = Vec::new();
+    let gets: [(u32, &[u8], u32, &str); 8] = [
+        (0x733, &[0; 4], 0x734, "GET_PARAMS"),
+        (0x7a0, &[0; 4], 0x7a1, "GET_NIGHT_LIGHT"),
+        (0x709, &[0; 8], 0x710, "GET_STATUS_LED"),
+        (0x713, &[0; 4], 0x714, "GET_NIGHT_VISION"),
+        (0x74b, &[0; 4], 0x74c, "GET_TEMP_ALERT"),
+        (0x7a4, &[0; 4], 0x7a5, "GET_MOTION"),
+        (0x7b0, &[0; 4], 0x7b1, "GET_SOUND"),
+        (0x322, &[0; 8], 0x323, "GET_STREAM_CTRL"),
+    ];
+    let mut devinfo = vec![0u8, 1, 0x12, 0x34];
+    devinfo.extend_from_slice(&[0u8; 16]);
     loop {
-        if Instant::now() > deadline {
-            eprintln!("FAIL av: {}", if logged_in { "no DEVINFO reply" } else { "no login reply" });
+        let now = Instant::now();
+        if now > stage_deadline {
+            let names: Vec<_> = waiting.iter().map(|w| w.2).collect();
+            eprintln!("FAIL av: stage {stage} timed out, still waiting for {names:?}, {} frames unacknowledged \
+                       (camera acked up to {})", av.out.len(), av.acked);
             close(&iotc);
             exit(1);
         }
-        if !logged_in && Instant::now() >= next_login {
+        if stage == 0 && now >= next_login {
             for n in 0..2 {
                 dtls.send_application_data(&login(n, nonce, &account, &password)).unwrap();
             }
-            next_login = Instant::now() + Duration::from_millis(100);
+            next_login = now + Duration::from_millis(100);
         }
-        if logged_in && !sent_devinfo {
-            let mut payload = vec![0, 1, 0x12, 0x34];
-            payload.extend_from_slice(&[0u8; 16]);
-            dtls.send_application_data(&control_frame(counter, 0, 0x330, &payload)).unwrap();
-            counter += 1;
-            sent_devinfo = true;
+        if stage > 0 && waiting.is_empty() {
+            match stage {
+                1 => {
+                    av.send(&mut dtls, 0x330, &devinfo, now);
+                    waiting.push((0x331, now, "DEVINFO"));
+                    stage = 2;
+                    stage_deadline = now + Duration::from_secs(5);
+                }
+                2 => {
+                    for (typ, payload, reply, name) in gets.iter().take(window) {
+                        av.send(&mut dtls, *typ, payload, now);
+                        waiting.push((*reply, now, name));
+                    }
+                    if window > 0 {
+                        println!("av: sent {window} GETs back to back, {} control frames unacknowledged", av.out.len());
+                    }
+                    stage = 3;
+                    stage_deadline = now + Duration::from_secs(10);
+                }
+                3 => {
+                    if hold_until.is_none() {
+                        hold_until = Some(now + Duration::from_secs(hold));
+                        stage_deadline = now + Duration::from_secs(hold + 10);
+                        if hold > 0 {
+                            println!("av: holding the link for {hold} s");
+                        }
+                    }
+                    if hold_until.is_some_and(|t| now >= t) {
+                        av.send(&mut dtls, 0x330, &devinfo, now);
+                        waiting.push((0x331, now, "DEVINFO again"));
+                        stage = 4;
+                        stage_deadline = now + Duration::from_secs(5);
+                    }
+                }
+                _ => {
+                    println!("av: {} control frames sent, {} retransmitted, at most {} unacknowledged at once",
+                             av.next_frame, av.retransmits, av.max_in_flight);
+                    close(&iotc);
+                    println!("PASS suite 0x{:04x}", negotiated.unwrap_or(0));
+                    return;
+                }
+            }
         }
-        if logged_in && Instant::now() >= next_ack {
-            let ms = t0.elapsed().as_millis() as u16;
-            dtls.send_application_data(&ack(counter, ctrl_in, ack_seq, ms)).unwrap();
-            counter += 1;
-            ack_seq += 1;
-            next_ack = Instant::now() + Duration::from_millis(100);
+        if stage > 0 && now >= next_ack {
+            av.send_ack(&mut dtls, t0.elapsed().as_millis() as u16);
+            next_ack = now + Duration::from_millis(ack_ms);
         }
+        if now >= next_alive {
+            iotc.send(peer, iotc.token_datagram(0x0427), true);
+            next_alive = now + Duration::from_secs(1);
+        }
+        av.retransmit(&mut dtls, now);
         pump(&mut iotc, &mut dtls, &mut timer, &mut connected, &mut app);
         if let Ok((n, from)) = iotc.sock.recv_from(&mut buf) {
             if Some(from) == iotc.peer {
@@ -548,36 +615,105 @@ fn main() {
         for p in app.drain(..) {
             if p.len() >= 0x1c && p[0] == 0 && p[1] == 0x21 {
                 let got = u32::from_le_bytes([p[0x14], p[0x15], p[0x16], p[0x17]]);
-                if !logged_in && (got == nonce || got == nonce.wrapping_add(1)) {
+                if stage == 0 && (got == nonce || got == nonce.wrapping_add(1)) {
                     if p[0x18] != 0 {
                         eprintln!("FAIL av: login rejected, state {}", p[0x18]);
                         close(&iotc);
                         exit(1);
                     }
-                    logged_in = true;
                     println!("av: logged in {} ms after DTLS", t2.elapsed().as_millis());
+                    stage = 1;
                 }
+            } else if p.len() >= 0x0e && p[0] == 0x09 {
+                av.on_ack(u16::from_le_bytes([p[0x0c], p[0x0d]]));
             } else if p.len() >= 0x10 && p[0] == 0x0c {
                 let b = if p[1] & 0x08 != 0 { 0x10 } else { 0x08 };
-                let f = &p[b + 8..];
-                if f.len() >= 0x18 && f[0] == 0 {
-                    let frame = u16::from_le_bytes([f[2], f[3]]);
-                    if frame == ctrl_in.wrapping_add(1) {
-                        ctrl_in = frame;
+                let Some(f) = p.get(b + 8..) else { continue };
+                if f.len() < 0x18 || f[0] != 0 {
+                    continue;
+                }
+                let frame = u16::from_le_bytes([f[2], f[3]]);
+                if frame != av.ctrl_in.wrapping_add(1) {
+                    continue;
+                }
+                av.ctrl_in = frame;
+                let typ = u32::from_le_bytes([f[0x14], f[0x15], f[0x16], f[0x17]]);
+                let body = u32::from_le_bytes([f[8], f[9], f[10], f[11]]) as usize;
+                let data = &f[0x18..(0x18 + body.saturating_sub(4)).min(f.len())];
+                if let Some(i) = waiting.iter().position(|w| w.0 == typ) {
+                    let (_, sent, name) = waiting.remove(i);
+                    if name.starts_with("DEVINFO") {
+                        let text: String = data.iter().take(24)
+                            .map(|&c| if c.is_ascii_graphic() { c as char } else { '.' }).collect();
+                        println!("av: {name} reply after {} ms: {text}", sent.elapsed().as_millis());
+                    } else {
+                        println!("av: {name} reply 0x{typ:x} after {} ms, {} bytes", sent.elapsed().as_millis(), data.len());
                     }
-                    let typ = u32::from_le_bytes([f[0x14], f[0x15], f[0x16], f[0x17]]);
-                    let body = u32::from_le_bytes([f[8], f[9], f[10], f[11]]) as usize;
-                    let data = &f[0x18..(0x18 + body.saturating_sub(4)).min(f.len())];
-                    if typ == 0x331 {
-                        let text: String = data.iter().map(|&c| if c.is_ascii_graphic() { c as char } else { '.' }).collect();
-                        println!("av: DEVINFO reply 0x331, {} bytes: {text}", data.len());
-                        close(&iotc);
-                        println!("PASS suite 0x{:04x}", negotiated.unwrap_or(0));
-                        return;
-                    }
+                } else {
+                    println!("av: push 0x{typ:x}, {} bytes", data.len());
                 }
             }
         }
+    }
+}
+
+/// The client side of the AV control stream: our frames until the camera acknowledges them, and
+/// the camera's frames we have taken in order.
+struct Av {
+    counter: u16,
+    next_frame: u32,
+    ctrl_in: u16,
+    ack_seq: u16,
+    acked: u16,
+    out: Vec<(u32, Vec<u8>, Instant)>,
+    retransmits: u32,
+    max_in_flight: usize,
+}
+
+impl Default for Av {
+    fn default() -> Self {
+        Av { counter: 0, next_frame: 0, ctrl_in: 0xffff, ack_seq: 0, acked: 0xffff, out: Vec::new(),
+             retransmits: 0, max_in_flight: 0 }
+    }
+}
+
+impl Av {
+    fn send(&mut self, dtls: &mut Dtls, typ: u32, payload: &[u8], now: Instant) {
+        let pkt = control_frame(self.counter, self.next_frame, typ, payload);
+        self.counter = self.counter.wrapping_add(1);
+        dtls.send_application_data(&pkt).unwrap();
+        self.out.push((self.next_frame, pkt, now));
+        self.max_in_flight = self.max_in_flight.max(self.out.len());
+        self.next_frame += 1;
+    }
+
+    fn retransmit(&mut self, dtls: &mut Dtls, now: Instant) {
+        for (_, pkt, sent) in self.out.iter_mut() {
+            if now.duration_since(*sent) >= Duration::from_millis(60) {
+                pkt[4..6].copy_from_slice(&self.counter.to_le_bytes());
+                self.counter = self.counter.wrapping_add(1);
+                dtls.send_application_data(pkt).unwrap();
+                *sent = now;
+                self.retransmits += 1;
+            }
+        }
+    }
+
+    fn on_ack(&mut self, acked: u16) {
+        if acked == 0xffff {
+            return;
+        }
+        if self.acked == 0xffff || (acked.wrapping_sub(self.acked) as i16) > 0 {
+            self.acked = acked;
+        }
+        let a = self.acked;
+        self.out.retain(|(frame, _, _)| ((*frame as u16).wrapping_sub(a) as i16) > 0);
+    }
+
+    fn send_ack(&mut self, dtls: &mut Dtls, ms: u16) {
+        dtls.send_application_data(&ack(self.counter, self.ctrl_in, self.ack_seq, ms)).unwrap();
+        self.counter = self.counter.wrapping_add(1);
+        self.ack_seq = self.ack_seq.wrapping_add(1);
     }
 }
 

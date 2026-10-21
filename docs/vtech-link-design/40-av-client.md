@@ -136,12 +136,19 @@ and that is proven live. The kit calls `+0x12` the "fragment index" (`tutk-kit/d
 The two agree for frame 0 and for every single-fragment frame the camera has acknowledged so far.
 `95-open-questions.md` Q4 tracks reconciling them.
 
-**Sending policy.** User frames go through a FIFO with **one user frame in flight** (stop and wait).
-Internal frames (the reset) go out at once alongside it. This is new. Today concurrency is limited
-above us by `Session._send_lock` because the SDK refuses a second concurrent send (`-20021`). Moving
-the limit into the stream keeps the wire pattern the camera has seen (never two unacknowledged user
-frames), and callers queue instead of retrying on "busy" (R11). The window could later grow to `N`
-behind a config value (Q5).
+**Sending policy.** User frames go out through a window of **8 unacknowledged frames**
+(`ctrl_window`, configurable), with a FIFO behind it. Internal frames (the reset) bypass the window.
+The camera takes 8 back-to-back unacknowledged GETs and answers every one with no retransmission
+(spike, 2026-10-21; Q5). Today concurrency is limited above us by `Session._send_lock`, because the SDK
+refuses a second concurrent send (`-20021`). With the window in the stream, callers queue instead of
+retrying on "busy" (R11).
+
+**The camera's own control frames are stop and wait.** It sends one, and sends the next only after our
+ACK covers it. With 8 requests outstanding, the replies came about 110 ms apart when we ACKed every
+100 ms, about 55 ms apart at 50 ms, and about 33 ms apart at 10 ms (spike `--window 8 --ack-ms N`,
+2026-10-21). So **the ACK after an inbound control frame must be prompt**. The 10 ms coalescing deadline
+below is what lets a full state re-read (about 12 requests) finish in about 0.4 s rather than 1.3 s.
+`tutk-host` behaves the same way through its 10 ms transmit tick.
 
 - Every unacknowledged frame is resent `ctrl_retransmit` (60 ms) after its last send, re-stamped with a
   fresh counter (`av/ioctrl.c:55`).

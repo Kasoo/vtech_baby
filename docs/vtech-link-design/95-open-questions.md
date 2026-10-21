@@ -9,16 +9,16 @@ Each item says what is unknown, why it matters, how it gets settled, and the def
 | Q1 | Does the camera accept dimpl's ClientHello? | `30-dtls.md` | **Settled 2026-10-21: yes**, for `ccac` and `00a8` (the dimpl spike) | — |
 | Q13 | Will dimpl upstream take `PSK_WITH_AES_128_GCM_SHA256` (and later `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`)? | The DTLS choice | An issue/PR on `algesten/dimpl` | Carry the suite as a patch on a fork; else our own client |
 | Q2 | What does the camera do for a wrong AV password (a PSK mismatch)? | R4 | **Settled 2026-10-21**: it sends the ServerHello, then nothing after our Finished (no alert). `AvAuthFailed` after 3 s of silence following our Finished | — |
-| Q3 | Does the camera handle several sessions from one host on separate source ports? | `70-runtime.md` socket per link | Phase 0 spike 3 | Share one socket per process and demultiplex by token, as `tutk-host` does |
+| Q3 | Does the camera handle several sessions from one host on separate source ports? | `70-runtime.md` socket per link | **Settled 2026-10-21: yes.** Two spike links on separate sockets (one per DTLS suite), each held for 20 s and answering, alongside HA's session and the parent unit streaming; HA logged nothing | — |
 | Q4 | What does control-frame `+0x12` mean: frame number low bits (as `tutk-host` writes and reads it), or fragment index (kit)? | Multi-fragment inbound frames (R16) | Read `_sendIOorIOInnerFrame` and the inbound admit again in the binary (TUTK kit agent), or catch a multi-fragment frame live | Keep `tutk-host`'s reading; reassemble multi-fragment frames only by `+0x1c` frame number and treat `+0x12` as opaque |
-| Q5 | Does the camera tolerate more than one unacknowledged user control frame? | Throughput of bursts of requests (a full state re-read is about 12 requests) | A live test in phase 2 with a window of 2 and 4 (read-only GETs) | Stop-and-wait (window 1) |
+| Q5 | Does the camera tolerate more than one unacknowledged user control frame? | Throughput of bursts of requests | **Settled 2026-10-21: yes, at least 8**, with no retransmits. Its own replies are stop and wait on our ACK (`40-av-client.md`) | Window 8 |
 | Q6 | During the post-connect stall (`AGENTS.md` "Known issues"), are our control frames ACKed but not answered, or not ACKed at all? | Whether an AV-level dead-link timeout is safe | The ack-latency histogram (R31) during the soak | No AV-level timeout |
 | Q7 | Does the camera accept fully scrambled data once partial encryption is negotiated, and does PE matter at all? | Simplicity only | Not needed; tested in phase 2 if it ever matters | Turn PE on at DTLS start, as today |
 | Q8 | Is `libgcc_s.so.1` in HA's image? | Unwinding (R34) | **Settled 2026-10-21: yes**, from Alpine `libgcc` (`80-build.md`) | — |
 | Q9 | Is media kind 5 always an IDR access unit? | Could replace `media.py`'s NAL scan with `Frame.key` | Compare `Frame.key` with the NAL scan over a long stream in phase 2 | Keep the NAL scan |
 | Q10 | What is the report metric at `+0x0a` (`tutk-kit/docs/av/90-fifos.md`)? | Nothing the camera has objected to | Not pursued | Send our RTT estimate, as today |
 | Q11 | Is the camera's `0x0428` keepalive rate enough to keep our 60 s silence timer from firing on an idle link with no media? | R7 false positives | Already shown by `tutk-host` (same timer, `probe_phase1` 2 × 70 s idle, HA soak) | Keep 60 s |
-| Q12 | Does advertising `4.3.8.200` change anything camera-side compared with `4.3.8.100`? | R40 | Phase 2 live connect | Keep `4.3.8.100` if anything differs |
+| Q12 | Does advertising `4.3.8.200` change anything camera-side compared with `4.3.8.100`? | R40 | **Settled 2026-10-21: no**; the same connect, login and replies | — |
 
 ## Risks
 
