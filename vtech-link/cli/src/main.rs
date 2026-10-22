@@ -4,6 +4,8 @@
 //!   vtech-link connect [camera-ip]              connect, DEVINFO, close
 //!   vtech-link watch   [camera-ip] [seconds]    connect, print pushes, GET_PARAMS every 60 s
 //!   vtech-link stream  [camera-ip] [seconds]    live view: count, check and time the frames
+//!   vtech-link restarts [camera-ip] [seconds]   three live views on one link (reset, no reset,
+//!                                               reset): where each stream's frame count starts
 //!
 //! `VTECH_LOG=debug` for more. Nothing here changes a camera setting or makes light or sound.
 
@@ -12,7 +14,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use vtech_link_core::av::StreamKind;
-use vtech_link_core::{Link, LinkConfig, LinkError};
+use vtech_link_core::{Link, LinkConfig, LinkError, MediaReceiver};
 
 const DEVINFO: u32 = 0x330;
 const DEVINFO_REPLY: u32 = 0x331;
@@ -180,6 +182,60 @@ fn stream(link: &Link, seconds: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// One live view without stopping the link: `(first, last)` of the per-stream count and of the shared
+/// frame number, per stream (video, audio).
+type Span = Option<((u32, u32), (u32, u32))>;
+
+fn one_view(link: &Link, rx: &mut MediaReceiver, reset: bool, seconds: u64) -> Result<[Span; 2], String> {
+    let send = |typ, p: &[u8]| {
+        link.send(typ, p, Duration::from_secs(5))
+            .map_err(|e| format!("send 0x{typ:x}: {e}"))
+    };
+    if reset {
+        rx.reset(Duration::from_secs(2))
+            .map_err(|e| format!("reset: {e}"))?;
+    }
+    send(AUDIO_START, &CHANNEL_0)?;
+    send(VIDEO_FULLRATE, &[0; 8])?;
+    send(START, &CHANNEL_0)?;
+    let mut spans: [Span; 2] = [None; 2];
+    let end = Instant::now() + Duration::from_secs(seconds);
+    while Instant::now() < end {
+        match rx.next(Duration::from_millis(500)) {
+            Ok(Some(f)) => {
+                let i = usize::from(f.stream == StreamKind::Audio);
+                if let Some(span) = spans.get_mut(i) {
+                    let (seq, number) = span.get_or_insert(((f.seq, f.seq), (f.number, f.number)));
+                    seq.1 = f.seq;
+                    number.1 = f.number;
+                }
+            }
+            Ok(None) => {}
+            Err(e) => return Err(format!("stream: {e}")),
+        }
+    }
+    send(STOP, &CHANNEL_0)?;
+    send(AUDIO_STOP, &CHANNEL_0)?;
+    Ok(spans)
+}
+
+fn restarts(link: &Link, seconds: u64) -> Result<(), String> {
+    let mut rx = link.media();
+    rx.start(Duration::from_secs(5))
+        .map_err(|e| format!("key exchange: {e}"))?;
+    for (name, reset) in [
+        ("reset, then START", true),
+        ("START again, no reset", false),
+        ("reset, then START", true),
+    ] {
+        let [video, audio] = one_view(link, &mut rx, reset, seconds)?;
+        println!("{name}: video count/number {video:?}, audio {audio:?}");
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    print_stats(link);
+    Ok(())
+}
+
 fn print_stats(link: &Link) {
     match link.stats(Duration::from_secs(2)) {
         Ok(s) => println!("stats: {s:#?}"),
@@ -204,6 +260,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "connect" => devinfo(&link),
         "watch" => devinfo(&link).and_then(|()| watch(&link, seconds.unwrap_or(60))),
         "stream" => devinfo(&link).and_then(|()| stream(&link, seconds.unwrap_or(30))),
+        "restarts" => devinfo(&link).and_then(|()| restarts(&link, seconds.unwrap_or(5))),
         other => Err(format!("unknown command {other}")),
     };
     let t0 = Instant::now();

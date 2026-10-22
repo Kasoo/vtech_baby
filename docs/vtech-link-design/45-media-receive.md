@@ -176,11 +176,12 @@ count at `+0x10` (`tutk-kit/docs/av/90-fifos.md`):
 - A jump of more than 64 either way is taken as the camera renumbering. The frame is released, nothing
   is held or counted, and the count carries on from there.
 - A reset clears the remembered counts.
-- A count of 1 is taken as a restart, because the camera counts each stream from 1 when it starts
-  (seen live). The cost is that a late resend of a stream's first frame isn't dropped.
 
-**Verified live (2026-10-22):** a 30 s stream counted video 1→290 and audio 1→750 with no jumps
-(`85-testing.md`, "First live runs"), so `+0x10` is a contiguous per-stream count.
+**Verified live (2026-10-22):** a 30 s stream counted video 1→290 and audio 1→750 with no jumps, and
+the count starts at 1 for each AV session but runs on across `STOP`/`START` and media resets
+(`85-testing.md`, "First live runs"). A new session gets a new `MediaRx`, so the count never restarts
+under a receiver. A count of 1 is therefore not treated as a restart (that rule was in `82cb28b` and
+was removed once the `restarts` run showed it handles nothing real).
 
 The simulator's lossy run now delivers both streams in strict order (`sim/tests/link.rs`
 `loss_both_ways`), and `core/tests/av.rs` covers each case. `Frame.seq` exposes the count.

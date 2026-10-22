@@ -128,6 +128,8 @@ ssh $HOST "export VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=…; /tmp/vtech-link
 | `stream 20` | Key exchange 19 ms; reset confirmed; first frame after 1 ms, first keyframe after 1.3 s; 189 video frames (9.4/s, 10 keyframes), 502 audio, 1.1 Mbit/s; **0 lost, 0 decrypt failures, 0 retransmits, 0 NAKs**; RTT 23 ms; 7 of 8 control frames ACKed within 50 ms. |
 
 | `stream 30` (after the ordering fix, `6570a3a`) | Up in 82 ms, DEVINFO in 100 ms, key exchange 42 ms; 290 video frames (9.7/s, 15 keyframes), 750 audio, 0 lost, 0 decrypt failures. **Per-stream count (`+0x10`): video 1→290, audio 1→750, 0 jumps in either**: it counts each stream from 1 and steps by one, as the kit says. |
+| `restarts 5` (`vtech-link restarts`: three views on one link: reset+START, START with no reset, reset+START) | Per-stream count video 1→35, 36→81, 82→118; audio 1→126, 127→253, 254→379. The shared frame number runs on too (video 39→158, 173→331, 368→495). Each new link starts again at 1. |
+| `restarts 5` **without DEVINFO first** (×2, in two orders) | Key exchange and reset fine, every control frame ACKed, but **no media packet at all** in any view. With DEVINFO first (the run above) it streams. So the camera doesn't stream on a session until DEVINFO has been sent. The vtech-lan-kit said stream control needed no prep; corrected there. |
 
 Found by the first run and fixed: the reactor sent its first search round only after its first wait (a
 100 ms search interval), so the IOTC connect took 114 ms instead of about 10 ms.

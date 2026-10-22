@@ -2,8 +2,10 @@
 
 ## Bring-up sequence
 
-After the AV channel is up and (for video) the live-view key exchange has completed (see
-`50-media-decryption.md`), the minimal sequence to get a full-rate encrypted A/V stream is:
+After the AV channel is up, `DEVINFO` (`0x330`) has been sent once on the session (without it the
+camera sends no media; `20-ioctrl-framework.md`), and (for video) the live-view key exchange has
+completed (see `50-media-decryption.md`), the minimal sequence to get a full-rate encrypted A/V stream
+is:
 
 ```
 (optional) SETSTREAMCTRL 0x320  quality=2|1   # choose resolution; persists, so optional per-session

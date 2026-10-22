@@ -2,7 +2,8 @@
 
 All payloads are little-endian. `wordN` = the Nth 32-bit LE integer (`word0` = bytes `@0..3`). A request
 `0xNNN` is answered by `0xNNN+1` unless noted. Send `DEVINFO` (`0x330`) once after connecting before
-issuing the VTech (`0x7xx`/`0x74x`/`0x75x`/`0x73x`) GETs (see `20-ioctrl-framework.md`).
+issuing the VTech (`0x7xx`/`0x74x`/`0x75x`/`0x73x`) GETs or starting the live view (see
+`20-ioctrl-framework.md`).
 
 ## Streaming / standard TUTK
 

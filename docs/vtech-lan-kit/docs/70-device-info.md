@@ -1,8 +1,8 @@
 # 70 — Device information
 
 `IOTYPE_USER_IPCAM_DEVINFO_REQ` (`0x330` → `0x331`) returns device identity. It doubles as the required
-prep before the VTech vendor GETs will reply (see `20-ioctrl-framework.md`): send it once after the AV
-channel is up.
+prep before the VTech vendor GETs will reply and before the camera will stream (see
+`20-ioctrl-framework.md`): send it once after the AV channel is up.
 
 ## Request
 

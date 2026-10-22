@@ -50,7 +50,8 @@ for SDK lifecycle, threading and reconnection inside Home Assistant.
   session; live-view/decryption is only needed for the `camera` feed.
 - **Pushes drive state.** `0x1fff` (alerts), `0x738` (temperature), `0x785` (night state), `0x74f`
   (parent active), and `0x7ac` (LED/night-light) let entities update reactively rather than by polling.
-- **Prerequisite prep.** Send `DEVINFO` (`0x330`) once per session before issuing the VTech GETs.
+- **Prerequisite prep.** Send `DEVINFO` (`0x330`) once per session before issuing the VTech GETs or
+  starting the live view.
 - **Mode vs state.** For night-vision, expose the *mode* (`0x715`/`0x713`, the setting) and the *state*
   (`0x785`, whether IR is currently on) as separate entities — they differ in Auto mode.
 - **Applying night-vision mode briefly interrupts video** (ISP/IR-cut reconfigure); a `camera` feed
