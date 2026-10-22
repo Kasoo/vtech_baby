@@ -60,6 +60,13 @@ end of the `tutk-host` production soak. Next:
 - **Simulator gaps**: the 5-minute 1080p run (S4), fault injection with several links (S9), and
   duplicated or jittered datagrams (only drops are simulated). The simulator never splits the 16-byte
   frame info across fragments; whether the camera does is unverified.
+- **Frames given up live** (`85-testing.md`, runs at `0edef3c`; Phase 2's exit criteria are not met):
+  - A 10-minute 720p stream gave up 10 video frames whose packets all arrived (259 late fragments).
+    `restart` lost one keyframe the same way.
+  - `--drop 50` lost 11 frames whose NAKed packets weren't resent within the 300 ms gap skip.
+  - Debug logging now names each given-up frame (fragments held, kind, wait) and each late fragment.
+    Rerun `stream 600` and `stream 120 --drop 50` with `VTECH_LOG=debug`, and compare with `tutk-host`
+    on the same camera. Check the resolution first: the camera was at 720p.
 - **Live**: DEVINFO takes 70–170 ms. Compare with `tutk-host` on the same request. Then the rest of
   T7: `stream` 10 minutes at 1080p, `restart` ×25, `stream --drop 50`, and `talk --silent` with the
   owner present (the CLI has no `restart`, `--drop` or `talk` yet). `watch` 10 minutes passed

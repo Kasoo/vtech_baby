@@ -343,6 +343,14 @@ impl MediaRx {
         };
         // A late resend of a frame already released or given up would come out after its successors.
         if matches!(asm.place(frag.seq), Place::Behind) {
+            log::debug!(
+                "media: {:?} frame {} (count {}) fragment {}/{} after its frame was released or given up",
+                frag.stream,
+                frag.number,
+                frag.seq,
+                frag.index,
+                frag.count
+            );
             return self.stats.fragments_behind += 1;
         }
         let p = asm.partial.entry(frag.number).or_insert_with(|| Partial {
@@ -391,6 +399,10 @@ impl MediaRx {
                 if !waited {
                     return;
                 }
+                log::debug!(
+                    "media: gave up {missing} {stream:?} frame(s) before count {}: none of their packets came",
+                    p.seq
+                );
                 asm.lost += missing;
                 counters.given_up += u64::from(missing);
             }
@@ -400,6 +412,15 @@ impl MediaRx {
                     asm.last = Some(p.seq.wrapping_sub(1));
                     return;
                 }
+                log::debug!(
+                    "media: gave up {stream:?} frame {number} (count {}, kind {}) with {}/{} fragments{} after {} ms",
+                    p.seq,
+                    p.kind,
+                    p.have,
+                    p.count,
+                    if p.info.is_some() { "" } else { ", no frame info" },
+                    now.saturating_duration_since(p.first_at).as_millis()
+                );
                 asm.last = Some(p.seq);
                 asm.partial.remove(&number);
                 asm.lost += 1;
