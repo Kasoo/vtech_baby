@@ -29,6 +29,10 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
   (`tutk-kit/docs/iotc/16-handshake.md`, `_zero2c`), carry 4 bytes of stack to the camera. The camera
   doesn't check them. Fix: zero `ack` first. Found by the vtech-link fixtures (2026-10-22). With the fix
   above, after the soak.
+- Its receive counters can't see a frame none of whose packets arrived: `*_given_up` counts partial
+  frames only. Every audio frame is one packet, so under packet loss it reports 0 audio lost while losing
+  audio. This also qualifies the `TK_DROP=50` "0 bad frames" in `tutk-host/NOTES.md`
+  (`docs/vtech-link-design/86-live-losses.md`, finding 3). Fix if `tutk-host` stays in production.
 - Three more differences found while porting to vtech-link (2026-10-22), none seen live. Note only:
   - Media kind 4 goes to the video stream (`tutk-host/av/media_recv.c` `KIND_AUDIO` is 3 only). The
     kit folds `{3,4}` to audio (`tutk-kit/docs/av/90-fifos.md`). Kind 4 hasn't been seen from this
@@ -44,9 +48,15 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
 Status 2026-10-22: every core module is built and tested (`docs/vtech-link-design/*` "Status"
 sections): IOTC, DTLS, the AV client, media receive with FEC, services, talk-back, the runtime and a
-read-only CLI, and the PyO3 module (`75-python-api.md`, "Status"). The simulator runs 22 end-to-end scenarios, fuzzing covers 10 targets, and first live
-runs from the NAS were clean (`85-testing.md`, "First live runs"). Phase 3 onwards still waits on the
-end of the `tutk-host` production soak. Next:
+read-only CLI (`connect`, `watch`, `stream [--drop N]`, `restart`), the PyO3 module
+(`75-python-api.md`, "Status"), and `vtech_lan`'s `LinkSession` beside the SDK path (same doc,
+"Changes in `vtech_lan`"). The simulator runs 25 end-to-end scenarios and the T3 OpenSSL interop passes,
+fuzzing covers 10 targets. Live: `watch` 10 min passed; streaming lost frames, and the investigation
+(`docs/vtech-link-design/86-live-losses.md`) found the same losses in `tutk-host`, with two causes
+shared by both stacks. Production switching waits on the end of the `tutk-host` soak.
+
+**Resume here (2026-10-23):** "Media losses: next steps" item 1 (gap-aware give-up) and item 2 (NAKs
+the camera ignores), then the 1080p live runs; then Phase 3's integration side. Next:
 
 - **Phase 3, the integration side** (`75-python-api.md`, "Changes in the integration"); `vtech_lan`
   already runs either backend. Ship `_vtech_link.abi3.so` per arch and libc (`sync_link.sh`), find it
@@ -67,19 +77,28 @@ end of the `tutk-host` production soak. Next:
 - **Simulator gaps**: the 5-minute 1080p run (S4), fault injection with several links (S9), and
   duplicated or jittered datagrams (only drops are simulated). The simulator never splits the 16-byte
   frame info across fragments; whether the camera does is unverified.
-- **Frames given up live** (`85-testing.md`, runs at `0edef3c`; Phase 2's exit criteria are not met):
-  - A 10-minute 720p stream gave up 10 video frames whose packets all arrived (259 late fragments).
-    `restart` lost one keyframe the same way.
-  - `--drop 50` lost 11 frames whose NAKed packets weren't resent within the 300 ms gap skip.
-  - Debug logging now names each given-up frame (fragments held, kind, wait) and each late fragment.
-    Rerun `stream 600` and `stream 120 --drop 50` with `VTECH_LOG=debug`, and compare with `tutk-host`
-    on the same camera. Check the resolution first: the camera was at 720p.
-- **Live**: DEVINFO takes 70–170 ms. Compare with `tutk-host` on the same request. Then the rest of
-  T7: `stream` 10 minutes at 1080p, `restart` ×25, `stream --drop 50`, and `talk --silent` with the
-  owner present (the CLI has no `restart`, `--drop` or `talk` yet). `watch` 10 minutes passed
-  2026-10-22 (`85-testing.md`).
+- **Media losses: next steps** (`docs/vtech-link-design/86-live-losses.md`, "Open"). The investigation
+  found no vtech-link defect: both stacks lose the same frames under the same conditions.
+  1. Give up an incomplete frame only after a packet gap below it has been skipped, not after 500 ms
+     alone. The camera trickles large keyframes over about 0.5 s, so both stacks lose an occasional
+     keyframe. Add an offline test, then verify with a long live run.
+  2. Find out why the camera ignores about 1 in 11 NAKs under forced drops (both stacks): log the NAK
+     lists and skipped packet numbers and look for a pattern; try a 600 ms gap skip; compare with the
+     vendor SDK.
+  3. The Phase 2 runs at 1080p are still to do (the camera was at 720p; check the parent handset first).
+- **Live, rest of T7** (`85-testing.md`):
+  - `watch` 10 min passed.
+  - `stream` and `restart` ran only at 720p. `restart` was 24/25 (one keyframe given up, finding 1 in
+    `86-live-losses.md`), and `stream --drop 50` lost frames to ignored NAKs (finding 2). Redo at 1080p
+    once those are fixed.
+  - `talk --silent` needs a `talk` CLI command (not built) and the owner present.
+  - DEVINFO takes 70–170 ms: compare with `tutk-host` on the same request (T4).
+  - How to run it all in one SSH session: `86-live-losses.md`, "Method".
 - **Not built yet**: the packet trace (R33); allocation tracking
   in the fuzz targets; the runtime's `Partial frames per stream: 64` cap (`70-runtime.md` limits table).
+- **Unsigned commits**: every vtech_baby commit from `7f284ea` on (2026-10-22) went in unsigned,
+  because the security key wasn't touched in time. Re-sign them with the key at hand:
+  `git rebase --exec 'git commit --amend --no-edit -S' 5287f7e`.
 - **The dimpl fork**: upstream work is listed in the checkout's uncommitted `TODO.md`. Clippy is now
   available (rustup 1.99.1), so its first item can be done.
 - **Trim dimpl for PSK-only use** (measured 2026-10-22 on the unstripped x86_64 module, 1.55 MB of
