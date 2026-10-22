@@ -3,6 +3,9 @@
 
 #![forbid(unsafe_code)]
 
+pub mod error;
 pub mod iotc;
+
+pub use error::LinkError;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -89,7 +89,9 @@ static void emit_pair(const char *base, const uint8_t *wire_b, int n) {
     uint8_t plain[2048];
     char name[96];
 
-    iotc_unscramble(iotc.key, wire_b, plain, n, wire_b[3] & IOTC_FLAG_PE ? IOTC_PE_PREFIX : n);
+    /* The flags byte is itself scrambled: read it from the unscrambled header first. */
+    iotc_unscramble(iotc.key, wire_b, plain, n, IOTC_HEADER_LEN);
+    iotc_unscramble(iotc.key, wire_b, plain, n, plain[3] & IOTC_FLAG_PE ? IOTC_PE_PREFIX : n);
     snprintf(name, sizeof name, "%s.plain", base);
     emit(name, plain, n);
     snprintf(name, sizeof name, "%s.wire", base);

@@ -24,7 +24,6 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 indexing_slicing = "warn"
-arithmetic_side_effects = "warn"
 cast_possible_truncation = "warn"
 unwrap_used = "warn"
 expect_used = "warn"

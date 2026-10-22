@@ -24,6 +24,11 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
   `+0x16` and count at `+0x14`, reassemble, and advance `ctrl_in` per message
   (`docs/vtech-link-design/40-av-client.md`, "Inbound frames"). Not seen live. Fix after the production
   soak, or sooner if a control stall appears.
+- The `0x0402` connect ack is built in an uninitialised stack buffer (`tutk-host/iotc/handshake.c:57`
+  `iotc_send_connect_request`), so `+0x2c..0x2f`, which the kit has as zero
+  (`tutk-kit/docs/iotc/16-handshake.md`, `_zero2c`), carry 4 bytes of stack to the camera. The camera
+  doesn't check them. Fix: zero `ack` first. Found by the vtech-link fixtures (2026-10-22). With the fix
+  above, after the soak.
 
 ## vtech-link
 
