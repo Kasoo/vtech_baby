@@ -963,7 +963,10 @@ dependencies = [
 name = "vtech-link-sim"
 version = "0.1.0"
 dependencies = [
+ "dimpl",
+ "sha2",
  "vtech-link-core",
+ "x25519-dalek",
 ]
 
 [[package]]

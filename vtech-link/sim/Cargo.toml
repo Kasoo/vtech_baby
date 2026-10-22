@@ -9,6 +9,9 @@ publish.workspace = true
 
 [dependencies]
 vtech-link-core.workspace = true
+dimpl.workspace = true
+sha2.workspace = true
+x25519-dalek.workspace = true
 
 [lints]
 workspace = true
