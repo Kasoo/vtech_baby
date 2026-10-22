@@ -13,3 +13,4 @@ crate-type = ["cdylib"]
 [dependencies]
 vtech-link-core.workspace = true
 pyo3 = { version = "0.30", features = ["abi3-py313", "extension-module"] }
+log.workspace = true

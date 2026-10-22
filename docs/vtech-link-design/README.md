@@ -15,9 +15,11 @@ do, how each layer works down to the byte, and how we get from the current code 
 
 ## Status
 
-Design only (2026-10-21). Nothing in this directory is implemented. The current production stack is
-`tutk-host/` at `cf561da` (shipped in `custom_components/vtech_baby/native/<arch>-<libc>/`), driven by
-`vtech_lan/` through ctypes inside the worker process.
+Phase 1 (the core, offline) is built. Each document's "Status" section says what was built and
+where the code differs from the text. The PyO3 module is built too (`75-python-api.md`). Phase 2 (the CLI,
+live) has started. Open work is in `../../TODO.md` ("vtech-link"). The production stack is still
+`tutk-host/` (shipped in `custom_components/vtech_baby/native/<arch>-<libc>/`), driven by `vtech_lan/`
+through ctypes inside the worker process, until Phase 3.
 
 ## Documents
 

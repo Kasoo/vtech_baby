@@ -78,6 +78,37 @@ the frame (`media.py` `pts()`). Using the arrival time removes the read-loop jit
 **Frame data** is returned as `bytes` (one copy out of Rust). A zero-copy buffer-protocol object would
 save about 1 MB/s of copying at 1080p. That isn't worth the complexity.
 
+## Status
+
+**Built 2026-10-22** (`py/src/`), with `py/tests/test_module.py`: 13 end-to-end tests that load the
+module with `ExtensionFileLoader` and drive it against the simulated camera, run as a separate process
+(`sim/src/bin/sim-camera.rs`, controlled over stdin). They cover each error kind the simulator can
+produce (`unreachable`, `iotc_rejected/auth_key`, `av_auth_failed/dtls_alert:51`, `closed/remote_close`,
+`closed/local`, `invalid_argument`), requests, exchanges, pushes, media frames, talk-back, logs, and a
+second Python thread running while a call waits (the GIL is released). Run them with `py/tests/run.sh`.
+They use stdlib `unittest`, as the host has no pytest.
+
+Differences from the API above:
+- `connect` has no `trace` argument yet; the packet trace isn't built (`70-runtime.md`).
+- `Link.talkback(timeout=10.0)` takes a timeout, because opening the channel can run the key exchange.
+- `TalkBack.send(alaw, timeout=None)`: `None` waits up to a day; every wait is capped at a day.
+- Extra module functions: `set_log_level(level)` (a Python `logging` level; the default is INFO, so
+  DEBUG records cost nothing until asked for), `logs_dropped()`, and `_panic()` for the import check.
+- `LinkError` has `kind`, `detail` and `code` as in the table below. A DTLS handshake that goes silent
+  (the real camera's answer to a wrong password) has the detail `dtls_silent`. A refused login has
+  `login_rejected:N`.
+- `Link.info()` adds `local_port`, `proto_version`, `iotc_version` and `partial_encryption`.
+  `close_reason` is the error's detail (`"remote_close"`), or its kind when there is no detail.
+- `Link.stats()` returns `iotc`, `control` (with `ack_latency` counts per `ack_latency_buckets_ms`,
+  plus one bucket above), `media` (the same as `MediaReceiver.stats()`), `talk`, `rtt_ms`, `resets`
+  and the datagram counters.
+- `TalkBack.stats()` still returns the last channel's counters after it closes (a change in the
+  reactor). It returns `None` only before a channel has opened.
+- At most one `MediaReceiver` per link is not enforced: a second one competes for the same frames.
+- `__version__` is the crate version, plus `+<12-hex git revision>` when built by `release.sh`.
+- `Frame.arrived` is computed as `time.monotonic()` minus the frame's age when `next` returns it, so the
+  two clocks only need to tick at the same rate.
+
 ## Mapping errors onto the existing exceptions
 
 `vtech_lan/errors.py` keeps its classes, and so `manager.py` and the entities don't change. A new

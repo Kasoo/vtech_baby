@@ -44,12 +44,10 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
 Status 2026-10-22: every core module is built and tested (`docs/vtech-link-design/*` "Status"
 sections): IOTC, DTLS, the AV client, media receive with FEC, services, talk-back, the runtime and a
-read-only CLI. The simulator runs 22 end-to-end scenarios, fuzzing covers 10 targets, and first live
+read-only CLI, and the PyO3 module (`75-python-api.md`, "Status"). The simulator runs 22 end-to-end scenarios, fuzzing covers 10 targets, and first live
 runs from the NAS were clean (`85-testing.md`, "First live runs"). Phase 3 onwards still waits on the
 end of the `tutk-host` production soak. Next:
 
-- **The PyO3 wrapper** (`py/`, `75-python-api.md`): `connect`, `Link`, `Exchange`, `MediaReceiver`,
-  `TalkBack`, `LinkError`, the log ring and `next_logs`. The crate is still the Phase 0 hello-world.
 - **Media ordering under loss** (design-level, found by the simulator): when every packet of a frame
   is lost, nothing holds later frames back, and the resent copy is delivered after its successor.
   About 3 audio frames per lossy test run come out of order; single-packet video P-frames would too.

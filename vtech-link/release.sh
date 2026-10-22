@@ -77,7 +77,7 @@ for set in "$@"; do
   else
     git -C "$TOP" archive "$REV:${HERE#$TOP/}" | tar -C "$work" -xf -
   fi
-  podman run --rm --arch "$platform" -e LIBC="$libc" -e MATURIN="$MATURIN" -e SOURCE_DATE_EPOCH="$EPOCH" \
+  podman run --rm --arch "$platform" -e LIBC="$libc" -e MATURIN="$MATURIN" -e VTECH_LINK_REV="$(git -C "$HERE" rev-parse --short=12 "$REV")" -e SOURCE_DATE_EPOCH="$EPOCH" \
     -v "$work":/src:z -v "$HERE/build/cache/$set":/cache:z -v "$out":/dist:z -w /src "$image" sh -c "$INNER"
   rm -rf "$work"
 

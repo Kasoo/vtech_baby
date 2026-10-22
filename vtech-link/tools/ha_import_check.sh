@@ -18,9 +18,15 @@ loader = importlib.machinery.ExtensionFileLoader("_vtech_link", "/dist/_vtech_li
 spec = importlib.util.spec_from_file_location("_vtech_link", "/dist/_vtech_link.abi3.so", loader=loader)
 m = importlib.util.module_from_spec(spec)
 loader.exec_module(m)
-print("version", m.version())
-assert m.echo(b"x" * 1000) == b"x" * 1000
-assert m.echo(b"") == b""
+print("version", m.__version__, hex(m.SDK_VERSION))
+try:
+    m.connect("SIMCAM0123456789ABCD", "short", "pw")
+except m.LinkError as e:
+    assert (e.kind, e.code) == ("invalid_argument", None), (e.kind, e.code)
+else:
+    raise SystemExit("connect with a short authkey did not raise")
+assert m.lan_only_stats() == {"refused_sends": 0, "refused_lookups": 0}
+assert m.next_logs(0.0) == [] and m.links() == []
 try:
     m._panic()
 except BaseException as e:

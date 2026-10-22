@@ -17,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::egress;
 use super::link::{LinkConfig, LinkInfo, LinkStats, Shared};
 use super::sync::{Completion, Queue};
-use crate::av::server::{AvServer, Sealer, ServerConfig, ServerEvent};
+use crate::av::server::{AvServer, Sealer, ServerConfig, ServerEvent, ServerStats};
 use crate::av::{AvClient, AvConfig, AvEvent, SendId};
 use crate::dtls::{DATATYPE_DTLS, DtlsClient, DtlsConfig, DtlsEvent};
 use crate::error::{CloseReason, LinkError};
@@ -156,6 +156,8 @@ pub(crate) struct Reactor {
     media_on: bool,
     reset_waiters: Vec<Arc<Completion<()>>>,
     talk: Option<Talk>,
+    /// The last talk-back channel's counters, once it has closed.
+    last_talk: Option<ServerStats>,
     close_waiters: Vec<Arc<Completion<()>>>,
     finished: bool,
     datagrams_in: u64,
@@ -201,6 +203,7 @@ impl Reactor {
             media_on: false,
             reset_waiters: Vec::new(),
             talk: None,
+            last_talk: None,
             close_waiters: Vec::new(),
             finished: false,
             datagrams_in: 0,
@@ -591,6 +594,7 @@ impl Reactor {
                 }
                 self.iotc.close_channel(channel);
                 self.shared.talk_in.clear();
+                self.last_talk = Some(talk.server.stats());
                 self.talk = None;
             }
         }
@@ -781,7 +785,7 @@ impl Reactor {
             iotc: self.iotc.stats(),
             dtls: self.dtls.as_ref().map(DtlsClient::stats).unwrap_or_default(),
             av: self.av.as_ref().map(AvClient::stats),
-            talk: self.talk.as_ref().map(|t| t.server.stats()),
+            talk: self.talk.as_ref().map(|t| t.server.stats()).or(self.last_talk),
             datagrams_in: self.datagrams_in,
             datagrams_out: self.datagrams_out,
             send_errors: self.send_errors,
