@@ -1,5 +1,8 @@
 //! Loads `fixtures/tutk_host.txt`: known-answer bytes generated from tutk-host.
 
+// Each test crate uses a different part of this module.
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 pub struct Fixtures(HashMap<String, Vec<u8>>);

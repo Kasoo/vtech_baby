@@ -915,12 +915,16 @@ dependencies = [
 name = "vtech-link-core"
 version = "0.1.0"
 dependencies = [
+ "chacha20",
+ "chacha20poly1305",
  "dimpl",
+ "getrandom 0.3.4",
  "hmac",
  "log",
  "sha1",
  "sha2",
  "thiserror",
+ "x25519-dalek",
  "zeroize",
 ]
 

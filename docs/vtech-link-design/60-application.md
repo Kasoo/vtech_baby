@@ -101,6 +101,16 @@ pub struct Frame {
 It can keep doing that. Whether kind 5 always means an IDR has not been checked
 (`95-open-questions.md` Q9).
 
+## Status
+
+**Built 2026-10-22** (`core/src/service/`, `core/src/rng.rs`), with `core/tests/service.rs`. The key
+exchange and frame crypto are checked against vectors generated from `vtech_lan/crypto.py` (fixed
+secrets, salt, frame key and nonce): the same `hello`, a frame `crypto.py` encrypted decrypts, and our
+encryption is byte-identical to its layout. The request matcher is sans-IO (`RequestEvent::Send`,
+`Reply` and `Done`, for the runtime to turn into completions). The deadline counts from the call, so it
+covers waiting for a turn as well. The `0x821` status goes to the log, since `LinkError::Protocol`
+carries static text only.
+
 ## Size estimate
 
 About 450 lines including tests.
