@@ -70,11 +70,17 @@ static uint32_t av_now_ms_fixed(void) { return fake_now; }
 #include "../../../tutk-host/av/transport.c"
 #include "../../../tutk-host/av/ioctrl.c"
 /* transport.c and ioctrl.c reference these; the fixtures never reach them. */
-void av_media_on_packet(AvObj *o, const uint8_t *f, int len) {}
-void av_fec_on_packet(AvObj *o, const uint8_t *fec, const uint8_t *f, int flen) {}
+/* av_fec_on_packet is the real one, from fec.c; what it rebuilds lands here. */
+static uint8_t media_got[2048];
+static int media_got_len, media_got_count;
+void av_media_on_packet(AvObj *o, const uint8_t *f, int len) {
+    memcpy(media_got, f, (size_t)len);
+    media_got_len = len;
+    media_got_count++;
+}
 void av_serv_on_dtls(AvObj *o) {}
 void av_serv_on_login(AvObj *o, const uint8_t *p, int len) {}
-void av_fec_reset(AvObj *o) {}
+#include "../../../tutk-host/av/fec.c"
 
 /* ---- output ---- */
 
@@ -99,6 +105,64 @@ static void emit_pair(const char *base, const uint8_t *wire_b, int n) {
 }
 
 static void note(const char *s) { printf("# %s\n", s); }
+
+/* ---- FEC: a group of k synthetic data shards and the parity from fec.c's own gf_mul and rows ---- */
+
+/* Shard i of a k-group: kind 5 or 7, packet number, count, index, payload length (the last one short). */
+static int fec_shard(uint8_t *f, int i, int k) {
+    int plen = i == k - 1 ? 357 : i == 4 ? 0 : 1024 - (i % 3) * 100;
+
+    memset(f, 0, FEC_BLOCK);
+    f[0] = i % 3 == 0 ? 7 : 5;
+    av_put16(f + 2, (uint16_t)(0x100 + i));
+    av_put16(f + 4, (uint16_t)k);
+    av_put16(f + 6, (uint16_t)i);
+    av_put16(f + 8, (uint16_t)plen);
+    for (int j = 0; j < plen; j++)
+        f[MEDIA_HEADER + j] = (uint8_t)(i * 31 + j * 7 + 1);
+    return MEDIA_HEADER + plen;
+}
+
+/* Drop shard `miss`, feed the others in order and then the parity, and emit what fec.c rebuilt. */
+static void fec_fixture(int k, int miss) {
+    static uint8_t shard[FEC_MAX_K][FEC_BLOCK], par[MEDIA_HEADER + FEC_BLOCK];
+    int len[FEC_MAX_K];
+    const uint8_t *row = row_for((uint8_t)k);
+    uint8_t fec[8] = {0x34, 0x12, 0, (uint8_t)k, 1, 0, 0, 0};
+    char name[64], hexmiss[8];
+    AvObj o;
+
+    gf_init();
+    memset(&o, 0, sizeof o);
+    pthread_mutex_init(&o.lock, NULL);
+    memset(par, 0, sizeof par);
+    par[0] = CLASS_DATA;
+    for (int i = 0; i < k; i++) {
+        len[i] = fec_shard(shard[i], i, k);
+        for (int j = 0; j < FEC_BLOCK; j++)
+            par[MEDIA_HEADER + j] ^= gf_mul(row[i], shard[i][j]);
+    }
+    media_got_count = 0;
+    for (int i = 0; i < k; i++) {
+        if (i == miss)
+            continue;
+        fec[2] = (uint8_t)i;
+        av_fec_on_packet(&o, fec, shard[i], len[i]);
+        snprintf(name, sizeof name, "av.fec.k%d.shard%d", k, i);
+        emit(name, shard[i], len[i]);
+    }
+    fec[2] = (uint8_t)k;
+    av_fec_on_packet(&o, fec, par, sizeof par);
+    if (media_got_count != 1 || memcmp(media_got, shard[miss], (size_t)len[miss]) != 0 || media_got_len != len[miss])
+        exit(1);
+    snprintf(name, sizeof name, "av.fec.k%d.parity", k);
+    emit(name, par, sizeof par);
+    snprintf(name, sizeof name, "av.fec.k%d.missing", k);
+    snprintf(hexmiss, sizeof hexmiss, "%02x", miss);
+    printf("%s = %s\n", name, hexmiss);
+    snprintf(name, sizeof name, "av.fec.k%d.rebuilt", k);
+    emit(name, media_got, media_got_len);
+}
 
 int main(void) {
     static const uint8_t kit_plain[16] = {4, 3, 2, 1, 8, 7, 6, 5, 0xc, 0xb, 0xa, 9, 0x10, 0xf, 0xe, 0xd};
@@ -260,5 +324,11 @@ int main(void) {
         note("av_ctrl_send(class 0x10 internal, type 0x24 reset, payload 09 00): frame number 6, tx counter 0x0501");
         emit("av.ctrl_frame.internal", av_wire, av_wire_len);
     }
+
+    printf("\n");
+    note("FEC groups 0x1234 (header at B: group, index, k, 1): data shards 0..k-1 minus the missing one, fed in order, then the parity");
+    note("(class 0x0c sub-header, then the parity block computed with fec.c's gf_mul and generator row); .rebuilt is what av_fec_on_packet hands to av_media_on_packet");
+    fec_fixture(20, 7);
+    fec_fixture(25, 12);
     return 0;
 }
