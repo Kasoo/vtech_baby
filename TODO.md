@@ -42,9 +42,33 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
 
 ## vtech-link
 
-- Build `vtech-link` (Rust core + PyO3 module) to `docs/vtech-link-design/`, starting with the
-  phase 0 spikes in `90-migration.md`. Waits on the end of the `tutk-host` production soak only for
-  phase 3 onwards.
+Status 2026-10-22: every core module is built and tested (`docs/vtech-link-design/*` "Status"
+sections): IOTC, DTLS, the AV client, media receive with FEC, services, talk-back, the runtime and a
+read-only CLI. The simulator runs 22 end-to-end scenarios, fuzzing covers 10 targets, and first live
+runs from the NAS were clean (`85-testing.md`, "First live runs"). Phase 3 onwards still waits on the
+end of the `tutk-host` production soak. Next:
+
+- **The PyO3 wrapper** (`py/`, `75-python-api.md`): `connect`, `Link`, `Exchange`, `MediaReceiver`,
+  `TalkBack`, `LinkError`, the log ring and `next_logs`. The crate is still the Phase 0 hello-world.
+- **Media ordering under loss** (design-level, found by the simulator): when every packet of a frame
+  is lost, nothing holds later frames back, and the resent copy is delivered after its successor.
+  About 3 audio frames per lossy test run come out of order; single-packet video P-frames would too.
+  `tutk-host` does the same. Fix: drop fragments behind each stream's last released frame number, or
+  hold release while a packet gap lies below the oldest frame. `45-media-receive.md` claims ordered
+  delivery, so it needs fixing, or the claim needs relaxing.
+- **Test knobs missing from `LinkConfig`**: the keepalive interval and silence limit, the DTLS
+  Finished wait and retransmit timer, the key-exchange and talk-back listen timeouts. Without them S6
+  takes 61 s (`#[ignore]`d) and S3 takes 3 s. There is no clock or socket injection either, so T2 runs
+  on real loopback sockets, not the virtual clock and network the design describes.
+- **Simulator gaps**: the 5-minute 1080p run (S4), fault injection with several links (S9), and
+  duplicated or jittered datagrams (only drops are simulated). The simulator never splits the 16-byte
+  frame info across fragments; whether the camera does is unverified.
+- **Live**: DEVINFO takes 110–170 ms. Compare with `tutk-host` on the same request. Then the rest of
+  T7: `watch` 10 minutes, `stream` at 1080p, `restart` ×25, and `talk --silent` with the owner present.
+- **Not built yet**: the packet trace (R33); the T3 `openssl s_server` interop; allocation tracking
+  in the fuzz targets; the runtime's `Partial frames per stream: 64` cap (`70-runtime.md` limits table).
+- **The dimpl fork**: upstream work is listed in the checkout's uncommitted `TODO.md`. Clippy is now
+  available (rustup 1.99.1), so its first item can be done.
 
 ## Packaging
 
