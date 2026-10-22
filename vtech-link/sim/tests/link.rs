@@ -49,6 +49,12 @@ fn connect(cam: &Camera) -> Link {
     Link::connect(link_config(cam)).unwrap()
 }
 
+/// The per-session prep: the camera streams only once `DEVINFO` has been asked for.
+fn prep(link: &Link) {
+    let reply = link.request(OP_DEVINFO, &[0; 4], OP_DEVINFO_REPLY, SEC).unwrap();
+    assert_eq!(reply, devinfo());
+}
+
 fn connect_err(config: LinkConfig) -> (LinkError, Duration) {
     let t0 = Instant::now();
     let err = Link::connect(config).err().expect("connect should fail");
@@ -400,6 +406,8 @@ fn s4_media_frames_in_order() {
         ..camera()
     });
     let link = connect(&cam);
+    prep(&link);
+
     let mut media = link.media();
     media.start(SEC).unwrap();
     link.send(OP_START, &[0; 8], SEC).unwrap();
@@ -428,6 +436,8 @@ fn s4_media_frames_in_order() {
 fn s5_reset_cycles() {
     let cam = Camera::start(camera());
     let link = connect(&cam);
+    prep(&link);
+
     let mut media = link.media();
     media.start(SEC).unwrap();
     for cycle in 1u32..=5 {
@@ -444,6 +454,24 @@ fn s5_reset_cycles() {
     assert_eq!(stats.resets, 5);
     assert_eq!(stats.reset_timeouts, 0);
     assert_eq!(cam.stats().resets, 5);
+    link.close();
+}
+
+#[test]
+fn no_media_before_devinfo() {
+    let cam = Camera::start(camera());
+    let link = connect(&cam);
+    let mut media = link.media();
+    media.start(SEC).unwrap();
+    // START is acknowledged, but the camera sends nothing until DEVINFO (seen live 2026-10-22).
+    link.send(OP_START, &[0; 8], SEC).unwrap();
+    let (video, audio) = collect(&mut media, 1, 500 * MS);
+    assert!(video.is_empty() && audio.is_empty());
+    assert_eq!(cam.stats().video_frames_sent, 0);
+    prep(&link);
+    link.send(OP_START, &[0; 8], SEC).unwrap();
+    let (video, _) = collect(&mut media, 3, 2 * SEC);
+    assert_eq!(video.len(), 3);
     link.close();
 }
 
@@ -467,6 +495,8 @@ fn loss_both_ways() {
         let body = i.to_le_bytes();
         assert_eq!(link.request(0x5020, &body, 0x5021, 2 * SEC).unwrap(), body);
     }
+    prep(&link);
+
     let mut media = link.media();
     media.start(2 * SEC).unwrap();
     link.send(OP_START, &[0; 8], 2 * SEC).unwrap();

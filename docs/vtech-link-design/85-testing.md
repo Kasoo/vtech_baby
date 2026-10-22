@@ -59,7 +59,9 @@ Scenarios (each also runs with 2% loss, 1% duplication and 5 ms of jitter-induce
   AUTHPWD_admin -cipher ECDHE-PSK-CHACHA20-POLY1305 -groups X25519` on loopback UDP, with a test
   adapter that carries our records straight over UDP (no IOTC). It runs with and without
   `-no_ticket`, and with `-cookie_exchange` to exercise HelloVerifyRequest. Echo application data both
-  ways. Dev only, gated on `openssl` being on the PATH.
+  ways. Dev only, gated on `openssl` being on the PATH. **Built 2026-10-22** (`core/tests/dtls_openssl.rs`;
+  `30-dtls.md`, "Tests"). As built, `-listen` stands in for `-cookie_exchange`, because `s_server` sends a
+  HelloVerifyRequest on every DTLS connection anyway.
 - **Python ↔ Rust frame crypto**: `crypto.py` (kept in tests only) decrypts what Rust encrypts and
   the other way round.
 
@@ -129,7 +131,7 @@ ssh $HOST "export VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=…; /tmp/vtech-link
 
 | `stream 30` (after the ordering fix, `6570a3a`) | Up in 82 ms, DEVINFO in 100 ms, key exchange 42 ms; 290 video frames (9.7/s, 15 keyframes), 750 audio, 0 lost, 0 decrypt failures. **Per-stream count (`+0x10`): video 1→290, audio 1→750, 0 jumps in either**: it counts each stream from 1 and steps by one, as the kit says. |
 | `restarts 5` (`vtech-link restarts`: three views on one link: reset+START, START with no reset, reset+START) | Per-stream count video 1→35, 36→81, 82→118; audio 1→126, 127→253, 254→379. The shared frame number runs on too (video 39→158, 173→331, 368→495). Each new link starts again at 1. |
-| `restarts 5` **without DEVINFO first** (×2, in two orders) | Key exchange and reset fine, every control frame ACKed, but **no media packet at all** in any view. With DEVINFO first (the run above) it streams. So the camera doesn't stream on a session until DEVINFO has been sent. The vtech-lan-kit said stream control needed no prep; corrected there. |
+| `restarts 5` **without DEVINFO first** (×2, in two orders) | Key exchange and reset fine, every control frame ACKed, but **no media packet at all** in any view. With DEVINFO first (the run above) it streams. So the camera doesn't stream on a session until DEVINFO has been sent. The vtech-lan-kit said stream control needed no prep; corrected there. The simulator now behaves the same way (`sim/src/session.rs`, test `no_media_before_devinfo`). |
 
 Found by the first run and fixed: the reactor sent its first search round only after its first wait (a
 100 ms search interval), so the IOTC connect took 114 ms instead of about 10 ms.

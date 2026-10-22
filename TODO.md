@@ -57,13 +57,12 @@ end of the `tutk-host` production soak. Next:
 - **No clock or socket injection**: T2 runs on real loopback sockets and the wall clock, not the
   virtual clock and network the design describes. The protocol timers can be shortened through
   `LinkConfig.timing` (`70-runtime.md`, "Status"), which brought S6 down from 61 s to 1 s.
-- **Simulator gaps**: the camera streams only after `DEVINFO` on the session (seen live 2026-10-22,
-  `85-testing.md`), and the simulator streams without it; the 5-minute 1080p run (S4), fault injection with several links (S9), and
+- **Simulator gaps**: the 5-minute 1080p run (S4), fault injection with several links (S9), and
   duplicated or jittered datagrams (only drops are simulated). The simulator never splits the 16-byte
   frame info across fragments; whether the camera does is unverified.
 - **Live**: DEVINFO takes 110–170 ms. Compare with `tutk-host` on the same request. Then the rest of
   T7: `watch` 10 minutes, `stream` at 1080p, `restart` ×25, and `talk --silent` with the owner present.
-- **Not built yet**: the packet trace (R33); the T3 `openssl s_server` interop; allocation tracking
+- **Not built yet**: the packet trace (R33); allocation tracking
   in the fuzz targets; the runtime's `Partial frames per stream: 64` cap (`70-runtime.md` limits table).
 - **The dimpl fork**: upstream work is listed in the checkout's uncommitted `TODO.md`. Clippy is now
   available (rustup 1.99.1), so its first item can be done.
