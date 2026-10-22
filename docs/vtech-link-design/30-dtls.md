@@ -154,8 +154,15 @@ the alternative). It sets dimpl's flight timer to 500 ms doubling, the handshake
   cover both suites, with and without a HelloVerifyRequest; the ClientHello's shape; a full-size
   record; the loss of each of the first four datagrams; the wrong password, both as silence (3 s)
   and as an answer; the camera's `handshake_failure` alert; no server at all (`Unreachable` at 30 s,
-  6 hellos); `close_notify`; and garbage once connected. The OpenSSL `s_server` interop (T3) is still
-  to do.
+  6 hellos); `close_notify`; and garbage once connected.
+- **OpenSSL interop (T3, 2026-10-22)** (`core/tests/dtls_openssl.rs`, 4): the client against
+  `openssl s_server` 3.5.9 over loopback UDP, for both suites, with `-no_ticket`, and with `-listen`.
+  Each run completes the handshake, negotiates the expected suite (`0xccac` or `0x00a8`), and carries
+  application data both ways (ours to the server's stdout, the server's stdin back to us).
+  `s_server` asks for a cookie on every DTLS connection, not only with `-listen`, which only makes it
+  stateless. So every run sees one HelloVerifyRequest and sends two ClientHellos, and the tests assert
+  that. The no-cookie handshake, which is what the camera does, is covered by `dtls.rs` and the live
+  runs. Without `openssl` on the PATH the tests pass with a note.
 
 The rest of this document specifies **our own client**. It stays the fallback, and is the reference
 for what a `dimpl` integration must do: the PSK identity and key, the record size, and the timers.

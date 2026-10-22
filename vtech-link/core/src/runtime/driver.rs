@@ -17,6 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::egress;
 use super::link::{LinkConfig, LinkInfo, LinkStats, Shared};
 use super::sync::{Completion, Queue};
+use crate::av::media_rx::MediaConfig;
 use crate::av::server::{AvServer, Sealer, ServerConfig, ServerEvent, ServerStats};
 use crate::av::{AvClient, AvConfig, AvEvent, SendId};
 use crate::dtls::{DATATYPE_DTLS, DtlsClient, DtlsConfig, DtlsEvent};
@@ -27,9 +28,6 @@ use crate::service::frame_crypto;
 use crate::service::media_key::{KeyExchange, MasterKey, OP_KEY_HELLO, OP_KEY_REPLY};
 use crate::service::requests::{RequestEvent, RequestId, Requests};
 
-const KEY_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long an opened talk-back channel waits for the camera, at most.
-const TALK_LISTEN: Duration = Duration::from_secs(60);
 /// The longest the reactor sleeps with nothing scheduled.
 const IDLE_WAIT: Duration = Duration::from_secs(1);
 /// The shortest socket timeout; a deadline already due is checked after it.
@@ -141,6 +139,8 @@ pub(crate) struct Reactor {
     config: LinkConfig,
     shared: Arc<Shared>,
     socket: UdpSocket,
+    /// Whether the socket is in non-blocking mode (it starts blocking).
+    nonblocking: bool,
     commands: Receiver<Command>,
     waker: SocketAddr,
     rng: OsRng,
@@ -181,6 +181,8 @@ impl Reactor {
         let iotc_config = IotcConfig {
             search_port: config.search_port,
             sdk_version: config.sdk_version,
+            alive_interval: config.timing.alive_interval,
+            silence_limit: config.timing.silence_limit,
             ..IotcConfig::default()
         };
         let iotc = IotcSession::new(iotc_config, &config.uid, config.authkey.as_bytes(), token)?;
@@ -189,6 +191,7 @@ impl Reactor {
             config,
             shared,
             socket,
+            nonblocking: false,
             commands,
             waker,
             rng,
@@ -247,12 +250,14 @@ impl Reactor {
             .deadline()
             .map_or(IDLE_WAIT, |d| d.saturating_duration_since(now))
             .clamp(MIN_WAIT, IDLE_WAIT);
-        let _ = self.socket.set_nonblocking(false);
+        self.set_nonblocking(false);
         let _ = self.socket.set_read_timeout(Some(wait));
         let first = self.socket.recv_from(buf);
+        let got = first.is_ok();
         self.on_recv(first, buf);
-        // Then whatever else has arrived, without waiting.
-        if self.socket.set_nonblocking(true).is_ok() {
+        // Then whatever else has arrived, without waiting. A wake-up that timed out has nothing to
+        // drain, so the socket stays blocking and the next wait needs no mode change.
+        if got && self.set_nonblocking(true) {
             for _ in 0..512 {
                 let next = self.socket.recv_from(buf);
                 if next.is_err() {
@@ -267,6 +272,14 @@ impl Reactor {
         }
         self.on_timeout(now);
         self.pump(now);
+    }
+
+    /// Switch the socket's mode if it isn't in it already; returns whether it is now.
+    fn set_nonblocking(&mut self, on: bool) -> bool {
+        if self.nonblocking != on && self.socket.set_nonblocking(on).is_ok() {
+            self.nonblocking = on;
+        }
+        self.nonblocking == on
     }
 
     fn on_recv(&mut self, got: std::io::Result<(usize, SocketAddr)>, buf: &mut [u8]) {
@@ -445,6 +458,8 @@ impl Reactor {
                 let config = DtlsConfig {
                     suite: self.config.suite,
                     handshake_timeout: self.config.av_timeout,
+                    flight_start_rto: self.config.timing.dtls_retransmit,
+                    finished_wait: self.config.timing.dtls_finished_wait,
                     ..DtlsConfig::default()
                 };
                 match DtlsClient::new(config, &self.config.account, &self.config.password, now) {
@@ -481,6 +496,10 @@ impl Reactor {
             DtlsEvent::Connected => {
                 let config = AvConfig {
                     ctrl_window: self.config.ctrl_window,
+                    media: MediaConfig {
+                        drop_every: self.config.drop_media_every,
+                        ..self.config.timing.media.clone()
+                    },
                     ..AvConfig::new(&self.config.account, &self.config.password)
                 };
                 let nonce = self.rng.u32();
@@ -610,9 +629,13 @@ impl Reactor {
                 let mut secret = [0u8; 32];
                 self.rng.fill(&mut secret);
                 let kx = KeyExchange::new(secret);
-                let id =
-                    self.requests
-                        .request(OP_KEY_HELLO, &kx.hello(), OP_KEY_REPLY, now + KEY_TIMEOUT, false);
+                let id = self.requests.request(
+                    OP_KEY_HELLO,
+                    &kx.hello(),
+                    OP_KEY_REPLY,
+                    now + self.config.timing.key_timeout,
+                    false,
+                );
                 self.waiters.insert(id, Waiter::Key);
                 self.key = Key::Exchanging(kx);
                 self.key_waiters.push(waiter);
@@ -665,7 +688,7 @@ impl Reactor {
                             queue: 2,
                             ..ServerConfig::default()
                         };
-                        let server = AvServer::new(config, now, now + TALK_LISTEN);
+                        let server = AvServer::new(config, now, now + self.config.timing.talk_listen);
                         self.talk = Some(Talk {
                             channel,
                             server,

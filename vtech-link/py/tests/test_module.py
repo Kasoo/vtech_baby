@@ -219,6 +219,7 @@ class ConnectTest(SimTest):
 class MediaTest(SimTest):
     def test_frames(self):
         link = self.link()
+        link.request(OP_DEVINFO, bytes(4), OP_DEVINFO_REPLY)  # the camera streams only after DEVINFO
         rx = link.media()
         rx.start()
         rx.reset()

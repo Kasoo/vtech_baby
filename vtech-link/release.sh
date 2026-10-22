@@ -8,9 +8,9 @@
 # maturin from pip, both cached under build/cache/SET. A foreign arch runs under qemu-user binfmt.
 #
 # Builds the committed tree (git archive of REV, default HEAD at start), not the working tree, unless
-# WORKTREE=1. Each set is built twice and the two hashes compared. Writes dist/SET/_vtech_link.abi3.so (stripped) and fails if it
-# imports anything outside tools/imports-allowed.txt or needs a library other than libc, libgcc_s and the glibc split-outs:
-# widening either is a deliberate, reviewed change.
+# WORKTREE=1. Each set is built twice and the two hashes compared. Writes dist/SET/_vtech_link.abi3.so (stripped).
+# maturin's auditwheel check covers the glibc sets. The musl sets skip it (it would graft libgcc_s), so every set is
+# checked here to need no library other than libc, libgcc_s and the glibc split-outs.
 set -e
 export LC_ALL=C
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -81,20 +81,13 @@ for set in "$@"; do
     -v "$work":/src:z -v "$HERE/build/cache/$set":/cache:z -v "$out":/dist:z -w /src "$image" sh -c "$INNER"
   rm -rf "$work"
 
-  # Check the imports and DT_NEEDED with the container's own binutils (the host's may not read the foreign arch).
-  podman run --rm --arch "$platform" -v "$out":/dist:z -v "$HERE/tools":/tools:ro,z "$image" sh -c '
+  # Check DT_NEEDED with the container's own binutils (the host's may not read the foreign arch).
+  podman run --rm --arch "$platform" -v "$out":/dist:z "$image" sh -c '
     export LC_ALL=C
-    f=/dist/_vtech_link.abi3.so
-    command -v nm >/dev/null || apk add -q binutils
-    nm -D --undefined-only $f | awk "{print \$2}" | sed "s/@.*//" | sort -u > /tmp/imports
-    nm -D --defined-only $f | awk "{print \$3}" | sed "s/@.*//" | sort -u > /tmp/ours
-    cp /tmp/imports /dist/imports.txt
-    readelf -d $f | sed -n "s/.*(NEEDED).*\[\(.*\)\]/\1/p" | sort > /dist/needed.txt
-    extra=$(comm -23 /tmp/imports /tools/imports-allowed.txt | comm -23 - /tmp/ours)
-    [ -z "$extra" ] || { echo "imports not in tools/imports-allowed.txt:"; echo "$extra"; bad=1; }
-    badneed=$(grep -Ev "^(libc\.so\.6|libc\.musl-.*\.so\.1|libgcc_s\.so\.1|libpthread\.so\.0|libdl\.so\.2|libm\.so\.6|ld-linux-.*\.so\.[0-9])$" /dist/needed.txt || true)
-    [ -z "$badneed" ] || { echo "unexpected DT_NEEDED:"; echo "$badneed"; bad=1; }
-    exit ${bad:-0}' || { echo "$set failed the import check" >&2; exit 1; }
+    command -v readelf >/dev/null || apk add -q binutils
+    readelf -d /dist/_vtech_link.abi3.so | sed -n "s/.*(NEEDED).*\[\(.*\)\]/\1/p" | sort > /dist/needed.txt
+    badneed=$(grep -Ev "^(libc\.so\.6|libc\.musl-.*\.so\.1|libgcc_s\.so\.1|libpthread\.so\.0|libdl\.so\.2|librt\.so\.1|libm\.so\.6|ld-linux-.*\.so\.[0-9])$" /dist/needed.txt || true)
+    [ -z "$badneed" ] || { echo "unexpected DT_NEEDED:"; echo "$badneed"; exit 1; }' || { echo "$set failed the DT_NEEDED check" >&2; exit 1; }
   echo "needed: $(tr '\n' ' ' < "$out/needed.txt")"
   (cd "$out" && ls -l _vtech_link.abi3.so | awk '{print "size:", $5}' && sha256sum _vtech_link.abi3.so)
 done

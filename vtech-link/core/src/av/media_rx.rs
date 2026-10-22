@@ -18,6 +18,9 @@ const WINDOW: u16 = 0x1000;
 const PARITY_KIND: u8 = 0x0c;
 /// How far a reset moves the packet numbering, so that anything already in flight looks stale.
 const RESET_JUMP: u16 = 0x4000;
+/// The most per-stream frames a jump in the `+0x10` count may skip and still be waited for and counted
+/// lost. A larger jump, either way, is taken as the camera renumbering: release without waiting.
+const MAX_FRAME_GAP: u32 = 64;
 
 #[derive(Debug, Clone)]
 pub struct MediaConfig {
@@ -27,6 +30,9 @@ pub struct MediaConfig {
     pub partial_wait: Duration,
     /// The least time between two NAK lists.
     pub nak_repeat: Duration,
+    /// Drop every Nth media or parity packet on arrival (0: none), to exercise recovery on a clean
+    /// network, as `tutk-host`'s `TK_DROP` does. Tests and live probes only.
+    pub drop_every: u32,
 }
 
 impl Default for MediaConfig {
@@ -35,6 +41,7 @@ impl Default for MediaConfig {
             gap_skip: Duration::from_millis(300),
             partial_wait: Duration::from_millis(500),
             nak_repeat: Duration::from_millis(50),
+            drop_every: 0,
         }
     }
 }
@@ -63,6 +70,8 @@ pub struct EncryptedFrame {
     pub stream: StreamKind,
     pub kind: u8,
     pub number: u32,
+    /// The per-stream frame count (`+0x10`).
+    pub seq: u32,
     /// When its first fragment arrived.
     pub arrived: Instant,
     pub data: Vec<u8>,
@@ -92,6 +101,10 @@ pub struct MediaStats {
     pub packets_stale: u64,
     pub fragments_dropped: u64,
     pub gaps_skipped: u64,
+    /// Fragments of a frame already released or given up, dropped to keep the order.
+    pub fragments_behind: u64,
+    /// Packets dropped on purpose (`MediaConfig::drop_every`).
+    pub packets_dropped_test: u64,
 }
 
 /// The fields our ACK reports for media.
@@ -200,6 +213,7 @@ impl PacketWindow {
 struct Partial {
     first_at: Instant,
     kind: u8,
+    seq: u32,
     count: u16,
     have: u16,
     frags: Vec<Option<Vec<u8>>>,
@@ -210,6 +224,21 @@ struct Assembler {
     /// Keyed by frame number; ordered by serial distance from `base`.
     partial: BTreeMap<u32, Partial>,
     lost: u32,
+    /// The per-stream count of the last frame released or given up; `None` until the first, and after
+    /// a reset or a renumbering.
+    last: Option<u32>,
+}
+
+/// How per-stream count `seq` stands against the last one released.
+enum Place {
+    /// The next one, or the first after a reset.
+    Next,
+    /// After `missing` frames that haven't come.
+    After { missing: u32 },
+    /// At or before the last one released.
+    Behind,
+    /// Too far either way: the camera has renumbered.
+    Renumbered,
 }
 
 impl Assembler {
@@ -217,6 +246,21 @@ impl Assembler {
         Self {
             partial: BTreeMap::new(),
             lost: 0,
+            last: None,
+        }
+    }
+
+    fn place(&self, seq: u32) -> Place {
+        let Some(last) = self.last else {
+            return Place::Next;
+        };
+        let ahead = seq.wrapping_sub(last);
+        let behind = last.wrapping_sub(seq);
+        match ahead {
+            1 => Place::Next,
+            2..=MAX_FRAME_GAP => Place::After { missing: ahead - 1 },
+            _ if behind < MAX_FRAME_GAP => Place::Behind,
+            _ => Place::Renumbered,
         }
     }
 
@@ -238,6 +282,8 @@ pub struct MediaRx {
     nak_at: Option<Instant>,
     ack_due: bool,
     reset_seq: u16,
+    /// Media and parity packets that have arrived, for `drop_every`.
+    arrivals: u64,
     stats: MediaStats,
 }
 
@@ -253,6 +299,7 @@ impl MediaRx {
             nak_at: None,
             ack_due: false,
             reset_seq: 0,
+            arrivals: 0,
             stats: MediaStats::default(),
         }
     }
@@ -260,6 +307,12 @@ impl MediaRx {
     /// One class-0x0c media or parity frame (`frame` starts at the media sub-header) with its FEC
     /// group header.
     pub fn on_envelope(&mut self, now: Instant, group: &[u8], frame: &[u8]) {
+        if self.config.drop_every > 0 {
+            self.arrivals += 1;
+            if self.arrivals % u64::from(self.config.drop_every) == 0 {
+                return self.stats.packets_dropped_test += 1;
+            }
+        }
         let is_parity = frame.first() == Some(&PARITY_KIND);
         if !is_parity {
             self.on_fragment(now, frame);
@@ -288,9 +341,22 @@ impl MediaRx {
             StreamKind::Video => &mut self.video,
             StreamKind::Audio => &mut self.audio,
         };
+        // A late resend of a frame already released or given up would come out after its successors.
+        if matches!(asm.place(frag.seq), Place::Behind) {
+            log::debug!(
+                "media: {:?} frame {} (count {}) fragment {}/{} after its frame was released or given up",
+                frag.stream,
+                frag.number,
+                frag.seq,
+                frag.index,
+                frag.count
+            );
+            return self.stats.fragments_behind += 1;
+        }
         let p = asm.partial.entry(frag.number).or_insert_with(|| Partial {
             first_at: now,
             kind: frag.kind,
+            seq: frag.seq,
             count: frag.count,
             have: 0,
             frags: vec![None; usize::from(frag.count)],
@@ -314,7 +380,9 @@ impl MediaRx {
     }
 
     /// Move frames out in frame order: the oldest once complete, or given up once it has waited
-    /// `partial_wait` (`media_recv.c` `release`).
+    /// `partial_wait` (`media_recv.c` `release`). A frame that follows a gap in the per-stream count
+    /// waits as long for the missing frames, whose packets may all have been lost and be on their way
+    /// again; `tutk-host` releases it at once, and the resent frame then comes out after it.
     fn release(&mut self, now: Instant, stream: StreamKind) {
         let asm = match stream {
             StreamKind::Video => &mut self.video,
@@ -326,15 +394,40 @@ impl MediaRx {
         };
         while let Some(number) = asm.oldest() {
             let Some(p) = asm.partial.get(&number) else { return };
-            if p.have < p.count || p.info.is_none() {
-                if now.saturating_duration_since(p.first_at) < self.config.partial_wait {
+            let waited = now.saturating_duration_since(p.first_at) >= self.config.partial_wait;
+            if let Place::After { missing } = asm.place(p.seq) {
+                if !waited {
                     return;
                 }
+                log::debug!(
+                    "media: gave up {missing} {stream:?} frame(s) before count {}: none of their packets came",
+                    p.seq
+                );
+                asm.lost += missing;
+                counters.given_up += u64::from(missing);
+            }
+            if p.have < p.count || p.info.is_none() {
+                if !waited {
+                    // The frames before it are given up; it keeps its own wait.
+                    asm.last = Some(p.seq.wrapping_sub(1));
+                    return;
+                }
+                log::debug!(
+                    "media: gave up {stream:?} frame {number} (count {}, kind {}) with {}/{} fragments{} after {} ms",
+                    p.seq,
+                    p.kind,
+                    p.have,
+                    p.count,
+                    if p.info.is_some() { "" } else { ", no frame info" },
+                    now.saturating_duration_since(p.first_at).as_millis()
+                );
+                asm.last = Some(p.seq);
                 asm.partial.remove(&number);
                 asm.lost += 1;
                 counters.given_up += 1;
                 continue;
             }
+            asm.last = Some(p.seq);
             let Some(p) = asm.partial.remove(&number) else {
                 return;
             };
@@ -347,6 +440,7 @@ impl MediaRx {
                 stream,
                 kind: p.kind,
                 number,
+                seq: p.seq,
                 arrived: p.first_at,
                 data,
                 info: p.info.unwrap_or_default(),
@@ -411,6 +505,8 @@ impl MediaRx {
         self.audio.partial.clear();
         self.video.lost = 0;
         self.audio.lost = 0;
+        self.video.last = None;
+        self.audio.last = None;
         self.ready.clear();
         self.fec.reset();
         self.reset_seq = self.reset_seq.wrapping_add(1);
@@ -436,6 +532,7 @@ struct Fragment<'a> {
     count: u16,
     index: u16,
     number: u32,
+    seq: u32,
     payload: &'a [u8],
     info: Option<&'a [u8]>,
 }
@@ -469,6 +566,7 @@ impl<'a> Fragment<'a> {
             count,
             index,
             number: packet::get32(f, 0x0c)?,
+            seq: packet::get32(f, 0x10)?,
             payload,
             info: last.then_some(info),
         })

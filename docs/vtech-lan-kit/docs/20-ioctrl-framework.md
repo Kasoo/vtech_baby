@@ -58,7 +58,11 @@ most likely sent by the SDK itself. A client may send it once after
 The VTech vendor GET opcodes (the `0x7xx` / `0x74x` / `0x75x` / `0x73x` families) only return a reply
 **after** a device-info request has been sent once on the session. Send `DEVINFO` (`0x330`, see
 `70-device-info.md`) once after the AV channel is up, then issue the VTech GETs. Standard TUTK opcodes
-(stream control, motion detect, audio format, device info itself) reply without this prep.
+(motion detect, audio format, device info itself) reply without this prep.
+
+**Streaming needs it too.** Without `DEVINFO` on the session, `START` (and `AUDIOSTART`,
+`VIDEO_FULLRATE`) are acknowledged but the camera sends no media at all. The live-view key exchange
+works without it.
 
 ## The opcode object model (reference client)
 

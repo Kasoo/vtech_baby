@@ -68,6 +68,9 @@ struct CameraAv {
     ack_seq: u16,
     epoch: Instant,
     master: Option<MasterKey>,
+    /// `DEVINFO` has been asked for on this session. Until it has, the camera acknowledges `START` but
+    /// sends no media.
+    devinfo: bool,
     media: MediaTx,
     talk: Option<TalkClient>,
 }
@@ -103,6 +106,7 @@ impl Session {
                 ack_seq: 0,
                 epoch: now,
                 master: None,
+                devinfo: false,
                 media: MediaTx::new(config.media.clone(), now),
                 talk: None,
             },
@@ -336,7 +340,8 @@ impl Session {
                     let _ = self.av.control.send(now, OP_KEY_REPLY, &reply);
                 }
             }
-            OP_START => self.av.media.start(now),
+            crate::OP_DEVINFO => self.av.devinfo = true,
+            OP_START if self.av.devinfo => self.av.media.start(now),
             OP_STOP => self.av.media.on = false,
             OP_SPEAKER_START => {
                 if let Some(channel) = packet::get32(payload, 0).and_then(|c| u8::try_from(c).ok()) {

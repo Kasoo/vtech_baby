@@ -93,27 +93,25 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
 
 ## The import check
 
-`release.sh` keeps the rule that `tutk-host/release.sh` enforces today: list the module's undefined
-dynamic symbols (`nm -D --undefined-only`) and fail if any is outside
-`vtech-link/tools/imports-allowed.txt`. The list holds:
-- libc functions std uses (socket, thread, time, memory, `getifaddrs`, `getrandom`/`syscall`, …);
-- Python C API symbols (`Py*`, `_Py*`) from the abi3 set;
-- on glibc, `__cxa_thread_atexit_impl`, `__tls_get_addr` and similar; on musl, the same names
-  where they exist;
-- the unwinder's `_Unwind_*` symbols, from **`libgcc_s.so.1`**. Rust's unwinding needs it on both libcs.
-  It is in HA's image: on 2026-10-21 `/usr/lib/libgcc_s.so.1` was there, from Alpine's `libgcc`,
-  which `ffmpeg` and others require (`podman exec homeassistant apk info -r libgcc`). It is also on
-  every glibc host. If it ever went missing, the fallback is `panic = "abort"` plus a reactor that
-  never panics, which is a weaker R34.
+`release.sh` checks only what each build links against. `DT_NEEDED` must be `libc.so.6` (or
+`libc.musl-*.so.1`), `libgcc_s.so.1`, and on glibc the split-outs (`libpthread`, `libdl`, `librt`,
+`libm`, `ld-linux-*`) where the old toolchain uses them. Nothing else is allowed. maturin's auditwheel
+check covers this on the glibc sets. The musl sets skip auditwheel (`--auditwheel skip`, because a
+repair would graft `libgcc_s`, which the host already has), so this check stands in for it there.
 
-`DT_NEEDED` must be exactly `libc.so.6` (or `libc.musl-*.so.1`), `libgcc_s.so.1`, and on glibc
-`libpthread`/`libdl`/`libm` where the old toolchain splits them out. Nothing else. Measured 2026-10-22:
-glibc needs `libc.so.6`, `libgcc_s.so.1`, `libpthread.so.0` (plus `ld-linux-x86-64.so.2` on x86_64, for
-`__tls_get_addr`); musl needs `libc.musl-<arch>.so.1` and `libgcc_s.so.1`. Musl links `libgcc_s` too.
-`imports-allowed.txt` has 126 lines: Py*/_Py* abi3, `_Unwind_*`, libc, and the toolchain's weak
-`_ITM_*`, `__gmon_start__`, `__register_frame_info`; the glibc-only names (`__xstat64` and friends from
-manylinux2014's old glibc) sit beside the musl-only ones. The import check runs in the same containers, since
-the host's binutils cannot be trusted with the foreign arch.
+`libgcc_s.so.1` provides the unwinder's `_Unwind_*` symbols, which Rust's unwinding needs on both libcs.
+It is in HA's image: on 2026-10-21 `/usr/lib/libgcc_s.so.1` was there, from Alpine's `libgcc`, which
+`ffmpeg` and others require (`podman exec homeassistant apk info -r libgcc`). It is also on every glibc
+host. If it ever went missing, the fallback is `panic = "abort"` plus a reactor that never panics,
+which is a weaker R34.
+
+**No symbol allow-list (decided 2026-10-22).** `tutk-host`'s `release.sh` fails on any imported symbol
+outside `tools/imports-allowed.txt`. vtech-link carried that over in Phase 0, then dropped it. The list
+mattered for `tutk-host` because it borrows the host's OpenSSL through stand-ins, and because its imports
+were meant to match the stock libraries'. Neither applies here: the module is pure Rust, and auditwheel
+plus `tools/ha_import_check.sh` (loading the module in the HA image) cover loadability. The last review
+(at `40e3d9f`) found every libc import came from std, `socket2`, `if-addrs`, `getrandom` or dimpl's
+`der`/`x509_cert`.
 
 ## Shipping and loading
 
@@ -128,8 +126,35 @@ the host's binutils cannot be trusted with the foreign arch.
 - **Licence notices**: the module compiles in dimpl and the RustCrypto crates (MIT/Apache), whose
   notices must travel with the binaries. `sync_link.sh` writes
   `native/THIRD_PARTY_LICENSES` with `cargo about generate`.
-- Size: the hello-world is 366-398 KB per build stripped (more once the core's crypto is linked in); expect about 1 MB. Today's C sets are about 300 KB each, so the four builds add
-  about 3 MB to the HACS download.
+- Size: the hello-world was 366–398 KB per build, stripped. The full module at `d1d49ea` is 1.64 MB
+  (aarch64) to 1.95 MB (x86_64), against an estimate of about 1 MB. dimpl's certificate-parsing code,
+  which a PSK-only client never runs, is part of that. Today's C sets are about 300 KB each; the four
+  modules add about 7 MB to the HACS download. All four
+  builds are reproducible and pass `tools/ha_import_check.sh` (2026-10-22).
+- Size levers, measured 2026-10-22 on x86_64-glibc at `2bd3093` (stripped; each build in its own
+  target directory; nightly was 1.101.0 of 2026-10-21):
+
+  | Build | Size | vs today |
+  |---|---|---|
+  | stable 1.99.1, thin LTO, `opt-level` 3 (today's profile) | 1,945 KB | — |
+  | stable, fat LTO | 1,838 KB | −5.5% |
+  | nightly, fat LTO, `-Z build-std=std,panic_unwind` | 1,867 KB | −4.0% (bigger than without it) |
+  | stable, fat LTO, `opt-level = "s"` | 1,411 KB | −27% |
+  | stable, fat LTO, `opt-level = "z"` | 1,379 KB | −29% |
+  | nightly, fat LTO, `opt-level = "s"`, `build-std` | 1,360 KB | −30% |
+  | stable, fat LTO, `opt-level = "s"`, `panic = "abort"` | 1,317 KB | −32% |
+  | nightly, fat LTO, `opt-level = "s"`, `panic = "abort"`, `-Z build-std=std,panic_abort` | 1,247 KB | −36% |
+
+  `build-std` gains about 50 KB only once optimising for size, and needs nightly plus `rust-src`.
+  `build-std-features=optimize_for_size` failed to build (two copies of `core`). `panic = "abort"` saves
+  about 95 KB more, and `build-std` about 70 KB on top of that. But it gives up R34: a panic in a link's
+  reactor or in a Python call would abort the whole process (the worker in Phase 3, Home Assistant from
+  Phase 4) instead of closing that link or raising `PanicException`. The abort build still needs
+  `libgcc_s.so.1`, so it doesn't remove that dependency either. Per-package `opt-level` overrides (crypto crates at 3) had no
+  effect under fat LTO: the final code generation uses the top-level level, and the output was
+  byte-identical. The cost of `s`: ChaCha20-Poly1305 on 20 KB buffers (`chacha20poly1305` 0.10, fat
+  LTO) runs at 1,783 MB/s at `opt-level` 3, 547 MB/s at `s` and 278 MB/s at `z`. The live streams
+  carry 0.35–1.1 Mbit/s, so `s` leaves over 3,000× headroom on x86_64.
 - `link.py` loads the module with `ExtensionFileLoader("_vtech_link", path)`. The init symbol is
   `PyInit__vtech_link`, so the module name must stay `_vtech_link`.
 

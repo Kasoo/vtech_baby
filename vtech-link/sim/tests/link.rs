@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use vtech_link_core::av::media_rx::StreamKind;
 use vtech_link_core::error::{AvAuthStage, CloseReason, IotcReject};
-use vtech_link_core::{Frame, Link, LinkConfig, LinkError, MediaReceiver};
+use vtech_link_core::{Frame, Link, LinkConfig, LinkError, MediaReceiver, Timing};
 use vtech_link_sim::{
     Camera, CameraConfig, FrameTag, OP_DEVINFO, OP_DEVINFO_REPLY, OP_GET_PARAMS, OP_GET_PARAMS_REPLY,
     OP_SPEAKER_START, OP_SPEAKER_STOP, OP_START, OP_STOP, WrongPassword, default_replies, devinfo,
@@ -47,6 +47,12 @@ fn link_config(cam: &Camera) -> LinkConfig {
 
 fn connect(cam: &Camera) -> Link {
     Link::connect(link_config(cam)).unwrap()
+}
+
+/// The per-session prep: the camera streams only once `DEVINFO` has been asked for.
+fn prep(link: &Link) {
+    let reply = link.request(OP_DEVINFO, &[0; 4], OP_DEVINFO_REPLY, SEC).unwrap();
+    assert_eq!(reply, devinfo());
 }
 
 fn connect_err(config: LinkConfig) -> (LinkError, Duration) {
@@ -220,14 +226,19 @@ fn s2_login_rejected() {
 #[test]
 fn s3_wrong_password_silence() {
     let cam = Camera::start(camera());
+    let base = link_config(&cam);
     let config = LinkConfig {
         password: "wrongpass".to_string(),
-        ..link_config(&cam)
+        timing: Timing {
+            dtls_finished_wait: 300 * MS,
+            ..base.timing.clone()
+        },
+        ..base
     };
     let (err, took) = connect_err(config);
     assert_eq!(err, LinkError::AvAuthFailed(AvAuthStage::Dtls(None)));
-    // The client waits 3 s for the camera's Finished.
-    assert!(took >= 3 * SEC && took < 4500 * MS, "{took:?}");
+    // The client waits for the camera's Finished (3 s by default).
+    assert!(took >= 300 * MS && took < 1500 * MS, "{took:?}");
     assert_eq!(cam.stats().dtls_refused, 1);
     assert_eq!(cam.stats().logins, 0);
 }
@@ -395,6 +406,8 @@ fn s4_media_frames_in_order() {
         ..camera()
     });
     let link = connect(&cam);
+    prep(&link);
+
     let mut media = link.media();
     media.start(SEC).unwrap();
     link.send(OP_START, &[0; 8], SEC).unwrap();
@@ -423,6 +436,8 @@ fn s4_media_frames_in_order() {
 fn s5_reset_cycles() {
     let cam = Camera::start(camera());
     let link = connect(&cam);
+    prep(&link);
+
     let mut media = link.media();
     media.start(SEC).unwrap();
     for cycle in 1u32..=5 {
@@ -439,6 +454,24 @@ fn s5_reset_cycles() {
     assert_eq!(stats.resets, 5);
     assert_eq!(stats.reset_timeouts, 0);
     assert_eq!(cam.stats().resets, 5);
+    link.close();
+}
+
+#[test]
+fn no_media_before_devinfo() {
+    let cam = Camera::start(camera());
+    let link = connect(&cam);
+    let mut media = link.media();
+    media.start(SEC).unwrap();
+    // START is acknowledged, but the camera sends nothing until DEVINFO (seen live 2026-10-22).
+    link.send(OP_START, &[0; 8], SEC).unwrap();
+    let (video, audio) = collect(&mut media, 1, 500 * MS);
+    assert!(video.is_empty() && audio.is_empty());
+    assert_eq!(cam.stats().video_frames_sent, 0);
+    prep(&link);
+    link.send(OP_START, &[0; 8], SEC).unwrap();
+    let (video, _) = collect(&mut media, 3, 2 * SEC);
+    assert_eq!(video.len(), 3);
     link.close();
 }
 
@@ -462,6 +495,8 @@ fn loss_both_ways() {
         let body = i.to_le_bytes();
         assert_eq!(link.request(0x5020, &body, 0x5021, 2 * SEC).unwrap(), body);
     }
+    prep(&link);
+
     let mut media = link.media();
     media.start(2 * SEC).unwrap();
     link.send(OP_START, &[0; 8], 2 * SEC).unwrap();
@@ -479,12 +514,47 @@ fn loss_both_ways() {
     assert!(sim.dropped_in > 0 && sim.dropped_out > 0);
     assert!(m.packets_recovered > 0, "parity rebuilt nothing");
     assert!(sim.resent > 0, "nothing was NAKed and resent");
+    // Audio frames are one packet each, so a lost packet is a whole frame lost: the frames after it
+    // wait for its resend (by the per-stream count) instead of overtaking it.
     assert_eq!(video_order, Order::default());
-    // A frame whose only packet is lost holds nothing back, so its resend is delivered after the frame
-    // that followed it: MediaRx (like tutk-host) has no partial frame to keep the order with. Audio
-    // frames are one packet each, so some come out of order; none go missing.
-    assert_eq!(audio_order.missing, 0);
-    assert!(audio_order.reordered <= 5, "{audio_order:?}");
+    assert_eq!(audio_order, Order::default());
+    link.close();
+}
+
+#[test]
+fn drop_media_every_rebuilds() {
+    // The live `--drop 50` probe, offline: one media or parity packet in 50 is thrown away on arrival
+    // and nothing else is lost. Parity rebuilds most of them and NAKs fetch the rest.
+    let cam = Camera::start(CameraConfig {
+        media: vtech_link_sim::MediaSpec {
+            video_fps: 15,
+            video_bytes: 12_000,
+            ..Default::default()
+        },
+        ..camera()
+    });
+    let link = Link::connect(LinkConfig {
+        drop_media_every: 50,
+        ..link_config(&cam)
+    })
+    .unwrap();
+    prep(&link);
+    let mut media = link.media();
+    media.start(SEC).unwrap();
+    link.send(OP_START, &[0; 8], SEC).unwrap();
+    let (video, audio) = collect(&mut media, 45, 6 * SEC);
+    assert_eq!(video.len(), 45);
+    assert_eq!(check_order(&video, true), Order::default());
+    assert_eq!(check_order(&audio, false), Order::default());
+    assert!(video.iter().chain(&audio).all(|f| f.lost_before == 0));
+    let m = link.stats(SEC).unwrap().av.unwrap().media;
+    eprintln!(
+        "drop 50: dropped {}, rebuilt {}, NAKed {}",
+        m.packets_dropped_test, m.packets_recovered, m.packets_requested
+    );
+    assert!(m.packets_dropped_test > 0);
+    assert!(m.packets_recovered > 0, "parity rebuilt nothing");
+    assert_eq!(m.video.given_up + m.audio.given_up, 0);
     link.close();
 }
 
@@ -598,16 +668,56 @@ fn s7_camera_close() {
 }
 
 #[test]
-#[ignore = "takes 61 s: the silence limit is not configurable through LinkConfig"]
 fn s6_camera_silent() {
+    // The default is 60 ticks of 1 s; 10 of 100 ms keeps the test short.
     let cam = Camera::start(camera());
-    let link = connect(&cam);
+    let base = link_config(&cam);
+    let link = Link::connect(LinkConfig {
+        timing: Timing {
+            alive_interval: 100 * MS,
+            silence_limit: 10,
+            ..base.timing.clone()
+        },
+        ..base
+    })
+    .unwrap();
     cam.kill();
     let t0 = Instant::now();
-    let err = link.next_push(70 * SEC).unwrap_err();
+    let err = link.next_push(10 * SEC).unwrap_err();
     assert_eq!(err, LinkError::Closed(CloseReason::RemoteTimeout));
     let took = t0.elapsed();
-    assert!(took >= 60 * SEC && took < 63 * SEC, "{took:?}");
+    assert!(took >= 1000 * MS && took < 1500 * MS, "{took:?}");
+}
+
+#[test]
+fn talkback_listen_times_out() {
+    let cam = Camera::start(camera());
+    let base = link_config(&cam);
+    let link = Link::connect(LinkConfig {
+        timing: Timing {
+            talk_listen: 300 * MS,
+            ..base.timing.clone()
+        },
+        ..base
+    })
+    .unwrap();
+    // The channel is never announced, so the camera never logs in.
+    let talk = link.talkback(2 * SEC).unwrap();
+    let t0 = Instant::now();
+    let err = talk.accept(5 * SEC).unwrap_err();
+    let took = t0.elapsed();
+    assert!(took < 800 * MS, "{took:?}: {err:?}");
+    eprintln!("listen timeout: {err:?} after {took:?}");
+    // The link is still good, and a new channel can open.
+    assert_eq!(
+        link.request(OP_DEVINFO, &[0; 4], OP_DEVINFO_REPLY, SEC).unwrap(),
+        devinfo()
+    );
+    let talk = link.talkback(2 * SEC).unwrap();
+    link.send(OP_SPEAKER_START, &u32::from(talk.channel).to_le_bytes(), SEC)
+        .unwrap();
+    talk.accept(3 * SEC).unwrap();
+    link.close();
 }
 
 // ---- several links (S9) ----

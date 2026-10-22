@@ -162,6 +162,30 @@ Two deliberate differences from `tutk-host` (`TODO.md`, "tutk-host"):
 - kind 4 is audio, following the kit;
 - a gap skip that lands on `pn_high` clears that packet's seen bit.
 
+**Ordering under whole-frame loss (2026-10-22).** The release rule above keeps order only behind a
+*partial* frame. When every packet of a frame is lost, there is no partial frame to wait on, so the next
+frame went out, and the resent frame followed it. The simulator showed this (about 3 audio frames per
+lossy run; every audio frame is one packet). Late fragments of a frame already given up did the same:
+they started a new partial frame. `tutk-host` behaves the same way. The fix uses the per-stream frame
+count at `+0x10` (`tutk-kit/docs/av/90-fifos.md`):
+- Each stream remembers the count of the last frame it released or gave up.
+- A frame whose count is more than one ahead (2 to 64) waits like an incomplete one, up to
+  `partial_wait` from its first fragment, for the missing frames. If they don't come, they are counted
+  `given_up` and in its `lost_before`.
+- A fragment of a frame at or up to 64 behind that count is dropped (`fragments_behind`).
+- A jump of more than 64 either way is taken as the camera renumbering. The frame is released, nothing
+  is held or counted, and the count carries on from there.
+- A reset clears the remembered counts.
+
+**Verified live (2026-10-22):** a 30 s stream counted video 1→290 and audio 1→750 with no jumps, and
+the count starts at 1 for each AV session but runs on across `STOP`/`START` and media resets
+(`85-testing.md`, "First live runs"). A new session gets a new `MediaRx`, so the count never restarts
+under a receiver. A count of 1 is therefore not treated as a restart (that rule was in `82cb28b` and
+was removed once the `restarts` run showed it handles nothing real).
+
+The simulator's lossy run now delivers both streams in strict order (`sim/tests/link.rs`
+`loss_both_ways`), and `core/tests/av.rs` covers each case. `Frame.seq` exposes the count.
+
 ## Size estimate
 
 About 700 lines including tests: window 120, assembly 250, FEC 200, reset and counters 130.

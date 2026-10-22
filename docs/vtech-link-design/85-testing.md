@@ -45,7 +45,7 @@ Scenarios (each also runs with 2% loss, 1% duplication and 5 ms of jitter-induce
 | S3 | Wrong AV password | `AvAuthFailed(DtlsAlert(51))` (the simulated server sends `decrypt_error`) |
 | S4 | 5 minutes of 1080p at 12 fps with audio | 0 frames lost at 0% loss; at 2% loss all recovered by NAK or parity |
 | S5 | `probe_restart` equivalent: 25 × (reset, START, 5 s, STOP) | first frame after each reset is a keyframe; no stale frame |
-| S6 | The camera goes silent | `Closed(RemoteTimeout)` after 61 s of virtual time |
+| S6 | The camera goes silent | `Closed(RemoteTimeout)` after 61 s of virtual time (as built: 10 ticks of 100 ms through `LinkConfig.timing`, about 1 s of wall time) |
 | S7 | The camera sends `0x418` | `Closed(RemoteClose)` |
 | S8 | Talk-back 30 s | 1,500 frames in 30 s ± 20 ms; the decrypted payload matches |
 | S9 | 16 concurrent links (simulated cameras) | independent; one panicking (an injected fault) leaves the others up |
@@ -59,7 +59,9 @@ Scenarios (each also runs with 2% loss, 1% duplication and 5 ms of jitter-induce
   AUTHPWD_admin -cipher ECDHE-PSK-CHACHA20-POLY1305 -groups X25519` on loopback UDP, with a test
   adapter that carries our records straight over UDP (no IOTC). It runs with and without
   `-no_ticket`, and with `-cookie_exchange` to exercise HelloVerifyRequest. Echo application data both
-  ways. Dev only, gated on `openssl` being on the PATH.
+  ways. Dev only, gated on `openssl` being on the PATH. **Built 2026-10-22** (`core/tests/dtls_openssl.rs`;
+  `30-dtls.md`, "Tests"). As built, `-listen` stands in for `-cookie_exchange`, because `s_server` sends a
+  HelloVerifyRequest on every DTLS connection anyway.
 - **Python ↔ Rust frame crypto**: `crypto.py` (kept in tests only) decrypts what Rust encrypts and
   the other way round.
 
@@ -126,6 +128,14 @@ ssh $HOST "export VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=…; /tmp/vtech-link
 |---|---|
 | `connect` ×4 | Up in 84–108 ms with suite `0xccac` and partial encryption; DEVINFO `RM5754`/`vtech` in 110–170 ms; close at once. |
 | `stream 20` | Key exchange 19 ms; reset confirmed; first frame after 1 ms, first keyframe after 1.3 s; 189 video frames (9.4/s, 10 keyframes), 502 audio, 1.1 Mbit/s; **0 lost, 0 decrypt failures, 0 retransmits, 0 NAKs**; RTT 23 ms; 7 of 8 control frames ACKed within 50 ms. |
+
+| `stream 30` (after the ordering fix, `6570a3a`) | Up in 82 ms, DEVINFO in 100 ms, key exchange 42 ms; 290 video frames (9.7/s, 15 keyframes), 750 audio, 0 lost, 0 decrypt failures. **Per-stream count (`+0x10`): video 1→290, audio 1→750, 0 jumps in either**: it counts each stream from 1 and steps by one, as the kit says. |
+| `restarts 5` (`vtech-link restarts`: three views on one link: reset+START, START with no reset, reset+START) | Per-stream count video 1→35, 36→81, 82→118; audio 1→126, 127→253, 254→379. The shared frame number runs on too (video 39→158, 173→331, 368→495). Each new link starts again at 1. |
+| `restarts 5` **without DEVINFO first** (×2, in two orders) | Key exchange and reset fine, every control frame ACKed, but **no media packet at all** in any view. With DEVINFO first (the run above) it streams. So the camera doesn't stream on a session until DEVINFO has been sent. The vtech-lan-kit said stream control needed no prep; corrected there. The simulator now behaves the same way (`sim/src/session.rs`, test `no_media_before_devinfo`). |
+| `watch 600` (T7, at `b6eefb6`) | Up in 70 ms, DEVINFO in 73 ms. Held 10 minutes and closed cleanly; 10 GET_PARAMS (one a minute) answered in 17–91 ms; one `0x1fff` push (24 bytes) delivered. 11 control frames sent, 2 retransmitted; ACK latency 2 under 10 ms, 7 under 50 ms, 2 under 100 ms. 2 stale inbound control fragments (camera resends of a frame already taken). RTT 21 ms. About 19 datagrams a second each way while idle (11,616 in, 11,495 out). |
+| `stream 600` (T7, at `0edef3c`; the camera reported **720p**, quality 1, so not the 1080p run) | 5,971 video (290 key, 10.0/s), 14,996 audio, 347 kbit/s. **10 video frames given up**, though the packet window saw only one gap (1 NAK, 0 rebuilt). 259 fragments arrived after their frame had been given up (`fragments_behind`). Every packet arrived; some frames were given up before their last fragments came. Cause not yet known. `tutk-host` uses the same 500 ms from the first fragment (`av/media_recv.c:21`, `:135`). |
+| `restart 25` | **24/25.** Cycle 10's keyframe was given up (`lost_before` 1), so its first frame was a P-frame. The other 24 started on a keyframe with SPS/PPS 0.3–2.3 s after START. |
+| `stream 120 --drop 50` | 170 packets dropped on purpose: 106 rebuilt from parity, the rest NAKed (215 NAKs). **11 frames lost** (9 audio, 2 video), matching 11 gap skips: those NAKed packets weren't resent within the 300 ms gap skip. `tutk-host` had 35 rebuilt and 0 bad under `TK_DROP=50` (`tutk-host/NOTES.md`). |
 
 Found by the first run and fixed: the reactor sent its first search round only after its first wait (a
 100 ms search interval), so the IOTC connect took 114 ms instead of about 10 ms.

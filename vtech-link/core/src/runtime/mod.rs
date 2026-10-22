@@ -5,4 +5,4 @@ pub mod egress;
 pub mod link;
 pub mod sync;
 
-pub use link::{Exchange, Frame, Link, LinkConfig, LinkInfo, LinkStats, MediaReceiver, TalkBack};
+pub use link::{Exchange, Frame, Link, LinkConfig, LinkInfo, LinkStats, MediaReceiver, TalkBack, Timing};
