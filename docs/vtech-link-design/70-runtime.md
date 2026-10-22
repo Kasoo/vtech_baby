@@ -168,6 +168,13 @@ calls the SDK already made (no epoll or eventfd). Sends are blocking UDP `send_t
 Linux block only on a full send buffer of 1 MB. Not built yet: the packet trace below, and the limit
 of 64 partial frames per stream (`TODO.md`).
 
+The socket starts blocking. A wake-up that times out leaves it blocking. Only one that received a
+datagram switches it to non-blocking, to drain the rest, and the next wait switches it back. So idle
+wake-ups make no `ioctl` (`FIONBIO`) calls. Measured with `strace -c` on the simulator tests: S6 (idle)
+went from 73 to 23 calls, S4 (media) from 264 to 143. The pair per receiving wake-up would go too with
+`MSG_DONTWAIT` or `poll`, but `socket2` takes only an uninitialised buffer for flags, and reading that
+back needs `unsafe`.
+
 `LinkConfig.timing` (`Timing`) holds the protocol timers, with the SDK's values as defaults: the IOTC
 keepalive tick (1 s) and silence limit (60 ticks), the first DTLS retransmission (500 ms) and the
 Finished wait (3 s), the key-exchange timeout (5 s), the talk-back listen timeout (60 s), and the media

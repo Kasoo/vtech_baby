@@ -93,27 +93,25 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
 
 ## The import check
 
-`release.sh` keeps the rule that `tutk-host/release.sh` enforces today: list the module's undefined
-dynamic symbols (`nm -D --undefined-only`) and fail if any is outside
-`vtech-link/tools/imports-allowed.txt`. The list holds:
-- libc functions std uses (socket, thread, time, memory, `getifaddrs`, `getrandom`/`syscall`, …);
-- Python C API symbols (`Py*`, `_Py*`) from the abi3 set;
-- on glibc, `__cxa_thread_atexit_impl`, `__tls_get_addr` and similar; on musl, the same names
-  where they exist;
-- the unwinder's `_Unwind_*` symbols, from **`libgcc_s.so.1`**. Rust's unwinding needs it on both libcs.
-  It is in HA's image: on 2026-10-21 `/usr/lib/libgcc_s.so.1` was there, from Alpine's `libgcc`,
-  which `ffmpeg` and others require (`podman exec homeassistant apk info -r libgcc`). It is also on
-  every glibc host. If it ever went missing, the fallback is `panic = "abort"` plus a reactor that
-  never panics, which is a weaker R34.
+`release.sh` checks only what each build links against. `DT_NEEDED` must be `libc.so.6` (or
+`libc.musl-*.so.1`), `libgcc_s.so.1`, and on glibc the split-outs (`libpthread`, `libdl`, `librt`,
+`libm`, `ld-linux-*`) where the old toolchain uses them. Nothing else is allowed. maturin's auditwheel
+check covers this on the glibc sets. The musl sets skip auditwheel (`--auditwheel skip`, because a
+repair would graft `libgcc_s`, which the host already has), so this check stands in for it there.
 
-`DT_NEEDED` must be exactly `libc.so.6` (or `libc.musl-*.so.1`), `libgcc_s.so.1`, and on glibc
-`libpthread`/`libdl`/`libm` where the old toolchain splits them out. Nothing else. Measured 2026-10-22:
-glibc needs `libc.so.6`, `libgcc_s.so.1`, `libpthread.so.0` (plus `ld-linux-x86-64.so.2` on x86_64, for
-`__tls_get_addr`); musl needs `libc.musl-<arch>.so.1` and `libgcc_s.so.1`. Musl links `libgcc_s` too.
-`imports-allowed.txt` has 126 lines: Py*/_Py* abi3, `_Unwind_*`, libc, and the toolchain's weak
-`_ITM_*`, `__gmon_start__`, `__register_frame_info`; the glibc-only names (`__xstat64` and friends from
-manylinux2014's old glibc) sit beside the musl-only ones. The import check runs in the same containers, since
-the host's binutils cannot be trusted with the foreign arch.
+`libgcc_s.so.1` provides the unwinder's `_Unwind_*` symbols, which Rust's unwinding needs on both libcs.
+It is in HA's image: on 2026-10-21 `/usr/lib/libgcc_s.so.1` was there, from Alpine's `libgcc`, which
+`ffmpeg` and others require (`podman exec homeassistant apk info -r libgcc`). It is also on every glibc
+host. If it ever went missing, the fallback is `panic = "abort"` plus a reactor that never panics,
+which is a weaker R34.
+
+**No symbol allow-list (decided 2026-10-22).** `tutk-host`'s `release.sh` fails on any imported symbol
+outside `tools/imports-allowed.txt`. vtech-link carried that over in Phase 0, then dropped it. The list
+mattered for `tutk-host` because it borrows the host's OpenSSL through stand-ins, and because its imports
+were meant to match the stock libraries'. Neither applies here: the module is pure Rust, and auditwheel
+plus `tools/ha_import_check.sh` (loading the module in the HA image) cover loadability. The last review
+(at `40e3d9f`) found every libc import came from std, `socket2`, `if-addrs`, `getrandom` or dimpl's
+`der`/`x509_cert`.
 
 ## Shipping and loading
 

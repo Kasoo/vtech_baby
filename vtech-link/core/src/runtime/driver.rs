@@ -138,6 +138,8 @@ pub(crate) struct Reactor {
     config: LinkConfig,
     shared: Arc<Shared>,
     socket: UdpSocket,
+    /// Whether the socket is in non-blocking mode (it starts blocking).
+    nonblocking: bool,
     commands: Receiver<Command>,
     waker: SocketAddr,
     rng: OsRng,
@@ -188,6 +190,7 @@ impl Reactor {
             config,
             shared,
             socket,
+            nonblocking: false,
             commands,
             waker,
             rng,
@@ -246,12 +249,14 @@ impl Reactor {
             .deadline()
             .map_or(IDLE_WAIT, |d| d.saturating_duration_since(now))
             .clamp(MIN_WAIT, IDLE_WAIT);
-        let _ = self.socket.set_nonblocking(false);
+        self.set_nonblocking(false);
         let _ = self.socket.set_read_timeout(Some(wait));
         let first = self.socket.recv_from(buf);
+        let got = first.is_ok();
         self.on_recv(first, buf);
-        // Then whatever else has arrived, without waiting.
-        if self.socket.set_nonblocking(true).is_ok() {
+        // Then whatever else has arrived, without waiting. A wake-up that timed out has nothing to
+        // drain, so the socket stays blocking and the next wait needs no mode change.
+        if got && self.set_nonblocking(true) {
             for _ in 0..512 {
                 let next = self.socket.recv_from(buf);
                 if next.is_err() {
@@ -266,6 +271,14 @@ impl Reactor {
         }
         self.on_timeout(now);
         self.pump(now);
+    }
+
+    /// Switch the socket's mode if it isn't in it already; returns whether it is now.
+    fn set_nonblocking(&mut self, on: bool) -> bool {
+        if self.nonblocking != on && self.socket.set_nonblocking(on).is_ok() {
+            self.nonblocking = on;
+        }
+        self.nonblocking == on
     }
 
     fn on_recv(&mut self, got: std::io::Result<(usize, SocketAddr)>, buf: &mut [u8]) {
