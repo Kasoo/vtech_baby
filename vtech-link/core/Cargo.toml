@@ -1,0 +1,17 @@
+[package]
+name = "vtech-link-core"
+description = "LAN-only client for the VTech RM5754HD camera's IOTC/DTLS/AV wire protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hmac.workspace = true
+sha1.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
