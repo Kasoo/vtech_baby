@@ -31,7 +31,7 @@ pub const SUBHEADER: usize = 0x14;
 pub const MAX_NAKS: usize = 32;
 
 /// The opcode-support block every login advertises (`av/session.c` `av_opcode_support`).
-const OPCODE_SUPPORT: [u8; 20] = [
+pub const OPCODE_SUPPORT: [u8; 20] = [
     0x04, 0, 0, 0, 0xfb, 0x07, 0x1f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0,
 ];
 

@@ -5,6 +5,7 @@ pub mod control;
 pub mod fec;
 pub mod media_rx;
 pub mod packet;
+pub mod server;
 
 pub use client::{AvClient, AvConfig, AvEvent, AvStats};
 pub use control::SendId;
