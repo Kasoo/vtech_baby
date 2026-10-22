@@ -50,9 +50,10 @@ end of the `tutk-host` production soak. Next:
 
 - **Phase 3, the integration side** (`75-python-api.md`, "Changes in the integration"); `vtech_lan`
   already runs either backend. Ship `_vtech_link.abi3.so` per arch and libc (`sync_link.sh`), find it
-  (`native.py`), and pass its path to `WorkerClient.ensure`. Add a per-entry backend choice that keeps
-  all three implementations: `tutk-host` (bundled), the vendor's SDK (uploaded) and vtech-link. The
-  first two are process-wide, since a worker loads one SDK, while link sessions can run beside either.
+  (`native.py`), and pass its path to `WorkerClient.ensure`. The backend is a **build-time** choice
+  for now (decided 2026-10-22): which of `tutk-host`, the vendor's SDK and vtech-link a build uses. A
+  runtime or per-entry switch isn't needed, because we swap only until vtech-link is finished, and then
+  it replaces the other two.
   Diagnostics should show the link's `info()`/`stats()` and the module's `info`.
 - **Discuss: the reactor's wait** (`70-runtime.md`, "Status"). It blocks in `recv_from` with
   `SO_RCVTIMEO`, then drains in non-blocking mode, which costs an `ioctl` pair on every wake-up that

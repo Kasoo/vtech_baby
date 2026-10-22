@@ -18,6 +18,8 @@ const WINDOW: u16 = 0x1000;
 const PARITY_KIND: u8 = 0x0c;
 /// How far a reset moves the packet numbering, so that anything already in flight looks stale.
 const RESET_JUMP: u16 = 0x4000;
+/// A pause in media packets at least this long is logged (debug).
+const QUIET_LOG: Duration = Duration::from_millis(250);
 /// The most per-stream frames a jump in the `+0x10` count may skip and still be waited for and counted
 /// lost. A larger jump, either way, is taken as the camera renumbering: release without waiting.
 const MAX_FRAME_GAP: u32 = 64;
@@ -284,6 +286,8 @@ pub struct MediaRx {
     reset_seq: u16,
     /// Media and parity packets that have arrived, for `drop_every`.
     arrivals: u64,
+    /// When the last media or parity packet arrived, to log pauses.
+    last_arrival: Option<Instant>,
     stats: MediaStats,
 }
 
@@ -300,6 +304,7 @@ impl MediaRx {
             ack_due: false,
             reset_seq: 0,
             arrivals: 0,
+            last_arrival: None,
             stats: MediaStats::default(),
         }
     }
@@ -307,6 +312,19 @@ impl MediaRx {
     /// One class-0x0c media or parity frame (`frame` starts at the media sub-header) with its FEC
     /// group header.
     pub fn on_envelope(&mut self, now: Instant, group: &[u8], frame: &[u8]) {
+        if let Some(last) = self.last_arrival.replace(now) {
+            let quiet = now.saturating_duration_since(last);
+            if quiet >= QUIET_LOG {
+                log::debug!(
+                    "media: no packet for {} ms (pn_cum {:#06x}, pn_high {:#06x}, {} video and {} audio frames in progress)",
+                    quiet.as_millis(),
+                    self.window.cum,
+                    self.window.high,
+                    self.video.partial.len(),
+                    self.audio.partial.len()
+                );
+            }
+        }
         if self.config.drop_every > 0 {
             self.arrivals += 1;
             if self.arrivals % u64::from(self.config.drop_every) == 0 {
@@ -335,7 +353,17 @@ impl MediaRx {
         match self.window.track(now, frag.pn, self.config.gap_skip) {
             Err(true) => return self.stats.packets_duplicate += 1,
             Err(false) => return self.stats.packets_stale += 1,
-            Ok(skipped) => self.stats.gaps_skipped += u64::from(skipped),
+            Ok(skipped) => {
+                if skipped {
+                    log::debug!(
+                        "media: gave up waiting for packets before {:#06x}, now pn_cum {:#06x} pn_high {:#06x}",
+                        frag.pn,
+                        self.window.cum,
+                        self.window.high
+                    );
+                }
+                self.stats.gaps_skipped += u64::from(skipped);
+            }
         }
         let asm = match frag.stream {
             StreamKind::Video => &mut self.video,
@@ -513,6 +541,7 @@ impl MediaRx {
         let cum = self.window.cum.wrapping_add(RESET_JUMP);
         self.window = PacketWindow::new(cum);
         self.nak_at = None;
+        self.last_arrival = None;
         let mut payload = [0u8; 8];
         payload[..2].copy_from_slice(&self.reset_seq.to_le_bytes());
         payload[2..4].copy_from_slice(&cum.to_le_bytes());
