@@ -585,6 +585,10 @@ impl Reactor {
                     done.complete(Ok(()));
                 }
                 let channel = talk.channel;
+                // The last drained frame may still be waiting to go out.
+                while let Some((datatype, data)) = talk.server.poll_transmit() {
+                    let _ = self.iotc.send(channel, datatype, &data);
+                }
                 self.iotc.close_channel(channel);
                 self.shared.talk_in.clear();
                 self.talk = None;
