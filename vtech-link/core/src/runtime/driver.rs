@@ -109,6 +109,8 @@ struct Talk {
     server: AvServer,
     accept: Vec<(Instant, Arc<Completion<()>>)>,
     close: Vec<Arc<Completion<()>>>,
+    /// A draining close is waiting for the caller's queue to empty into the server.
+    draining: bool,
 }
 
 struct LinkSealer<'a> {
@@ -406,7 +408,8 @@ impl Reactor {
         }
     }
 
-    /// Move queued talk-back audio into the server while it has room.
+    /// Move queued talk-back audio into the server while it has room. A draining close goes to the
+    /// server once the caller's queue is empty, since a closing server takes no more frames.
     fn feed_talk(&mut self, now: Instant) -> bool {
         let Some(talk) = &mut self.talk else { return false };
         let mut moved = false;
@@ -416,6 +419,11 @@ impl Reactor {
             };
             moved = true;
             let _ = talk.server.push(now, frame);
+        }
+        if talk.draining && self.shared.talk_in.is_empty() {
+            talk.draining = false;
+            talk.server.close(true);
+            moved = true;
         }
         moved
     }
@@ -655,6 +663,7 @@ impl Reactor {
                             server,
                             accept: Vec::new(),
                             close: Vec::new(),
+                            draining: false,
                         });
                         done.complete(Ok(channel));
                     }
@@ -749,17 +758,14 @@ impl Reactor {
             },
             Command::TalkClose { drain, done } => match &mut self.talk {
                 Some(t) => {
-                    // Whatever the caller queued goes to the server first, if it is to be drained.
-                    if drain {
-                        while t.server.space() > 0 {
-                            let Some(frame) = self.shared.talk_in.try_pop() else {
-                                break;
-                            };
-                            let _ = t.server.push(now, frame);
-                        }
-                    }
                     t.close.push(done);
-                    t.server.close(drain);
+                    // Draining, whatever the caller queued goes to the server first (`feed_talk`).
+                    if drain && t.server.is_accepted() {
+                        t.draining = true;
+                        self.feed_talk(now);
+                    } else {
+                        t.server.close(drain);
+                    }
                 }
                 None => done.complete(Ok(())),
             },
