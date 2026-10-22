@@ -74,17 +74,20 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
 |---|---|---|---|
 | `x86_64-glibc` | `quay.io/pypa/manylinux2014_x86_64` + rustup | `x86_64-unknown-linux-gnu` | manylinux2014 (glibc 2.17) |
 | `aarch64-glibc` | `quay.io/pypa/manylinux2014_aarch64` + rustup (qemu) | `aarch64-unknown-linux-gnu` | manylinux2014 |
-| `x86_64-musl` | `docker.io/library/alpine:3.24` + `rust`, `cargo` | `x86_64-unknown-linux-musl`, `-C target-feature=-crt-static` | musllinux_1_2 |
-| `aarch64-musl` | `alpine:3.24` (qemu) | `aarch64-unknown-linux-musl`, `-crt-static` | musllinux_1_2 |
+| `x86_64-musl` | `docker.io/library/alpine:3.24` + rustup | `x86_64-unknown-linux-musl`, `-C target-feature=-crt-static` | musllinux_1_2 |
+| `aarch64-musl` | `alpine:3.24` + rustup (qemu) | `aarch64-unknown-linux-musl`, `-crt-static` | musllinux_1_2 |
 
-- Built with **maturin** (`maturin build --release --strip --compatibility <tag>`). The `.so` is taken
-  out of the wheel: we ship the file, not a wheel (below).
+- Built with **maturin** 1.15.0 from pip (`maturin build --release --strip --locked --compatibility <tag>`),
+  with the toolchain pinned by `rust-toolchain.toml` installed by rustup in every container (Alpine's own
+  rust is not used). Musl passes `--auditwheel skip`, since maturin would otherwise graft `libgcc_s` into
+  the wheel; `release.sh`'s own `DT_NEEDED` check replaces it. The `.so` is taken out of the wheel: we ship the file, not a wheel (below).
 - **abi3, Python ≥ 3.13**: one module per build serves every HA Python from 3.13 onwards (HA runs 3.14
   today: `Python 3.14.6` in the live probe header).
 - **Musl must link dynamically** (`-crt-static`), because a Python extension module is loaded into a
-  dynamically linked interpreter. Alpine's rust package defaults to that.
+  dynamically linked interpreter. `release.sh` sets `RUSTFLAGS` for it.
 - **Reproducible**: `--locked`, `SOURCE_DATE_EPOCH` from the commit, `--remap-path-prefix` for the
-  source and cargo-home paths. `release.sh` builds twice and compares hashes, as the current one does.
+  source and cargo-home paths. `release.sh` builds twice and compares hashes; all four sets matched on 2026-10-22. It builds a `git archive`
+  of one revision, not the working tree.
 - **qemu** for the foreign arch, as `tutk-host/release.sh` does. Pass `--arch` explicitly, since the
   local `alpine:3.24` tag flips arch on pull.
 
@@ -104,7 +107,13 @@ dynamic symbols (`nm -D --undefined-only`) and fail if any is outside
   never panics, which is a weaker R34.
 
 `DT_NEEDED` must be exactly `libc.so.6` (or `libc.musl-*.so.1`), `libgcc_s.so.1`, and on glibc
-`libpthread`/`libdl`/`libm` where the old toolchain splits them out. Nothing else.
+`libpthread`/`libdl`/`libm` where the old toolchain splits them out. Nothing else. Measured 2026-10-22:
+glibc needs `libc.so.6`, `libgcc_s.so.1`, `libpthread.so.0` (plus `ld-linux-x86-64.so.2` on x86_64, for
+`__tls_get_addr`); musl needs `libc.musl-<arch>.so.1` and `libgcc_s.so.1`. Musl links `libgcc_s` too.
+`imports-allowed.txt` has 126 lines: Py*/_Py* abi3, `_Unwind_*`, libc, and the toolchain's weak
+`_ITM_*`, `__gmon_start__`, `__register_frame_info`; the glibc-only names (`__xstat64` and friends from
+manylinux2014's old glibc) sit beside the musl-only ones. The import check runs in the same containers, since
+the host's binutils cannot be trusted with the foreign arch.
 
 ## Shipping and loading
 
@@ -119,7 +128,7 @@ dynamic symbols (`nm -D --undefined-only`) and fail if any is outside
 - **Licence notices**: the module compiles in dimpl and the RustCrypto crates (MIT/Apache), whose
   notices must travel with the binaries. `sync_link.sh` writes
   `native/THIRD_PARTY_LICENSES` with `cargo about generate`.
-- Size: about 1 MB per build stripped. Today's C sets are about 300 KB each, so the four builds add
+- Size: the hello-world is 366-398 KB per build stripped (more once the core's crypto is linked in); expect about 1 MB. Today's C sets are about 300 KB each, so the four builds add
   about 3 MB to the HACS download.
 - `link.py` loads the module with `ExtensionFileLoader("_vtech_link", path)`. The init symbol is
   `PyInit__vtech_link`, so the module name must stay `_vtech_link`.

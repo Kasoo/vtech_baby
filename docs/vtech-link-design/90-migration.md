@@ -19,9 +19,10 @@ Small throwaway programs in `vtech-link/spikes/`, all read-only against the came
 3. **Done 2026-10-21.** **One socket per link, two links at once**, while HA's own session runs. Pass: three independent
    sessions answer. Settles Q3.
 4. **libgcc_s** in the HA image: done, it's there (`80-build.md`).
-5. **A PyO3 abi3 hello-world** built by `release.sh` for all four targets and imported by
+5. **Done 2026-10-22.** **A PyO3 abi3 hello-world** built by `release.sh` for all four targets and imported by
    `ExtensionFileLoader` inside the HA image (amd64 for real, arm64 under qemu). Pass: it loads, and
-   the import check passes.
+   the import check passes. Result: all four sets build reproducibly and load in the HA image (amd64, and arm64
+   under qemu) and in `python:3.13-slim`; `_panic()` raises `PanicException`; `tools/ha_import_check.sh` reruns it.
 
 Exit: all five pass, and `95-open-questions.md` is updated with the answers. Way back: nothing has
 changed anywhere.

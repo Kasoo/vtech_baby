@@ -4,3 +4,4 @@
 /fuzz/artifacts/
 /dist/
 /vendor/
+/build/
