@@ -126,8 +126,11 @@ plus `tools/ha_import_check.sh` (loading the module in the HA image) cover loada
 - **Licence notices**: the module compiles in dimpl and the RustCrypto crates (MIT/Apache), whose
   notices must travel with the binaries. `sync_link.sh` writes
   `native/THIRD_PARTY_LICENSES` with `cargo about generate`.
-- Size: the hello-world is 366-398 KB per build stripped (more once the core's crypto is linked in); expect about 1 MB. Today's C sets are about 300 KB each, so the four builds add
-  about 3 MB to the HACS download.
+- Size: the hello-world was 366–398 KB per build, stripped. The full module at `d1d49ea` is 1.64 MB
+  (aarch64) to 1.95 MB (x86_64), against an estimate of about 1 MB. dimpl's certificate-parsing code,
+  which a PSK-only client never runs, is part of that. Today's C sets are about 300 KB each; the four
+  modules add about 7 MB to the HACS download. All four
+  builds are reproducible and pass `tools/ha_import_check.sh` (2026-10-22).
 - `link.py` loads the module with `ExtensionFileLoader("_vtech_link", path)`. The init symbol is
   `PyInit__vtech_link`, so the module name must stay `_vtech_link`.
 
