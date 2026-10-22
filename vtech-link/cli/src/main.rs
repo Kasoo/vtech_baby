@@ -125,12 +125,27 @@ fn stream(link: &Link, seconds: u64) -> Result<(), String> {
     let (mut video, mut audio, mut keys, mut lost, mut bytes) = (0u64, 0u64, 0u64, 0u64, 0u64);
     let mut first: Option<Duration> = None;
     let mut first_key: Option<Duration> = None;
+    // The per-stream count (`+0x10`) of the first and last frame, and how often it didn't step by one.
+    let mut seqs: [Option<(u32, u32)>; 2] = [None; 2];
+    let mut seq_jumps = [0u64; 2];
     while Instant::now() < end {
         match rx.next(Duration::from_millis(500)) {
             Ok(Some(f)) => {
                 first.get_or_insert(started.elapsed());
                 lost += u64::from(f.lost_before);
                 bytes += f.data.len() as u64;
+                let i = usize::from(f.stream == StreamKind::Audio);
+                if let (Some(s), Some(jumps)) = (seqs.get_mut(i), seq_jumps.get_mut(i)) {
+                    match s {
+                        Some((_, last)) => {
+                            if f.seq != last.wrapping_add(1) {
+                                *jumps += 1;
+                            }
+                            *last = f.seq;
+                        }
+                        None => *s = Some((f.seq, f.seq)),
+                    }
+                }
                 match f.stream {
                     StreamKind::Video => {
                         video += 1;
@@ -156,6 +171,10 @@ fn stream(link: &Link, seconds: u64) -> Result<(), String> {
         bytes as f64 * 8.0 / secs / 1000.0,
         first,
         first_key
+    );
+    println!(
+        "per-stream count: video {:?} ({} jumps), audio {:?} ({} jumps)",
+        seqs[0], seq_jumps[0], seqs[1], seq_jumps[1]
     );
     print_stats(link);
     Ok(())

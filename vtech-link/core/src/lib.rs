@@ -12,6 +12,6 @@ pub mod runtime;
 pub mod service;
 
 pub use error::LinkError;
-pub use runtime::{Frame, Link, LinkConfig, LinkInfo, MediaReceiver, TalkBack};
+pub use runtime::{Frame, Link, LinkConfig, LinkInfo, MediaReceiver, TalkBack, Timing};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

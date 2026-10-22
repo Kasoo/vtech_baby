@@ -48,16 +48,15 @@ read-only CLI, and the PyO3 module (`75-python-api.md`, "Status"). The simulator
 runs from the NAS were clean (`85-testing.md`, "First live runs"). Phase 3 onwards still waits on the
 end of the `tutk-host` production soak. Next:
 
-- **Media ordering under loss** (design-level, found by the simulator): when every packet of a frame
-  is lost, nothing holds later frames back, and the resent copy is delivered after its successor.
-  About 3 audio frames per lossy test run come out of order; single-packet video P-frames would too.
-  `tutk-host` does the same. Fix: drop fragments behind each stream's last released frame number, or
-  hold release while a packet gap lies below the oldest frame. `45-media-receive.md` claims ordered
-  delivery, so it needs fixing, or the claim needs relaxing.
-- **Test knobs missing from `LinkConfig`**: the keepalive interval and silence limit, the DTLS
-  Finished wait and retransmit timer, the key-exchange and talk-back listen timeouts. Without them S6
-  takes 61 s (`#[ignore]`d) and S3 takes 3 s. There is no clock or socket injection either, so T2 runs
-  on real loopback sockets, not the virtual clock and network the design describes.
+- **No clock or socket injection**: T2 runs on real loopback sockets and the wall clock, not the
+  virtual clock and network the design describes. The protocol timers can be shortened through
+  `LinkConfig.timing` (`70-runtime.md`, "Status"), which brought S6 down from 61 s to 1 s.
+- **Live check of the per-stream count (`+0x10`)**, which the media ordering fix relies on
+  (`45-media-receive.md`, "Status"). Run `vtech-link stream 192.0.2.10 30` from the NAS as in
+  `85-testing.md` ("First live runs"), and check that the "per-stream count" line shows 0 jumps for
+  both streams. The 2026-10-22 attempt stopped at `scp`, because SSH to the NAS needs the security key
+  touched. If the camera's count doesn't step by one, revert to releasing at once (`media_rx.rs`
+  `Place`).
 - **Simulator gaps**: the 5-minute 1080p run (S4), fault injection with several links (S9), and
   duplicated or jittered datagrams (only drops are simulated). The simulator never splits the 16-byte
   frame info across fragments; whether the camera does is unverified.

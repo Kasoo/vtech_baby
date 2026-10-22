@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use vtech_link_core::av::media_rx::StreamKind;
 use vtech_link_core::error::{AvAuthStage, CloseReason, IotcReject};
-use vtech_link_core::{Frame, Link, LinkConfig, LinkError, MediaReceiver};
+use vtech_link_core::{Frame, Link, LinkConfig, LinkError, MediaReceiver, Timing};
 use vtech_link_sim::{
     Camera, CameraConfig, FrameTag, OP_DEVINFO, OP_DEVINFO_REPLY, OP_GET_PARAMS, OP_GET_PARAMS_REPLY,
     OP_SPEAKER_START, OP_SPEAKER_STOP, OP_START, OP_STOP, WrongPassword, default_replies, devinfo,
@@ -220,14 +220,19 @@ fn s2_login_rejected() {
 #[test]
 fn s3_wrong_password_silence() {
     let cam = Camera::start(camera());
+    let base = link_config(&cam);
     let config = LinkConfig {
         password: "wrongpass".to_string(),
-        ..link_config(&cam)
+        timing: Timing {
+            dtls_finished_wait: 300 * MS,
+            ..base.timing.clone()
+        },
+        ..base
     };
     let (err, took) = connect_err(config);
     assert_eq!(err, LinkError::AvAuthFailed(AvAuthStage::Dtls(None)));
-    // The client waits 3 s for the camera's Finished.
-    assert!(took >= 3 * SEC && took < 4500 * MS, "{took:?}");
+    // The client waits for the camera's Finished (3 s by default).
+    assert!(took >= 300 * MS && took < 1500 * MS, "{took:?}");
     assert_eq!(cam.stats().dtls_refused, 1);
     assert_eq!(cam.stats().logins, 0);
 }
@@ -479,12 +484,10 @@ fn loss_both_ways() {
     assert!(sim.dropped_in > 0 && sim.dropped_out > 0);
     assert!(m.packets_recovered > 0, "parity rebuilt nothing");
     assert!(sim.resent > 0, "nothing was NAKed and resent");
+    // Audio frames are one packet each, so a lost packet is a whole frame lost: the frames after it
+    // wait for its resend (by the per-stream count) instead of overtaking it.
     assert_eq!(video_order, Order::default());
-    // A frame whose only packet is lost holds nothing back, so its resend is delivered after the frame
-    // that followed it: MediaRx (like tutk-host) has no partial frame to keep the order with. Audio
-    // frames are one packet each, so some come out of order; none go missing.
-    assert_eq!(audio_order.missing, 0);
-    assert!(audio_order.reordered <= 5, "{audio_order:?}");
+    assert_eq!(audio_order, Order::default());
     link.close();
 }
 
@@ -598,16 +601,56 @@ fn s7_camera_close() {
 }
 
 #[test]
-#[ignore = "takes 61 s: the silence limit is not configurable through LinkConfig"]
 fn s6_camera_silent() {
+    // The default is 60 ticks of 1 s; 10 of 100 ms keeps the test short.
     let cam = Camera::start(camera());
-    let link = connect(&cam);
+    let base = link_config(&cam);
+    let link = Link::connect(LinkConfig {
+        timing: Timing {
+            alive_interval: 100 * MS,
+            silence_limit: 10,
+            ..base.timing.clone()
+        },
+        ..base
+    })
+    .unwrap();
     cam.kill();
     let t0 = Instant::now();
-    let err = link.next_push(70 * SEC).unwrap_err();
+    let err = link.next_push(10 * SEC).unwrap_err();
     assert_eq!(err, LinkError::Closed(CloseReason::RemoteTimeout));
     let took = t0.elapsed();
-    assert!(took >= 60 * SEC && took < 63 * SEC, "{took:?}");
+    assert!(took >= 1000 * MS && took < 1500 * MS, "{took:?}");
+}
+
+#[test]
+fn talkback_listen_times_out() {
+    let cam = Camera::start(camera());
+    let base = link_config(&cam);
+    let link = Link::connect(LinkConfig {
+        timing: Timing {
+            talk_listen: 300 * MS,
+            ..base.timing.clone()
+        },
+        ..base
+    })
+    .unwrap();
+    // The channel is never announced, so the camera never logs in.
+    let talk = link.talkback(2 * SEC).unwrap();
+    let t0 = Instant::now();
+    let err = talk.accept(5 * SEC).unwrap_err();
+    let took = t0.elapsed();
+    assert!(took < 800 * MS, "{took:?}: {err:?}");
+    eprintln!("listen timeout: {err:?} after {took:?}");
+    // The link is still good, and a new channel can open.
+    assert_eq!(
+        link.request(OP_DEVINFO, &[0; 4], OP_DEVINFO_REPLY, SEC).unwrap(),
+        devinfo()
+    );
+    let talk = link.talkback(2 * SEC).unwrap();
+    link.send(OP_SPEAKER_START, &u32::from(talk.channel).to_le_bytes(), SEC)
+        .unwrap();
+    talk.accept(3 * SEC).unwrap();
+    link.close();
 }
 
 // ---- several links (S9) ----

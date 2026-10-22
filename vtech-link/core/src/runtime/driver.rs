@@ -27,9 +27,6 @@ use crate::service::frame_crypto;
 use crate::service::media_key::{KeyExchange, MasterKey, OP_KEY_HELLO, OP_KEY_REPLY};
 use crate::service::requests::{RequestEvent, RequestId, Requests};
 
-const KEY_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long an opened talk-back channel waits for the camera, at most.
-const TALK_LISTEN: Duration = Duration::from_secs(60);
 /// The longest the reactor sleeps with nothing scheduled.
 const IDLE_WAIT: Duration = Duration::from_secs(1);
 /// The shortest socket timeout; a deadline already due is checked after it.
@@ -181,6 +178,8 @@ impl Reactor {
         let iotc_config = IotcConfig {
             search_port: config.search_port,
             sdk_version: config.sdk_version,
+            alive_interval: config.timing.alive_interval,
+            silence_limit: config.timing.silence_limit,
             ..IotcConfig::default()
         };
         let iotc = IotcSession::new(iotc_config, &config.uid, config.authkey.as_bytes(), token)?;
@@ -445,6 +444,8 @@ impl Reactor {
                 let config = DtlsConfig {
                     suite: self.config.suite,
                     handshake_timeout: self.config.av_timeout,
+                    flight_start_rto: self.config.timing.dtls_retransmit,
+                    finished_wait: self.config.timing.dtls_finished_wait,
                     ..DtlsConfig::default()
                 };
                 match DtlsClient::new(config, &self.config.account, &self.config.password, now) {
@@ -481,6 +482,7 @@ impl Reactor {
             DtlsEvent::Connected => {
                 let config = AvConfig {
                     ctrl_window: self.config.ctrl_window,
+                    media: self.config.timing.media.clone(),
                     ..AvConfig::new(&self.config.account, &self.config.password)
                 };
                 let nonce = self.rng.u32();
@@ -610,9 +612,13 @@ impl Reactor {
                 let mut secret = [0u8; 32];
                 self.rng.fill(&mut secret);
                 let kx = KeyExchange::new(secret);
-                let id =
-                    self.requests
-                        .request(OP_KEY_HELLO, &kx.hello(), OP_KEY_REPLY, now + KEY_TIMEOUT, false);
+                let id = self.requests.request(
+                    OP_KEY_HELLO,
+                    &kx.hello(),
+                    OP_KEY_REPLY,
+                    now + self.config.timing.key_timeout,
+                    false,
+                );
                 self.waiters.insert(id, Waiter::Key);
                 self.key = Key::Exchanging(kx);
                 self.key_waiters.push(waiter);
@@ -665,7 +671,7 @@ impl Reactor {
                             queue: 2,
                             ..ServerConfig::default()
                         };
-                        let server = AvServer::new(config, now, now + TALK_LISTEN);
+                        let server = AvServer::new(config, now, now + self.config.timing.talk_listen);
                         self.talk = Some(Talk {
                             channel,
                             server,

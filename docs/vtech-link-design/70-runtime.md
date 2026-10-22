@@ -168,6 +168,12 @@ calls the SDK already made (no epoll or eventfd). Sends are blocking UDP `send_t
 Linux block only on a full send buffer of 1 MB. Not built yet: the packet trace below, and the limit
 of 64 partial frames per stream (`TODO.md`).
 
+`LinkConfig.timing` (`Timing`) holds the protocol timers, with the SDK's values as defaults: the IOTC
+keepalive tick (1 s) and silence limit (60 ticks), the first DTLS retransmission (500 ms) and the
+Finished wait (3 s), the key-exchange timeout (5 s), the talk-back listen timeout (60 s), and the media
+receive timers (`MediaConfig`: gap skip 300 ms, partial wait 500 ms, NAK repeat 50 ms). They exist for
+tests. The Python module doesn't expose them.
+
 ## Packet trace (R33)
 
 Per link, off by default; `LinkConfig.trace = Some(path)` turns it on. One text line per event, in

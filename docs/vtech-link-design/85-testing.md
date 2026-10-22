@@ -45,7 +45,7 @@ Scenarios (each also runs with 2% loss, 1% duplication and 5 ms of jitter-induce
 | S3 | Wrong AV password | `AvAuthFailed(DtlsAlert(51))` (the simulated server sends `decrypt_error`) |
 | S4 | 5 minutes of 1080p at 12 fps with audio | 0 frames lost at 0% loss; at 2% loss all recovered by NAK or parity |
 | S5 | `probe_restart` equivalent: 25 × (reset, START, 5 s, STOP) | first frame after each reset is a keyframe; no stale frame |
-| S6 | The camera goes silent | `Closed(RemoteTimeout)` after 61 s of virtual time |
+| S6 | The camera goes silent | `Closed(RemoteTimeout)` after 61 s of virtual time (as built: 10 ticks of 100 ms through `LinkConfig.timing`, about 1 s of wall time) |
 | S7 | The camera sends `0x418` | `Closed(RemoteClose)` |
 | S8 | Talk-back 30 s | 1,500 frames in 30 s ± 20 ms; the decrypted payload matches |
 | S9 | 16 concurrent links (simulated cameras) | independent; one panicking (an injected fault) leaves the others up |

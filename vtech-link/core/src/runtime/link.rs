@@ -14,10 +14,11 @@ use socket2::{Domain, Protocol, Socket, Type};
 
 use super::driver::{Command, Reactor};
 use super::sync::{Completion, Queue};
-use crate::av::media_rx::{EncryptedFrame, StreamKind};
+use crate::av::media_rx::{EncryptedFrame, MediaConfig, StreamKind};
 use crate::av::packet::CTRL_MAX_PAYLOAD;
-use crate::dtls::Suite;
+use crate::dtls::{DtlsConfig, Suite};
 use crate::error::{CloseReason, LinkError};
+use crate::iotc::IotcConfig;
 use crate::service::frame_crypto;
 use crate::service::media_key::MasterKey;
 use crate::service::requests::RequestId;
@@ -52,6 +53,42 @@ pub struct LinkConfig {
     pub audio_queue: usize,
     pub talk_queue: usize,
     pub sdk_version: u32,
+    pub timing: Timing,
+}
+
+/// Protocol timers. The defaults match the SDK and the camera; tests shorten them.
+#[derive(Debug, Clone)]
+pub struct Timing {
+    /// The IOTC keepalive tick.
+    pub alive_interval: Duration,
+    /// Silent keepalive ticks before the link ends as `RemoteTimeout`.
+    pub silence_limit: u32,
+    /// The first DTLS handshake retransmission; it doubles each time.
+    pub dtls_retransmit: Duration,
+    /// How long to wait for the camera's DTLS Finished after ours. A wrong AV password gets no
+    /// answer at all, so this is how long that failure takes to report.
+    pub dtls_finished_wait: Duration,
+    /// The live-view key exchange.
+    pub key_timeout: Duration,
+    /// How long an opened talk-back channel waits for the camera to log in, at most.
+    pub talk_listen: Duration,
+    pub media: MediaConfig,
+}
+
+impl Default for Timing {
+    fn default() -> Self {
+        let iotc = IotcConfig::default();
+        let dtls = DtlsConfig::default();
+        Self {
+            alive_interval: iotc.alive_interval,
+            silence_limit: iotc.silence_limit,
+            dtls_retransmit: dtls.flight_start_rto,
+            dtls_finished_wait: dtls.finished_wait,
+            key_timeout: Duration::from_secs(5),
+            talk_listen: Duration::from_secs(60),
+            media: MediaConfig::default(),
+        }
+    }
 }
 
 impl LinkConfig {
@@ -73,6 +110,7 @@ impl LinkConfig {
             audio_queue: 200,
             talk_queue: 10,
             sdk_version: crate::iotc::codec::SDK_VERSION,
+            timing: Timing::default(),
         }
     }
 }
@@ -94,6 +132,8 @@ pub struct Frame {
     /// Video kinds 5 and 6.
     pub key: bool,
     pub number: u32,
+    /// The per-stream frame count.
+    pub seq: u32,
     pub arrived: Instant,
     /// Frames of this stream lost just before this one: given up, overflowed or undecryptable.
     pub lost_before: u32,
@@ -571,6 +611,7 @@ impl MediaReceiver {
                 stream: f.stream,
                 key: matches!(f.kind, 5 | 6),
                 number: f.number,
+                seq: f.seq,
                 arrived: f.arrived,
                 lost_before: f.lost_before + dropped + carried,
                 data: plain,

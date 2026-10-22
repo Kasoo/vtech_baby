@@ -129,6 +129,7 @@ fn media_stats<'py>(py: Python<'py>, s: &LinkStats) -> PyResult<Bound<'py, PyDic
         "packets_stale" => m.packets_stale,
         "fragments_dropped" => m.fragments_dropped,
         "gaps_skipped" => m.gaps_skipped,
+        "fragments_behind" => m.fragments_behind,
         "video_overflow" => s.video_overflow,
         "audio_overflow" => s.audio_overflow,
         "decrypt_failed_video" => s.decrypt_failed_video,
@@ -322,7 +323,9 @@ pub struct Frame {
     /// Video kinds 5 and 6.
     key: bool,
     number: u32,
-    /// `time.monotonic()` when the frame completed.
+    /// The per-stream frame count.
+    seq: u32,
+    /// `time.monotonic()` when its first fragment arrived.
     arrived: f64,
     /// Frames of this stream lost just before this one.
     lost_before: u32,
@@ -383,6 +386,7 @@ impl MediaReceiver {
             },
             key: f.key,
             number: f.number,
+            seq: f.seq,
             arrived,
             lost_before: f.lost_before,
             data: PyBytes::new(py, &f.data).unbind(),

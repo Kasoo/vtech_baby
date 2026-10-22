@@ -53,7 +53,8 @@ class Frame:                                          # immutable
     kind: str            # "video" | "audio"
     key: bool            # media kind 5/6
     number: int          # shared frame number
-    arrived: float       # time.monotonic() seconds when it completed
+    seq: int             # per-stream frame count (+0x10)
+    arrived: float       # time.monotonic() seconds when its first fragment arrived
     lost_before: int     # frames lost in this stream just before this one
     data: bytes          # Annex-B access unit, or A-law
 
