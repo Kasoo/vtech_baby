@@ -127,6 +127,8 @@ ssh $HOST "export VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=…; /tmp/vtech-link
 | `connect` ×4 | Up in 84–108 ms with suite `0xccac` and partial encryption; DEVINFO `RM5754`/`vtech` in 110–170 ms; close at once. |
 | `stream 20` | Key exchange 19 ms; reset confirmed; first frame after 1 ms, first keyframe after 1.3 s; 189 video frames (9.4/s, 10 keyframes), 502 audio, 1.1 Mbit/s; **0 lost, 0 decrypt failures, 0 retransmits, 0 NAKs**; RTT 23 ms; 7 of 8 control frames ACKed within 50 ms. |
 
+| `stream 30` (after the ordering fix, `6570a3a`) | Up in 82 ms, DEVINFO in 100 ms, key exchange 42 ms; 290 video frames (9.7/s, 15 keyframes), 750 audio, 0 lost, 0 decrypt failures. **Per-stream count (`+0x10`): video 1→290, audio 1→750, 0 jumps in either**: it counts each stream from 1 and steps by one, as the kit says. |
+
 Found by the first run and fixed: the reactor sent its first search round only after its first wait (a
 100 ms search interval), so the IOTC connect took 114 ms instead of about 10 ms.
 

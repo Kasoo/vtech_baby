@@ -231,7 +231,7 @@ enum Place {
     After { missing: u32 },
     /// At or before the last one released.
     Behind,
-    /// Too far either way: the camera has renumbered.
+    /// Too far either way, or back to 1: the camera has renumbered.
     Renumbered,
 }
 
@@ -248,6 +248,10 @@ impl Assembler {
         let Some(last) = self.last else {
             return Place::Next;
         };
+        // The camera counts each stream from 1 when it starts.
+        if seq == 1 && last != 0 {
+            return Place::Renumbered;
+        }
         let ahead = seq.wrapping_sub(last);
         let behind = last.wrapping_sub(seq);
         match ahead {

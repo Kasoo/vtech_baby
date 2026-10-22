@@ -395,12 +395,13 @@ fn whole_frame_loss_keeps_order() {
 fn late_fragments_of_a_given_up_frame_are_dropped() {
     let t0 = Instant::now();
     let mut rx = MediaRx::new(MediaConfig::default());
-    rx.on_fragment(t0, &media(5, 0, 2, 0, 1, &[0; 1024], None));
-    rx.on_fragment(t0, &media(5, 2, 1, 0, 2, &[0; 8], Some(INFO)));
+    // Frame 2 (count 1 reads as a stream restart, so the test starts at 2).
+    rx.on_fragment(t0, &media(5, 0, 2, 0, 2, &[0; 1024], None));
+    rx.on_fragment(t0, &media(5, 2, 1, 0, 3, &[0; 8], Some(INFO)));
     rx.handle_timeout(t0 + 500 * MS);
-    assert_eq!(rx.poll_frame().map(|f| (f.number, f.lost_before)), Some((2, 1)));
-    // Frame 1's last fragment, resent: it would otherwise start a new frame 1 and come out after 2.
-    rx.on_fragment(t0 + 600 * MS, &media(5, 1, 2, 1, 1, &[0; 8], Some(INFO)));
+    assert_eq!(rx.poll_frame().map(|f| (f.number, f.lost_before)), Some((3, 1)));
+    // Frame 2's last fragment, resent: it would otherwise start a new frame 2 and come out after 3.
+    rx.on_fragment(t0 + 600 * MS, &media(5, 1, 2, 1, 2, &[0; 8], Some(INFO)));
     rx.handle_timeout(t0 + 2000 * MS);
     assert!(rx.poll_frame().is_none());
     assert_eq!(rx.stats().fragments_behind, 1);
@@ -419,6 +420,12 @@ fn renumbered_stream_is_followed() {
         .map(|f| (f.seq, f.lost_before))
         .collect();
     assert_eq!(frames, [(1000, 0), (1, 0), (2, 0), (500, 0)]);
+    // A restart after a short run: 1 is within 64 behind 3, but starts the count again.
+    for (pn, n) in [(4, 1), (5, 2), (6, 3), (7, 1), (8, 2)] {
+        rx.on_fragment(t0, &media(3, pn, 1, 0, n, &[0; 8], Some(INFO)));
+    }
+    let seqs: Vec<_> = std::iter::from_fn(|| rx.poll_frame()).map(|f| f.seq).collect();
+    assert_eq!(seqs, [1, 2, 3, 1, 2]);
     assert_eq!(rx.stats().fragments_behind, 0);
 }
 
