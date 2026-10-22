@@ -135,6 +135,28 @@ the migration ends, and are removed then (`90-migration.md`).
 
 ## Changes in `vtech_lan`
 
+**Built 2026-10-22, alongside the SDK, not instead of it.** The SDK path (vendor libraries or `tutk-host`)
+stays, and each session picks its backend. Differences from the table below:
+- `session.py` has `SessionBase`, `SdkSession` (still exported as `Session`) and `LinkSession`. A worker
+  can hold both kinds at once (`worker.py` `_do_open(..., backend)`, `WorkerClient.session(backend=)`,
+  `WorkerClient.ensure(libdir, fingerprint, link_path)`; either `libdir` or `link_path` may be None).
+- `LinkSession.request` and `list_events` both go through `link.exchange`, so one path covers single and
+  multi-page replies. The application keepalive (`GET_PARAMS` every `keepalive_s`) stays, because its
+  replies feed the entities as `PARAMS_UPDATE` pushes.
+- `media.py` and `talkback.py` no longer touch the SDK. A session hands out a media source
+  (`SdkMediaSource` / `LinkMediaSource`: `start`, `poll`, `stats`, `close`) and an uplink (`SdkUplink` /
+  `LinkUplink`: `prepare`, `open`, `accept`, `send`, `close`). `LiveStream` and `TalkBack` take only
+  `get_session`. On the SDK the uplink encrypts and paces frames. On the link the module does, and the
+  uplink drains its queue when the media played out. PTS come from each frame's arrival time on both.
+- `LinkMediaSource.stats` returns the SDK's eight receive counters by name, plus the link's own.
+- `crypto.py` stays, because the SDK path needs it.
+- Tests: `tests/fake_link.py` is the pure-Python module, on the same `FakeCamera`;
+  `tests/test_link_session.py` (33 tests) covers the error table, the session, the live view,
+  talk-back, a worker running both backends, a link-only worker, and loading the real module (when
+  built) in a subprocess.
+- Not done yet: the integration side (below): shipping the module, choosing the backend per entry,
+  and diagnostics.
+
 | Module | Change |
 |---|---|
 | `link.py` (new) | `load(libdir)`: imports `_vtech_link` from `libdir` with `importlib.machinery.ExtensionFileLoader`, once per process, and starts the log-forwarding thread (`70-runtime.md`). Rejects a second load from a different directory (as `sdk.load` does). |

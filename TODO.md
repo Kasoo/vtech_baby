@@ -48,6 +48,12 @@ read-only CLI, and the PyO3 module (`75-python-api.md`, "Status"). The simulator
 runs from the NAS were clean (`85-testing.md`, "First live runs"). Phase 3 onwards still waits on the
 end of the `tutk-host` production soak. Next:
 
+- **Phase 3, the integration side** (`75-python-api.md`, "Changes in the integration"); `vtech_lan`
+  already runs either backend. Ship `_vtech_link.abi3.so` per arch and libc (`sync_link.sh`), find it
+  (`native.py`), and pass its path to `WorkerClient.ensure`. Add a per-entry backend choice that keeps
+  all three implementations: `tutk-host` (bundled), the vendor's SDK (uploaded) and vtech-link. The
+  first two are process-wide, since a worker loads one SDK, while link sessions can run beside either.
+  Diagnostics should show the link's `info()`/`stats()` and the module's `info`.
 - **Discuss: the reactor's wait** (`70-runtime.md`, "Status"). It blocks in `recv_from` with
   `SO_RCVTIMEO`, then drains in non-blocking mode, which costs an `ioctl` pair on every wake-up that
   receives data (143 in S4; idle wake-ups no longer make any). Swapping to `poll` plus `recvfrom` with

@@ -48,7 +48,7 @@ def cam():
     s = Session(sdk, "UID", "authkey", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
     s.connect()
     holder = {"s": s}
-    ls = LiveStream(sdk, lambda: holder["s"], name="test", grace_s=0.3)
+    ls = LiveStream(lambda: holder["s"], name="test", grace_s=0.3)
     yield sdk, s, ls, holder
     ls.close()
     s.close()
@@ -109,7 +109,7 @@ def test_no_receive_counters_with_the_vendor_sdk(cam):
 
 def test_audio_start_left_to_a_talk_back(cam):
     sdk, s, _, holder = cam
-    ls = LiveStream(sdk, lambda: holder["s"], name="held", grace_s=0.3, audio_held=lambda: True)
+    ls = LiveStream(lambda: holder["s"], name="held", grace_s=0.3, audio_held=lambda: True)
     sink = Sink()
     sub = ls.subscribe(sink)
     assert wait_for(lambda: len(sink.data) > 20_000)                 # video flows without camera audio
@@ -169,7 +169,7 @@ def test_on_running_reports_start_and_stop():
     s = Session(sdk, "UID", "authkey", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
     s.connect()
     seen = []
-    ls = LiveStream(sdk, lambda: s, name="t", grace_s=0.2, on_running=seen.append)
+    ls = LiveStream(lambda: s, name="t", grace_s=0.2, on_running=seen.append)
     sub = ls.subscribe(Sink())
     assert wait_for(lambda: seen == [True]) and ls.running
     sub.close()

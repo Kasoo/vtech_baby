@@ -137,3 +137,29 @@ def check(code: int, call: str) -> int:
     if code < 0:
         raise error_for(code, call)
     return code
+
+
+def from_link(err: Exception, call: str) -> VtechError:
+    """The exception for a `_vtech_link` LinkError, by its `kind` and `detail`, carrying the legacy SDK
+    code the module reports so logs and diagnostics read the same on either transport."""
+    kind, detail = getattr(err, "kind", "internal"), getattr(err, "detail", "")
+    code = getattr(err, "code", None)
+    cls: type[VtechError]
+    if kind == "unreachable":
+        cls = Unreachable
+    elif kind == "iotc_rejected":
+        cls = {"auth_key": AuthFailed, "max_sessions": CapacityExceeded}.get(detail, VtechError)
+    elif kind == "av_auth_failed":
+        cls = AuthFailed
+    elif kind == "closed":
+        cls = SessionGone
+    elif kind == "timeout":
+        cls = RequestTimeout
+    elif kind == "protocol":
+        cls = ProtocolError
+    elif kind == "capacity":
+        cls = CapacityExceeded
+    else:                                       # invalid_argument, io, internal
+        cls = VtechError
+    text = f"{kind}: {detail}" if detail else kind
+    return cls(f"{call} failed ({text})", call=call, code=code)

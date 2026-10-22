@@ -62,17 +62,23 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 
 ### Code
 - `vtech_lan/` has **no `homeassistant` imports**, so it can be unit-tested and run standalone.
-- **The SDK only ever runs in the worker process** (`vtech_lan/worker.py`, started by
-  `vtech_lan/worker_client.py` through `_worker_main.py`). Home Assistant's process patches the libraries
-  but never loads them. The worker imports no Home Assistant code; keep it that way (`tests/test_worker.py`
-  checks).
+- **Native code only ever runs in the worker process** (`vtech_lan/worker.py`, started by
+  `vtech_lan/worker_client.py` through `_worker_main.py`): the SDK (the vendor's, patched, or `tutk-host`)
+  and vtech-link's `_vtech_link` module. Home Assistant's process patches the libraries but never loads
+  them. The worker imports no Home Assistant code; keep it that way (`tests/test_worker.py` checks).
+- **Three implementations, two session classes.** `SdkSession` (`Session`) drives an SDK through ctypes,
+  which covers both the vendor's libraries and `tutk-host`. `LinkSession` drives `_vtech_link`
+  (`vtech_lan/link.py`). Each session names its backend ("sdk" or "link"), so one worker can run cameras
+  on both. Everything above the transport lives in `SessionBase`, `media.py` and `talkback.py`. Each
+  session hands out a media source and an uplink, and a change to either must work on both
+  (`tests/test_link_session.py` runs the link side against `tests/fake_link.py`).
 - **Messages between HA and the worker** are pickles over a socket pair (`vtech_lan/ipc.py`). The
-  session proxy forwards any public `Session` method by name, so a new `Session` method needs no IPC
+  session proxy forwards any public session method by name, so a new session method needs no IPC
   change. Live-view video never crosses the socket: the worker serves it over loopback HTTP.
 - **Runtime model** (`docs/vtech-lan-kit/docs/90-ha-runtime.md`), inside the worker:
   - Load and initialise the SDK once per worker, and never unload it; a new SDK means a new worker.
   - Never make an SDK call on the event loop.
-  - One reader thread owns `avRecvIOCtrl` for each session.
+  - One reader thread per session takes what the camera sends (`avRecvIOCtrl`, or the link's pushes).
   - Long-lived loops run on dedicated threads, not the shared executor.
   - Pass buffers from `ctypes.create_string_buffer` with exact sizes.
 - **Reply opcodes are listed explicitly per op**, never computed as request + 1: `0x709 → 0x710` and
