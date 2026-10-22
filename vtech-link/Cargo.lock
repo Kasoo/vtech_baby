@@ -955,6 +955,7 @@ dependencies = [
 name = "vtech-link-py"
 version = "0.1.0"
 dependencies = [
+ "log",
  "pyo3",
  "vtech-link-core",
 ]
