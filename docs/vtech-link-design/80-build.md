@@ -142,10 +142,15 @@ plus `tools/ha_import_check.sh` (loading the module in the HA image) cover loada
   | stable, fat LTO, `opt-level = "s"` | 1,411 KB | −27% |
   | stable, fat LTO, `opt-level = "z"` | 1,379 KB | −29% |
   | nightly, fat LTO, `opt-level = "s"`, `build-std` | 1,360 KB | −30% |
+  | stable, fat LTO, `opt-level = "s"`, `panic = "abort"` | 1,317 KB | −32% |
+  | nightly, fat LTO, `opt-level = "s"`, `panic = "abort"`, `-Z build-std=std,panic_abort` | 1,247 KB | −36% |
 
   `build-std` gains about 50 KB only once optimising for size, and needs nightly plus `rust-src`.
-  `build-std-features=optimize_for_size` failed to build (two copies of `core`). `panic_immediate_abort`
-  is ruled out by `panic = "unwind"` (R34). Per-package `opt-level` overrides (crypto crates at 3) had no
+  `build-std-features=optimize_for_size` failed to build (two copies of `core`). `panic = "abort"` saves
+  about 95 KB more, and `build-std` about 70 KB on top of that. But it gives up R34: a panic in a link's
+  reactor or in a Python call would abort the whole process (the worker in Phase 3, Home Assistant from
+  Phase 4) instead of closing that link or raising `PanicException`. The abort build still needs
+  `libgcc_s.so.1`, so it doesn't remove that dependency either. Per-package `opt-level` overrides (crypto crates at 3) had no
   effect under fat LTO: the final code generation uses the top-level level, and the output was
   byte-identical. The cost of `s`: ChaCha20-Poly1305 on 20 KB buffers (`chacha20poly1305` 0.10, fat
   LTO) runs at 1,783 MB/s at `opt-level` 3, 547 MB/s at `s` and 278 MB/s at `z`. The live streams
