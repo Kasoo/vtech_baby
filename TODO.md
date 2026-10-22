@@ -48,6 +48,12 @@ read-only CLI, and the PyO3 module (`75-python-api.md`, "Status"). The simulator
 runs from the NAS were clean (`85-testing.md`, "First live runs"). Phase 3 onwards still waits on the
 end of the `tutk-host` production soak. Next:
 
+- **Discuss: the reactor's wait** (`70-runtime.md`, "Status"). It blocks in `recv_from` with
+  `SO_RCVTIMEO`, then drains in non-blocking mode, which costs an `ioctl` pair on every wake-up that
+  receives data (143 in S4; idle wake-ups no longer make any). Swapping to `poll` plus `recvfrom` with
+  `MSG_DONTWAIT` would remove them and the per-wake `setsockopt`. Neither has a safe API in the current
+  dependencies (`socket2` needs an uninitialised buffer, and reading it back needs `unsafe`), so it
+  means adding a crate such as `rustix`, a reviewed decision (`80-build.md`).
 - **No clock or socket injection**: T2 runs on real loopback sockets and the wall clock, not the
   virtual clock and network the design describes. The protocol timers can be shortened through
   `LinkConfig.timing` (`70-runtime.md`, "Status"), which brought S6 down from 61 s to 1 s.
