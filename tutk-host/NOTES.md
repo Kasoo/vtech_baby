@@ -87,7 +87,10 @@ bionic inlines, `in6addr_any`, and `getifaddrs`/`freeifaddrs` for the LAN-only r
   group is rebuilt and fed to reassembly; kind 7 is covered too, unlike stock. Count in
   `tk_av_recv_stats` (`packets_recovered`). Offline: `av_peer.py parity`. Live, with a debug build
   dropping 1 packet in 50 (`TK_DROP=50`, debug builds only): 35 packets rebuilt (25 from 20-groups,
-  10 from 25-groups), 0 bad frames.
+  10 from 25-groups), 0 bad frames. **Corrected 2026-10-22**: "0 bad" counted only partial frames given
+  up. A frame none of whose packets arrives (every audio frame is one packet) is neither counted nor
+  reported, and the camera ignores some NAKs, so frames were lost all the same
+  (`../docs/vtech-link-design/86-live-losses.md`, findings 2 and 3).
 - Earlier: make the host build the integration's library set (packaging, install, arm64 and a portable
   glibc build, e.g. in the manylinux2014 image), then retire the patcher path. Open from the drop-in
   build: the stats block in media packets (camera to client only; not needed).

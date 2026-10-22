@@ -19,7 +19,8 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 | `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (protocol library), `tooling/` (vendored SDK patcher), `native/<arch>-<libc>/` (our SDK libraries, built from `tutk-host/`), `native/<arch>/libtk.so` (prebuilt companion for the patched fallback, built from `docs/vtech-lan-kit/tooling/companion/`), `brand/`. |
 | `tutk-host/` | Our implementation of the three TUTK SDK libraries, built for the host libc; `release.sh` builds the shipped sets. See `tutk-host/NOTES.md`. |
 | `tutk-sdk/` | Archived (tag `tutk-sdk-dropin-v1`): the drop-in build of the same libraries for the patched path. |
-| `docs/vtech-link-design/` | Detailed design (not yet built) of `vtech-link`, the Rust/PyO3 replacement for `tutk-host` and the ctypes/worker layer. Start at its `README.md`. |
+| `vtech-link/` | The Rust/PyO3 replacement for `tutk-host` and the ctypes layer: protocol core, CLI, simulator, Python module. Status and next steps: `TODO.md` ("vtech-link"). |
+| `docs/vtech-link-design/` | Its design, with a "Status" section per document for what was built and how it differs. Start at its `README.md`. |
 | `docs/vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. |
 | `docs/vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
 | `tests/` | Offline tests (fake SDK, fake manager); `tests/live/` probes for a real camera. |
@@ -117,6 +118,12 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 - **Live tests:** `tests/live/run.sh` runs a probe inside the real HA image on a host on the camera's
   LAN, through a runner script you supply as `$VTECH_LIVE_RUNNER` (see the script header).
   `probe_phase1.py` is read-only and safe headless; check what any other probe does first.
+- **vtech-link builds:** put rustup's cargo first, `PATH=$HOME/.cargo/bin:$PATH`. Fedora's `/usr/bin/cargo`
+  comes first by default, ignores `rust-toolchain.toml` (1.99.1) and mixes compilers in one `target/`
+  (stale builds, or "compiled by an incompatible version of rustc" from clippy). Tests: `cargo test
+  --workspace`; the Python module's tests: `vtech-link/py/tests/run.sh`. Live probes with the CLI from
+  the NAS, and A/B runs against `tutk-host`: `docs/vtech-link-design/86-live-losses.md`, "Method" (one
+  tarball over one SSH session, so the key is touched once).
 - **hassfest:** `podman run --rm -v "$PWD:/github/workspace:ro,Z" ghcr.io/home-assistant/hassfest` from
   the root. CI (`.github/workflows/validate.yml`) runs it and the HACS check.
 - **Try a change in HA:** copy `custom_components/vtech_baby` (only that) into a test instance's
