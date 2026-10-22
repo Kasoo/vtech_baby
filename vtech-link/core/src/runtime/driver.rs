@@ -216,6 +216,8 @@ impl Reactor {
         targets.extend(self.config.peer_hint);
         self.iotc
             .connect(now, now + self.config.connect_timeout, &targets);
+        // The first search round goes out now, not after the first wait.
+        self.pump(now);
         let mut buf = vec![0u8; crate::iotc::codec::MAX_DATAGRAM + 1];
         while !self.finished {
             if let Err(panic) = catch_unwind(AssertUnwindSafe(|| self.step(&mut buf))) {
