@@ -202,6 +202,20 @@ dropped. No multi-fragment inbound message has been seen yet. The fix is listed 
 | DTLS failure | per `30-dtls.md` |
 | IOTC session closed | every pending send and request completes with that `Closed(reason)` |
 
+## Status
+
+**Built 2026-10-22** (`core/src/av/packet.rs`, `control.rs`, `client.rs`), with `core/tests/av.rs`.
+Every outbound packet (both logins, ACK with and without NAKs, report, RTT, user and internal control
+frames) is byte-identical to `tutk-host`'s, from the fixtures. The control stream covers the window of
+8, retransmission, ACK trimming, the latency histogram, and inbound reassembly by frame number,
+including a multi-fragment message followed by single ones (the `tutk-host` stall case). The client
+covers the login resend and both failures, the ACK/report schedule (an idle ACK every 110 ms, a report
+every 200 ms, a control frame ACKed 10 ms after it arrives), IOCtrl round trips, RTT answers, and the
+media reset, both confirmed and timed out.
+
+One change from the table above: a camera report is answered with an RTT packet at once, not on the
+next tick.
+
 ## Size estimate
 
 About 800 lines including tests: packet codecs 300, client 250, control stream 250.

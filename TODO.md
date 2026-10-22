@@ -29,6 +29,16 @@ HACS (hacs.xyz "Publish" and "Include" pages, and the checks in `hacs/action`):
   (`tutk-kit/docs/iotc/16-handshake.md`, `_zero2c`), carry 4 bytes of stack to the camera. The camera
   doesn't check them. Fix: zero `ack` first. Found by the vtech-link fixtures (2026-10-22). With the fix
   above, after the soak.
+- Three more differences found while porting to vtech-link (2026-10-22), none seen live. Note only:
+  - Media kind 4 goes to the video stream (`tutk-host/av/media_recv.c` `KIND_AUDIO` is 3 only). The
+    kit folds `{3,4}` to audio (`tutk-kit/docs/av/90-fifos.md`). Kind 4 hasn't been seen from this
+    camera.
+  - After a gap skip that lands on `pn_high` (`media_recv.c` `track_pn`), that packet's seen bit stays
+    set. Once the 4096-packet window wraps, a fresh packet with the same slot reads as a duplicate and
+    is dropped, so it has to be resent.
+  - The control frame number is a `u16` (`av/ioctrl.c` `c->frame`) written into the u32 at `+0x1c`, so
+    it wraps to 0 after 65,536 sends where the stock SDK's u32 carries on. The camera ACKs the low 16
+    bits, so this is probably harmless.
 
 ## vtech-link
 

@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod av;
 pub mod dtls;
 pub mod error;
 pub mod iotc;
