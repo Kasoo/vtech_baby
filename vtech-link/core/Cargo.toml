@@ -8,10 +8,17 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+dimpl.workspace = true
 hmac.workspace = true
 sha1.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
 log.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+dimpl.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true
