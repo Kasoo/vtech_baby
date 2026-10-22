@@ -68,6 +68,22 @@ end of the `tutk-host` production soak. Next:
   in the fuzz targets; the runtime's `Partial frames per stream: 64` cap (`70-runtime.md` limits table).
 - **The dimpl fork**: upstream work is listed in the checkout's uncommitted `TODO.md`. Clippy is now
   available (rustup 1.99.1), so its first item can be done.
+- **Trim dimpl for PSK-only use** (measured 2026-10-22 on the unstripped x86_64 module, 1.55 MB of
+  code). Two features in the fork, both on by default so upstream users see no change:
+  - `dtls13`: leave out `src/dtls13/`, the `Client13`/`Server13` arms of `Inner`, the 1.2/1.3 auto
+    mode (`auto.rs`) and the 1.3 suite list. About 212 KB. The boundaries are clean, so this is mostly
+    mechanical. Do it first.
+  - `certificates`: leave out `der`, `x509-cert`, `spki`/`pkcs8`/`sec1`, `ecdsa`/`signature` and
+    `p256`/`p384`: about 220 KB, plus the certificate suites in dimpl's 1.2 code. More invasive: it runs
+    through the crypto provider (`sign.rs`, `provider.rs`, `kx_group.rs`, where P-256/P-384 are also
+    key-exchange groups), the public API (`DtlsCertificate`, `certificate::`, `Output::PeerCert`), and
+    the 1.2 handshake. Ask upstream first (the fork's `TODO.md` has this item).
+  - Together about 430 KB: the stripped module from about 1.9 MB to 1.4–1.5 MB, and the HACS download
+    from about 7 MB to about 5.5 MB.
+- **Decide the release profile** (`80-build.md`, "Size levers"): fat LTO and `opt-level = "s"` take
+  the module from 1,945 KB to 1,411 KB (−27%) on stable, at 3.3× slower crypto with headroom to spare.
+  `-Z build-std` adds only about 50 KB more and needs nightly. Not worth it. Measure the arm64 builds and a
+  live 1080p stream on `s` before switching.
 
 ## Packaging
 

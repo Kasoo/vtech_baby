@@ -131,6 +131,25 @@ plus `tools/ha_import_check.sh` (loading the module in the HA image) cover loada
   which a PSK-only client never runs, is part of that. Today's C sets are about 300 KB each; the four
   modules add about 7 MB to the HACS download. All four
   builds are reproducible and pass `tools/ha_import_check.sh` (2026-10-22).
+- Size levers, measured 2026-10-22 on x86_64-glibc at `2bd3093` (stripped; each build in its own
+  target directory; nightly was 1.101.0 of 2026-10-21):
+
+  | Build | Size | vs today |
+  |---|---|---|
+  | stable 1.99.1, thin LTO, `opt-level` 3 (today's profile) | 1,945 KB | — |
+  | stable, fat LTO | 1,838 KB | −5.5% |
+  | nightly, fat LTO, `-Z build-std=std,panic_unwind` | 1,867 KB | −4.0% (bigger than without it) |
+  | stable, fat LTO, `opt-level = "s"` | 1,411 KB | −27% |
+  | stable, fat LTO, `opt-level = "z"` | 1,379 KB | −29% |
+  | nightly, fat LTO, `opt-level = "s"`, `build-std` | 1,360 KB | −30% |
+
+  `build-std` gains about 50 KB only once optimising for size, and needs nightly plus `rust-src`.
+  `build-std-features=optimize_for_size` failed to build (two copies of `core`). `panic_immediate_abort`
+  is ruled out by `panic = "unwind"` (R34). Per-package `opt-level` overrides (crypto crates at 3) had no
+  effect under fat LTO: the final code generation uses the top-level level, and the output was
+  byte-identical. The cost of `s`: ChaCha20-Poly1305 on 20 KB buffers (`chacha20poly1305` 0.10, fat
+  LTO) runs at 1,783 MB/s at `opt-level` 3, 547 MB/s at `s` and 278 MB/s at `z`. The live streams
+  carry 0.35–1.1 Mbit/s, so `s` leaves over 3,000× headroom on x86_64.
 - `link.py` loads the module with `ExtensionFileLoader("_vtech_link", path)`. The init symbol is
   `PyInit__vtech_link`, so the module name must stay `_vtech_link`.
 
