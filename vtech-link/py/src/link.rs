@@ -130,6 +130,7 @@ fn media_stats<'py>(py: Python<'py>, s: &LinkStats) -> PyResult<Bound<'py, PyDic
         "fragments_dropped" => m.fragments_dropped,
         "gaps_skipped" => m.gaps_skipped,
         "fragments_behind" => m.fragments_behind,
+        "packets_dropped_test" => m.packets_dropped_test,
         "video_overflow" => s.video_overflow,
         "audio_overflow" => s.audio_overflow,
         "decrypt_failed_video" => s.decrypt_failed_video,

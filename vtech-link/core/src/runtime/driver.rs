@@ -17,6 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::egress;
 use super::link::{LinkConfig, LinkInfo, LinkStats, Shared};
 use super::sync::{Completion, Queue};
+use crate::av::media_rx::MediaConfig;
 use crate::av::server::{AvServer, Sealer, ServerConfig, ServerEvent, ServerStats};
 use crate::av::{AvClient, AvConfig, AvEvent, SendId};
 use crate::dtls::{DATATYPE_DTLS, DtlsClient, DtlsConfig, DtlsEvent};
@@ -495,7 +496,10 @@ impl Reactor {
             DtlsEvent::Connected => {
                 let config = AvConfig {
                     ctrl_window: self.config.ctrl_window,
-                    media: self.config.timing.media.clone(),
+                    media: MediaConfig {
+                        drop_every: self.config.drop_media_every,
+                        ..self.config.timing.media.clone()
+                    },
                     ..AvConfig::new(&self.config.account, &self.config.password)
                 };
                 let nonce = self.rng.u32();

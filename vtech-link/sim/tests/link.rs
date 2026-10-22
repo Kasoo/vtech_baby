@@ -522,6 +522,43 @@ fn loss_both_ways() {
 }
 
 #[test]
+fn drop_media_every_rebuilds() {
+    // The live `--drop 50` probe, offline: one media or parity packet in 50 is thrown away on arrival
+    // and nothing else is lost. Parity rebuilds most of them and NAKs fetch the rest.
+    let cam = Camera::start(CameraConfig {
+        media: vtech_link_sim::MediaSpec {
+            video_fps: 15,
+            video_bytes: 12_000,
+            ..Default::default()
+        },
+        ..camera()
+    });
+    let link = Link::connect(LinkConfig {
+        drop_media_every: 50,
+        ..link_config(&cam)
+    })
+    .unwrap();
+    prep(&link);
+    let mut media = link.media();
+    media.start(SEC).unwrap();
+    link.send(OP_START, &[0; 8], SEC).unwrap();
+    let (video, audio) = collect(&mut media, 45, 6 * SEC);
+    assert_eq!(video.len(), 45);
+    assert_eq!(check_order(&video, true), Order::default());
+    assert_eq!(check_order(&audio, false), Order::default());
+    assert!(video.iter().chain(&audio).all(|f| f.lost_before == 0));
+    let m = link.stats(SEC).unwrap().av.unwrap().media;
+    eprintln!(
+        "drop 50: dropped {}, rebuilt {}, NAKed {}",
+        m.packets_dropped_test, m.packets_recovered, m.packets_requested
+    );
+    assert!(m.packets_dropped_test > 0);
+    assert!(m.packets_recovered > 0, "parity rebuilt nothing");
+    assert_eq!(m.video.given_up + m.audio.given_up, 0);
+    link.close();
+}
+
+#[test]
 fn s12_dtls_flight_loss() {
     // In 0: our ClientHello; in 1: our final flight; out 0: the camera's first flight; out 1: its
     // Finished. Each is lost once and the handshake completes by retransmission.

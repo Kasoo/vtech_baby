@@ -30,6 +30,9 @@ pub struct MediaConfig {
     pub partial_wait: Duration,
     /// The least time between two NAK lists.
     pub nak_repeat: Duration,
+    /// Drop every Nth media or parity packet on arrival (0: none), to exercise recovery on a clean
+    /// network, as `tutk-host`'s `TK_DROP` does. Tests and live probes only.
+    pub drop_every: u32,
 }
 
 impl Default for MediaConfig {
@@ -38,6 +41,7 @@ impl Default for MediaConfig {
             gap_skip: Duration::from_millis(300),
             partial_wait: Duration::from_millis(500),
             nak_repeat: Duration::from_millis(50),
+            drop_every: 0,
         }
     }
 }
@@ -99,6 +103,8 @@ pub struct MediaStats {
     pub gaps_skipped: u64,
     /// Fragments of a frame already released or given up, dropped to keep the order.
     pub fragments_behind: u64,
+    /// Packets dropped on purpose (`MediaConfig::drop_every`).
+    pub packets_dropped_test: u64,
 }
 
 /// The fields our ACK reports for media.
@@ -276,6 +282,8 @@ pub struct MediaRx {
     nak_at: Option<Instant>,
     ack_due: bool,
     reset_seq: u16,
+    /// Media and parity packets that have arrived, for `drop_every`.
+    arrivals: u64,
     stats: MediaStats,
 }
 
@@ -291,6 +299,7 @@ impl MediaRx {
             nak_at: None,
             ack_due: false,
             reset_seq: 0,
+            arrivals: 0,
             stats: MediaStats::default(),
         }
     }
@@ -298,6 +307,12 @@ impl MediaRx {
     /// One class-0x0c media or parity frame (`frame` starts at the media sub-header) with its FEC
     /// group header.
     pub fn on_envelope(&mut self, now: Instant, group: &[u8], frame: &[u8]) {
+        if self.config.drop_every > 0 {
+            self.arrivals += 1;
+            if self.arrivals % u64::from(self.config.drop_every) == 0 {
+                return self.stats.packets_dropped_test += 1;
+            }
+        }
         let is_parity = frame.first() == Some(&PARITY_KIND);
         if !is_parity {
             self.on_fragment(now, frame);

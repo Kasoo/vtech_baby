@@ -54,6 +54,8 @@ pub struct LinkConfig {
     pub talk_queue: usize,
     pub sdk_version: u32,
     pub timing: Timing,
+    /// Drop every Nth inbound media or parity packet (0: none). Tests and live probes only.
+    pub drop_media_every: u32,
 }
 
 /// Protocol timers. The defaults match the SDK and the camera; tests shorten them.
@@ -111,6 +113,7 @@ impl LinkConfig {
             talk_queue: 10,
             sdk_version: crate::iotc::codec::SDK_VERSION,
             timing: Timing::default(),
+            drop_media_every: 0,
         }
     }
 }
