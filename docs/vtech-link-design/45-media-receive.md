@@ -151,6 +151,17 @@ The eight that exist (`sdk.py` `RECV_STATS`): `packets_requested`, `video_given_
 `resets`/`reset_timeouts`, `decrypt_failed_video`/`audio` (counted by the consumer;
 `60-application.md`), and `frames_video`/`audio` and `bytes_video`/`audio` delivered.
 
+## Status
+
+**Built 2026-10-22** (`core/src/av/media_rx.rs`, `fec.rs`), with `core/tests/av.rs` and
+`core/tests/fec.rs`. The parity rebuild matches `tutk-host`'s `fec.c` byte for byte (fixtures `av.fec.*`).
+Overflow of the output queues belongs to the runtime (`70-runtime.md`), so `MediaRx` emits every frame
+and counts `given_up` and `late`.
+
+Two deliberate differences from `tutk-host` (`TODO.md`, "tutk-host"):
+- kind 4 is audio, following the kit;
+- a gap skip that lands on `pn_high` clears that packet's seen bit.
+
 ## Size estimate
 
 About 700 lines including tests: window 120, assembly 250, FEC 200, reset and counters 130.

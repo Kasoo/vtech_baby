@@ -112,6 +112,15 @@ frame (`60-application.md`), which fits in one fragment:
 | Link lost while talking | `send()`/`accept()` raise the link's `Closed(reason)` |
 | Key exchange fails | `talkback()` raises `Protocol` |
 
+## Status
+
+**Built 2026-10-22** (`core/src/av/server.rs`; the media send is in the same file, not a separate
+`media_tx.rs`), with `core/tests/talkback.rs`. What the server sends is received by our own `MediaRx`
+playing the camera's side and decrypted, which checks the framing, the checksum, the frame info and
+the pacing together. Sealing and the wall-clock timestamp come from a `Sealer` the link supplies, so
+the state machine stays sans-IO. One detail follows `tutk-host` rather than the table above: a
+sub-type-0 login with `+0x12` set is ignored (`av/talkback.c:35`).
+
 ## Size estimate
 
 About 350 lines including tests.

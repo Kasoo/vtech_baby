@@ -1,0 +1,94 @@
+[package]
+name = "vtech-link-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = "1"
+vtech-link-core = { path = "../core" }
+
+# Not a member of the vtech-link workspace.
+[workspace]
+
+# Same dimpl fork as the workspace.
+[patch.crates-io]
+dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
+
+[profile.release]
+debug = 1
+
+
+[[bin]]
+name = "iotc_decode"
+path = "fuzz_targets/iotc_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iotc_session"
+path = "fuzz_targets/iotc_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dtls_client"
+path = "fuzz_targets/dtls_client.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "av_packet"
+path = "fuzz_targets/av_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "av_client"
+path = "fuzz_targets/av_client.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "media_rx"
+path = "fuzz_targets/media_rx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "control_stream"
+path = "fuzz_targets/control_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fec"
+path = "fuzz_targets/fec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "av_server"
+path = "fuzz_targets/av_server.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "media_key"
+path = "fuzz_targets/media_key.rs"
+test = false
+doc = false
+bench = false

@@ -110,6 +110,29 @@ exists only in debug builds, behind a cargo feature.
 - The camera is a live baby monitor: everything that makes light or sound needs the owner present
   (`AGENTS.md` "Rules"). `connect`, `watch`, `stream` and `restart` are read-only and safe headless.
 
+### First live runs (2026-10-22, read-only)
+
+The whole Rust stack, static musl `vtech-link` built on the workstation, run on the NAS against the
+camera while HA's own session and the parent unit were up:
+
+```sh
+cd vtech_baby/vtech-link && cargo build --release --locked --target x86_64-unknown-linux-musl -p vtech-link-cli
+scp target/x86_64-unknown-linux-musl/release/vtech-link $HOST:/tmp/
+. $CAMERA_DIR/.camera.env
+ssh $HOST "export VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=…; /tmp/vtech-link stream 192.0.2.10 20"
+```
+
+| Run | Result |
+|---|---|
+| `connect` ×4 | Up in 84–108 ms with suite `0xccac` and partial encryption; DEVINFO `RM5754`/`vtech` in 110–170 ms; close at once. |
+| `stream 20` | Key exchange 19 ms; reset confirmed; first frame after 1 ms, first keyframe after 1.3 s; 189 video frames (9.4/s, 10 keyframes), 502 audio, 1.1 Mbit/s; **0 lost, 0 decrypt failures, 0 retransmits, 0 NAKs**; RTT 23 ms; 7 of 8 control frames ACKed within 50 ms. |
+
+Found by the first run and fixed: the reactor sent its first search round only after its first wait (a
+100 ms search interval), so the IOTC connect took 114 ms instead of about 10 ms.
+
+Open: DEVINFO takes 110–170 ms. Compare with `tutk-host` on the same request before reading anything
+into it.
+
 ## T8 — Soak
 
 The production HA runs the new backend for two weeks (`90-migration.md`, phase 4). Daily: the HA log for

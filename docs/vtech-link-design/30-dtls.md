@@ -135,6 +135,28 @@ ssh $HOST "VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=… /tmp/dtls-camera ecdhe-
   today and which keeps forward secrecy. `PSK_WITH_AES_128_GCM_SHA256` is a tested alternative behind
   a config value.
 
+### The link's DTLS module (built 2026-10-22)
+
+`core/src/dtls/mod.rs`, about 300 lines: `DtlsClient`, a sans-IO wrapper around dimpl's PSK client in
+the same shape as `IotcSession` (`handle_datagram`, `handle_timeout`, `poll_transmit`, `poll_event`,
+`poll_timeout`). It offers one suite (`Suite::EcdhePskChaCha20` by default, `Suite::PskAes128Gcm` as
+the alternative). It sets dimpl's flight timer to 500 ms doubling, the handshake deadline to
+`av_timeout`, and the MTU to one IOTC payload.
+- **Detecting our Finished**: once our outgoing flight carries a ChangeCipherSpec record, the server's
+  Finished must arrive within `finished_wait` (3 s); otherwise `AvAuthFailed(Dtls(None))`.
+- **Errors**: a fatal alert before our Finished is `Protocol("dtls handshake refused")`; any error or
+  alert after it is `AvAuthFailed(Dtls(alert))`; a dimpl timeout before it is `Unreachable`; once
+  connected, `close_notify` or a fatal alert is `Closed(DtlsAlert(code))`, and any other rejected
+  record is counted and dropped.
+- **Randomness**: dimpl's own (OS) generator. `test_rng_seed` makes tests deterministic, and is for
+  tests only: a 64-bit seed is too little entropy for keys.
+- **Tests** (`core/tests/dtls.rs`, 11): run against dimpl's own PSK server on a virtual clock. They
+  cover both suites, with and without a HelloVerifyRequest; the ClientHello's shape; a full-size
+  record; the loss of each of the first four datagrams; the wrong password, both as silence (3 s)
+  and as an answer; the camera's `handshake_failure` alert; no server at all (`Unreachable` at 30 s,
+  6 hellos); `close_notify`; and garbage once connected. The OpenSSL `s_server` interop (T3) is still
+  to do.
+
 The rest of this document specifies **our own client**. It stays the fallback, and is the reference
 for what a `dimpl` integration must do: the PSK identity and key, the record size, and the timers.
 

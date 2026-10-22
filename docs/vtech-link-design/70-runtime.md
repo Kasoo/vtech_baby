@@ -159,6 +159,15 @@ Worst-case memory per link is about 6 MiB, almost all of it 60 queued 1080p fram
   the matching level. Rust threads never take the GIL (R37).
 - The CLI uses `env_logger` instead.
 
+## Status
+
+**Built 2026-10-22** (`core/src/runtime/`). One deliberate change from the text above: no `mio`.
+The reactor blocks on `recv_from` with `SO_RCVTIMEO` set to the next deadline, and callers wake it with
+a 1-byte datagram over loopback to the link's own socket. That keeps the libc imports to the socket
+calls the SDK already made (no epoll or eventfd). Sends are blocking UDP `send_to` calls, which on
+Linux block only on a full send buffer of 1 MB. Not built yet: the packet trace below, and the limit
+of 64 partial frames per stream (`TODO.md`).
+
 ## Packet trace (R33)
 
 Per link, off by default; `LinkConfig.trace = Some(path)` turns it on. One text line per event, in
