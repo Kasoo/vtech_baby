@@ -3,6 +3,11 @@ from __future__ import annotations
 
 DOMAIN = "vtech_baby"
 
+# The transport this build runs, chosen at build time: "sdk" (our tutk-host libraries, or the user's
+# patched SDK) or "link" (vtech-link's _vtech_link module, installed by sync_link.sh). A "link" build
+# skips the SDK step in setup.
+BACKEND = "link"
+
 # Config-entry data
 CONF_SDK_DIR = "sdk_dir"
 CONF_UID = "uid"

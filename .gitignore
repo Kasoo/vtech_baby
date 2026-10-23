@@ -7,6 +7,7 @@ __pycache__/
 *.so
 !/custom_components/vtech_baby/native/*/libtk.so
 !/custom_components/vtech_baby/native/*-*/lib*APIs.so
+!/custom_components/vtech_baby/native/*-*/_vtech_link.abi3.so
 # Credentials
 LICENSE_KEY.txt
 .env

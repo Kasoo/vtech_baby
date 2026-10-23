@@ -300,11 +300,12 @@ class ThreadWorker:
 
     pid = None
 
-    def __init__(self, child, listen, sdk):
+    def __init__(self, child, listen, sdk, link_loader=None):
         from custom_components.vtech_baby.vtech_lan.ipc import Channel
         from custom_components.vtech_baby.vtech_lan.worker import Worker
         self._sock = child.dup()
-        self.worker = Worker(Channel(self._sock), lambda _libdir: sdk, listen)
+        extra = {"link_loader": link_loader} if link_loader is not None else {}
+        self.worker = Worker(Channel(self._sock), lambda _libdir: sdk, listen, **extra)
         self._thread = threading.Thread(target=self.worker.run, name="vtech-thread-worker", daemon=True)
         self._thread.start()
 
@@ -322,8 +323,8 @@ class ThreadWorker:
         self._sock.close()
 
 
-def thread_client(sdk, **kw):
-    """A WorkerClient whose worker runs on a thread with `sdk`."""
+def thread_client(sdk, link_loader=None, **kw):
+    """A WorkerClient whose worker runs on a thread with `sdk`, and with `link_loader` loading vtech-link."""
     from custom_components.vtech_baby.vtech_lan.worker_client import WorkerClient
-    return WorkerClient(spawn=lambda child, listen: ThreadWorker(child, listen, sdk), **kw)
+    return WorkerClient(spawn=lambda child, listen: ThreadWorker(child, listen, sdk, link_loader), **kw)
 

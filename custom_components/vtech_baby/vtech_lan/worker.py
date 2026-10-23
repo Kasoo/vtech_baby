@@ -1,9 +1,11 @@
-"""The SDK worker: the process that loads the ThroughTek SDK and runs every camera session and live view.
+"""The SDK worker: the process that loads the native code and runs every camera session and live view.
 
-The SDK is native code. Running it in its own process means a crash in it (a segfault, an abort) ends
-this process only: Home Assistant sees the socket close, and reconnects with a fresh worker
-(`worker_client.py`). Started by `_worker_main.py`; this module holds the worker's logic, so it can
-also run on a thread (tests) with any SDK object.
+The native code is a ThroughTek SDK (the vendor's, patched, or our `tutk-host`), `_vtech_link`, or both:
+each session names its backend ("sdk" or "link"), so cameras can use different ones side by side. Running
+it in its own process means a crash in it (a segfault, an abort) ends this process only: Home Assistant
+sees the socket close, and reconnects with a fresh worker (`worker_client.py`). Started by
+`_worker_main.py`; this module holds the worker's logic, so it can also run on a thread (tests) with any
+SDK object.
 
 The worker:
 - answers requests from Home Assistant (`ipc.py`), each on a pool thread since SDK calls block;
@@ -28,10 +30,11 @@ import threading
 from collections import deque
 from typing import Any, Callable
 
+from . import link
 from .errors import SdkMismatch, SessionGone, VtechError
 from .ipc import Channel
 from .media import LiveStream
-from .session import Session
+from .session import LinkSession, SdkSession, SessionBase
 from .talkback import TalkBack
 
 _LOG = logging.getLogger(__name__)
@@ -42,16 +45,20 @@ POOL_THREADS = 32             # concurrent blocking requests (connects take up t
 
 class Worker:
     def __init__(self, chan: Channel, sdk_factory: Callable[[str], Any],
-                 listen: socket.socket | None = None, forward_logs: bool = False):
+                 listen: socket.socket | None = None, forward_logs: bool = False,
+                 link_loader: Callable[[str], Any] = link.load):
         self.chan = chan
         self._factory = sdk_factory
+        self._link_loader = link_loader
         self._listen = listen
         self._forward_logs = forward_logs
         self.sdk: Any = None
         self.libdir: str | None = None
-        self.sessions: dict[int, Session] = {}
+        self.link: Any = None                        # the _vtech_link module, once loaded
+        self._link_path: str | None = None
+        self.sessions: dict[int, SessionBase] = {}
         self.media_sessions: set[int] = set()        # sessions that feed their camera's live view
-        self.current: dict[str, Session] = {}        # uid -> the session the live view uses
+        self.current: dict[str, SessionBase] = {}    # uid -> the session the live view uses
         self.streams: dict[str, LiveStream] = {}     # uid -> live view
         self.talks: dict[str, TalkBack] = {}         # uid -> talk-back
         self.token: str | None = None
@@ -132,26 +139,43 @@ class Worker:
                 raise SdkMismatch(f"worker already has the SDK from {self.libdir}")
         return self._do_sdk_info()
 
+    def _do_load_link(self, path: str) -> dict[str, Any]:
+        with self._lock:
+            if self.link is not None and path != self._link_path:
+                raise SdkMismatch(f"worker already has vtech-link from {self._link_path}")
+            self.link, self._link_path = self._link_loader(path), path
+        return self._do_sdk_info()
+
     def _do_sdk_info(self) -> dict[str, Any]:
         sdk = self.sdk
         stats = getattr(sdk, "lan_only_stats", None)
         return {"libdir": getattr(sdk, "libdir", self.libdir), "arch": getattr(sdk, "arch", None),
-                "lan_only": stats() if stats else None, "pid": os.getpid()}
+                "lan_only": stats() if stats else None, "pid": os.getpid(),
+                "link": link.info(self.link) if self.link is not None else None,
+                "link_path": self._link_path}
 
     def _do_open(self, key: int, uid: str, authkey: str, password: str, account: str,
-                 options: dict[str, Any], media: bool) -> None:
-        if self.sdk is None:
-            raise SessionGone("the SDK isn't loaded in the worker", call="open")
-        s = Session(self.sdk, uid, authkey, password, account,
-                    on_push=lambda p: self._notify("push", key, p),
-                    on_lost=lambda e: self._on_lost(key, s, e), **options)
+                 options: dict[str, Any], media: bool, backend: str = "sdk") -> None:
+        callbacks: dict[str, Any] = {"on_push": lambda p: self._notify("push", key, p),
+                                     "on_lost": lambda e: self._on_lost(key, s, e)}
+        s: SessionBase
+        if backend == "link":
+            if self.link is None:
+                raise SessionGone("vtech-link isn't loaded in the worker", call="open")
+            s = LinkSession(self.link, uid, authkey, password, account, **callbacks, **options)
+        elif backend == "sdk":
+            if self.sdk is None:
+                raise SessionGone("the SDK isn't loaded in the worker", call="open")
+            s = SdkSession(self.sdk, uid, authkey, password, account, **callbacks, **options)
+        else:
+            raise ValueError(f"unknown backend {backend!r}")
         with self._lock:
             self.sessions[key] = s
             if media:
                 self.media_sessions.add(key)
                 if uid not in self.streams:
                     self.streams[uid] = LiveStream(
-                        self.sdk, lambda: self.current.get(uid), name=uid[-4:],
+                        lambda: self.current.get(uid), name=uid[-4:],
                         on_running=lambda r: self._notify("running", uid, r),
                         audio_held=lambda: (t := self.talks.get(uid)) is not None and t.hold_audio_start())
 
@@ -159,8 +183,8 @@ class Worker:
         s = self.sessions.get(key)
         if s is None:
             raise SessionGone("session closed", call=method)
-        if method.startswith("_") or not callable(getattr(Session, method, None)):
-            raise AttributeError(f"Session has no method {method!r}")
+        if method.startswith("_") or not callable(getattr(type(s), method, None)):
+            raise AttributeError(f"{type(s).__name__} has no method {method!r}")
         value = getattr(s, method)(*args, **kwargs)
         if method == "connect" and key in self.media_sessions:
             with self._lock:
@@ -181,7 +205,7 @@ class Worker:
             talk.stop()                                             # its channel is on this session
         s.close()
 
-    def _on_lost(self, key: int, s: Session, err: VtechError) -> None:
+    def _on_lost(self, key: int, s: SessionBase, err: VtechError) -> None:
         with self._lock:
             if self.current.get(s._uid) is s:                       # noqa: SLF001
                 del self.current[s._uid]                            # noqa: SLF001
@@ -207,13 +231,11 @@ class Worker:
         is reported as a ("talk", uid, talk id, error or None) message; "stop" ends it."""
         if method == "start":
             tid, url = args
-            if self.sdk is None:
-                raise SessionGone("the SDK isn't loaded in the worker", call="talk-back")
             with self._lock:
                 talk = self.talks.get(uid)
                 if talk is None:
                     talk = self.talks[uid] = TalkBack(
-                        self.sdk, lambda: self.current.get(uid), name=uid[-4:],
+                        lambda: self.current.get(uid), name=uid[-4:],
                         audio_wanted=lambda: (st := self.streams.get(uid)) is not None and st.running)
             talk.start(url, on_end=lambda err: self._notify("talk", uid, tid, err))
             return None

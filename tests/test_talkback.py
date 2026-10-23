@@ -59,7 +59,7 @@ def cam():
 
 
 def talk(sdk, s, media=None, **kw):
-    return TalkBack(sdk, lambda: s, name="test", open_media=lambda _url: iter(media or FRAMES),
+    return TalkBack(lambda: s, name="test", open_media=lambda _url: iter(media or FRAMES),
                     frame_s=0.001, **kw)
 
 
@@ -106,16 +106,16 @@ def test_bad_media_never_touches_the_camera(cam):
         yield                                                       # noqa: unreachable - a generator
 
     with pytest.raises(MediaError):
-        TalkBack(sdk, lambda: s, open_media=bad).start("http://media/x")
+        TalkBack(lambda: s, open_media=bad).start("http://media/x")
     with pytest.raises(MediaError, match="no audio"):
-        TalkBack(sdk, lambda: s, open_media=lambda _u: iter([])).start("http://media/x")
+        TalkBack(lambda: s, open_media=lambda _u: iter([])).start("http://media/x")
     assert talk_codes(sdk) == [] and sdk.uplink == []
 
 
 def test_not_connected(cam):
     sdk, _s = cam
     with pytest.raises(SessionGone):
-        TalkBack(sdk, lambda: None, open_media=lambda _u: iter(FRAMES)).start("http://media/x")
+        TalkBack(lambda: None, open_media=lambda _u: iter(FRAMES)).start("http://media/x")
 
 
 def test_unsupported_uplink_format_is_refused(cam):
@@ -168,7 +168,7 @@ def test_stop_ends_an_endless_stream(cam):
             closed.set()
 
     ended = Ended()
-    t = TalkBack(sdk, lambda: s, open_media=media, frame_s=0.005)
+    t = TalkBack(lambda: s, open_media=media, frame_s=0.005)
     t.start("http://media/x", ended)
     time.sleep(0.05)
     assert t.running
@@ -179,7 +179,7 @@ def test_stop_ends_an_endless_stream(cam):
 
 def test_start_replaces_the_one_playing(cam):
     sdk, s = cam
-    t = TalkBack(sdk, lambda: s, open_media=lambda _u: endless(), frame_s=0.005)
+    t = TalkBack(lambda: s, open_media=lambda _u: endless(), frame_s=0.005)
     first, second = Ended(), Ended()
     t.start("http://media/1", first)
     t.start("http://media/2", second)
@@ -193,7 +193,7 @@ def test_paces_in_real_time(cam):
     sdk, s = cam
     ended = Ended()
     t0 = time.monotonic()
-    TalkBack(sdk, lambda: s, open_media=lambda _u: iter(FRAMES * 4), frame_s=0.01).start("http://m/x", ended)
+    TalkBack(lambda: s, open_media=lambda _u: iter(FRAMES * 4), frame_s=0.01).start("http://m/x", ended)
     ended.wait()
     assert time.monotonic() - t0 >= 0.18                            # 20 frames at 10 ms
 
@@ -279,7 +279,7 @@ def test_closing_the_frames_closes_the_media(socket_enabled):
 
 def test_a_live_view_starting_mid_talk_leaves_audiostart_to_talk_back(cam):
     sdk, s = cam
-    t = TalkBack(sdk, lambda: s, open_media=lambda _u: endless(), frame_s=0.005)
+    t = TalkBack(lambda: s, open_media=lambda _u: endless(), frame_s=0.005)
     assert t.hold_audio_start() is False                           # nothing playing: the live view sends it
     ended = Ended()
     t.start("http://media/x", ended)

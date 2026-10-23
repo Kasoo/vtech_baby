@@ -40,6 +40,7 @@ Read in order.
 | [`75-python-api.md`](75-python-api.md) | The PyO3 module's API, and the changes to `vtech_lan/` and the integration. |
 | [`80-build.md`](80-build.md) | Crates, dependencies, the four shipped builds, loading, the import check. |
 | [`85-testing.md`](85-testing.md) | Unit, simulation, interop, differential, fuzz, live and soak testing. |
+| [`86-live-losses.md`](86-live-losses.md) | The live loss investigation (2026-10-22): vtech-link against `tutk-host`, sequential and simultaneous, with and without forced drops; findings and what is still open. |
 | [`90-migration.md`](90-migration.md) | Phases from today's stack to this one, with exit criteria and rollback. |
 | [`95-open-questions.md`](95-open-questions.md) | What is still unknown, how each item gets settled, and the risks. |
 

@@ -28,7 +28,8 @@ def pkg(tmp_path, monkeypatch):
     return tmp_path / "native" / f"{ARCH}-{LIBC}"
 
 
-def test_this_host_has_a_bundled_set():
+def test_this_host_has_a_bundled_set(monkeypatch):
+    monkeypatch.setattr(native, "BACKEND", "sdk")
     assert native.bundled_libdir() == SHIPPED
     assert native.host_supported() == ARCH
 

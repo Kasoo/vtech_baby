@@ -14,6 +14,7 @@ import os
 import platform
 from dataclasses import dataclass
 
+from .const import BACKEND
 from .tooling import extract_sdk as _extract
 from .tooling import patch_sdk as _patch
 from .vtech_lan import sdk as _sdk
@@ -29,12 +30,16 @@ ABI_OF = _extract.ABI_OF            # our arch name -> Android ABI directory nam
 BUNDLED_VERSION = "4.3.8.100"       # the SDK version our libraries report
 
 
+LINK_MODULE = "_vtech_link.abi3.so"
+
+
 @dataclass(frozen=True)
 class Prepared:
-    libdir: str
+    libdir: str | None            # None in a vtech-link build
     arch: str
     version: str                  # SDK version of the user's libraries (always SDK_VERSION once patched)
     fingerprint: str              # identifies the patched set; a change restarts the SDK worker
+    link_path: str | None = None  # the _vtech_link module, in a vtech-link build
 
 
 def companion_path(arch: str) -> str:
@@ -61,13 +66,40 @@ def bundled_libdir() -> str | None:
     return libdir if all(os.path.isfile(os.path.join(libdir, lib)) for lib in _sdk.HOST_LIBS) else None
 
 
+def bundled_link() -> str | None:
+    """The path of our `_vtech_link` module for this host, if the integration ships one for it."""
+    try:
+        arch = _sdk.host_arch()
+    except UnsupportedHost:
+        return None
+    libc = host_libc()
+    if libc is None:
+        return None
+    path = os.path.join(PKG, "native", f"{arch}-{libc}", LINK_MODULE)
+    return path if os.path.isfile(path) else None
+
+
 def host_supported() -> str | None:
     """This host's architecture if this build of the integration can run on it, else None."""
     try:
         arch = _sdk.host_arch()
     except UnsupportedHost:
         return None
+    if BACKEND == "link":
+        return arch if bundled_link() else None
     return arch if bundled_libdir() or os.path.isfile(companion_path(arch)) else None
+
+
+def prepare_link() -> Prepared:
+    """Our `_vtech_link` module for this host; the worker loads it, never this process.
+    Raises UnsupportedHost if this build has none for this host."""
+    arch = _sdk.host_arch()
+    path = bundled_link()
+    if path is None:
+        raise UnsupportedHost(f"this integration build has no vtech-link module for {arch}-{host_libc()}")
+    with open(path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    return Prepared(None, arch, "vtech-link", json.dumps({"link": digest}), link_path=path)
 
 
 def install_sdk(package: str, sdk_dir: str) -> str:

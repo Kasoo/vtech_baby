@@ -27,6 +27,7 @@ from homeassistant.helpers.selector import (
 
 from . import native
 from .const import (
+    BACKEND,
     CONF_ACCOUNT,
     CONF_APP_FILE,
     CONF_AUTHKEY,
@@ -78,8 +79,9 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is None:
             existing = self._async_current_entries(include_ignore=False)
             self._sdk_dir = existing[0].data[CONF_SDK_DIR] if existing else self.hass.config.path(*SDK_SUBDIR)
-            # The integration's own libraries need no upload; a load failure is reported at the camera step.
-            if await self.hass.async_add_executor_job(native.bundled_libdir):
+            # vtech-link and the integration's own libraries need no upload; a load failure is reported at
+            # the camera step.
+            if BACKEND == "link" or await self.hass.async_add_executor_job(native.bundled_libdir):
                 try:
                     self._handle = await async_load_sdk(self.hass, self._sdk_dir)
                 except SdkSetupError as err:

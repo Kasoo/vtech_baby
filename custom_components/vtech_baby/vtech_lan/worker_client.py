@@ -74,6 +74,7 @@ class WorkerClient:
         self._handle: WorkerHandle | None = None
         self.gen = 0                            # worker generation; proxies remember theirs
         self._libdir: str | None = None
+        self._link_path: str | None = None
         self._fingerprint: str | None = None
         self._ids = itertools.count(1)
         self._pending: dict[int, tuple[Future, int]] = {}
@@ -87,23 +88,25 @@ class WorkerClient:
         self.pid: int | None = None
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
-    def ensure(self, libdir: str, fingerprint: str = "") -> dict[str, Any]:
-        """Make sure a worker runs with this SDK. A different SDK (a new upload) restarts the worker, so
-        its sessions are lost and reconnect on the new one. Blocking."""
+    def ensure(self, libdir: str | None, fingerprint: str = "", link_path: str | None = None) -> dict[str, Any]:
+        """Make sure a worker runs with this SDK (`libdir`) and this `_vtech_link` module (`link_path`);
+        either may be None, not both. A change (a new upload) restarts the worker, so its sessions are lost
+        and reconnect on the new one. Blocking."""
         with self._lock:
             if self.closed:
                 raise SessionGone("the SDK worker is shut down", call="load")
-            if self._chan is not None and (libdir, fingerprint) != (self._libdir, self._fingerprint):
+            wanted = (libdir, link_path, fingerprint)
+            if self._chan is not None and wanted != (self._libdir, self._link_path, self._fingerprint):
                 _LOG.info("SDK changed; restarting the worker")
                 self._stop_worker()
-            self._libdir, self._fingerprint = libdir, fingerprint
+            self._libdir, self._link_path, self._fingerprint = wanted
             if self._chan is None:
                 self._start()
         return self.request("sdk_info")
 
     def _start(self) -> None:
-        """Start a worker and load the SDK in it (lock held)."""
-        if self._libdir is None:
+        """Start a worker and load the SDK and vtech-link in it (lock held)."""
+        if self._libdir is None and self._link_path is None:
             raise SessionGone("the SDK isn't loaded", call="load")
         ours, theirs = socket.socketpair()
         try:
@@ -117,7 +120,10 @@ class WorkerClient:
         level = self._log_level if self._log_level is not None else logging.getLogger(PACKAGE).getEffectiveLevel()
         try:
             self.pid = self.request("init", self.token, level)
-            self.request("load", self._libdir)
+            if self._libdir is not None:
+                self.request("load", self._libdir)
+            if self._link_path is not None:
+                self.request("load_link", self._link_path)
         except BaseException:
             self._stop_worker()
             raise
@@ -254,10 +260,11 @@ class WorkerClient:
     def session(self, uid: str, authkey: str, password: str, account: str = "admin", *,
                 on_push: Callable[[Any], None] | None = None,
                 on_lost: Callable[[VtechError], None] | None = None,
-                media: bool = False, **options: Any) -> SessionProxy:
+                media: bool = False, backend: str = "sdk", **options: Any) -> SessionProxy:
         """A session to one camera, opened in the worker on `connect()`. `media=True` makes it the one
-        this camera's live view uses. `options` are `Session` keyword arguments (name, keepalive_s, ...)."""
-        return SessionProxy(self, uid, authkey, password, account, on_push, on_lost, media, options)
+        this camera's live view uses. `backend` is "sdk" or "link". `options` are session keyword
+        arguments (name, keepalive_s, ...)."""
+        return SessionProxy(self, uid, authkey, password, account, on_push, on_lost, media, options, backend)
 
     def media(self, uid: str, on_running: Callable[[bool], None] | None = None) -> MediaProxy:
         m = MediaProxy(self, uid, on_running)
@@ -286,13 +293,14 @@ class WorkerClient:
 
 
 class SessionProxy:
-    """Stands in for `Session`: the same blocking methods, run in the worker."""
+    """Stands in for a session: the same blocking methods, run in the worker."""
 
     def __init__(self, client: WorkerClient, uid: str, authkey: str, password: str, account: str,
                  on_push: Callable[[Any], None] | None, on_lost: Callable[[VtechError], None] | None,
-                 media: bool, options: dict[str, Any]):
+                 media: bool, options: dict[str, Any], backend: str = "sdk"):
         self._client = client
-        self._args = (uid, authkey, password, account, options, media)
+        self._args = (uid, authkey, password, account, options, media, backend)
+        self.backend = backend
         self.uid = uid
         self.name: str = options.get("name", "camera")
         self.on_push, self.on_lost = on_push, on_lost

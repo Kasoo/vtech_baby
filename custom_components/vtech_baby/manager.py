@@ -28,6 +28,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from . import native
 from .const import (
+    BACKEND,
     CONF_ACCOUNT,
     CONF_AUTHKEY,
     CONF_AV_PASSWORD,
@@ -109,8 +110,8 @@ def _crash_issue(hass: HomeAssistant, reason: str, count: int) -> None:
 
 def _prepare_and_load(client: WorkerClient, sdk_dir: str, lib_root: str) -> SdkHandle:
     try:
-        prepared = native.prepare(sdk_dir, lib_root)
-        client.ensure(prepared.libdir, prepared.fingerprint)
+        prepared = native.prepare_link() if BACKEND == "link" else native.prepare(sdk_dir, lib_root)
+        client.ensure(prepared.libdir, prepared.fingerprint, link_path=prepared.link_path)
         return SdkHandle(client, prepared)
     except (native.PatchError, VtechError, OSError) as err:
         raise SdkSetupError(str(err)) from err
@@ -125,7 +126,8 @@ async def async_load_sdk(hass: HomeAssistant, sdk_dir: str) -> SdkHandle:
 
 
 def _probe(client: WorkerClient, uid: str, authkey: str, password: str, account: str) -> ops.DevInfo:
-    s = client.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0)
+    s = client.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0,
+                       backend=BACKEND)
     try:
         return s.connect()
     finally:
@@ -294,7 +296,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         s: SessionProxy
         s = self.client.session(
             d[CONF_UID], d[CONF_AUTHKEY], d[CONF_AV_PASSWORD], d[CONF_ACCOUNT], media=True,
-            name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
+            backend=BACKEND, name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
             on_push=lambda p: self.hass.loop.call_soon_threadsafe(self._on_push, s, p),
             on_lost=lambda e: self.hass.loop.call_soon_threadsafe(self._on_lost, s, e))
         return s

@@ -137,6 +137,10 @@ ssh $HOST "export VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=…; /tmp/vtech-link
 | `restart 25` | **24/25.** Cycle 10's keyframe was given up (`lost_before` 1), so its first frame was a P-frame. The other 24 started on a keyframe with SPS/PPS 0.3–2.3 s after START. |
 | `stream 120 --drop 50` | 170 packets dropped on purpose: 106 rebuilt from parity, the rest NAKed (215 NAKs). **11 frames lost** (9 audio, 2 video), matching 11 gap skips: those NAKed packets weren't resent within the 300 ms gap skip. `tutk-host` had 35 rebuilt and 0 bad under `TK_DROP=50` (`tutk-host/NOTES.md`). |
 
+The losses in the three rows above were investigated in `86-live-losses.md`: they are a threshold both
+stacks share (slow keyframes against the 500 ms wait) and NAKs the camera doesn't answer, not a
+vtech-link defect.
+
 Found by the first run and fixed: the reactor sent its first search round only after its first wait (a
 100 ms search interval), so the IOTC connect took 114 ms instead of about 10 ms.
 
