@@ -62,8 +62,10 @@ the camera ignores), then the 1080p live runs; then Phase 3's integration side. 
   is built (2026-10-23): `const.BACKEND` chooses the transport at build time (decided 2026-10-22: we swap
   only until vtech-link is finished, then it replaces the other two). A "link" build loads the module
   `sync_link.sh` installs (`native.bundled_link`/`prepare_link`), skips the SDK step in setup, opens
-  every session on the link, and puts the link's `info()`/`stats()` in diagnostics. Next: run a link build on the
-  live HA and compare with the `tutk-host` burn-in. Afterwards, the removals in that table (SDK upload, `tooling/`,
+  every session on the link, and puts the link's `info()`/`stats()` in diagnostics. **Live on the NAS HA since
+  2026-10-23 19:59** (`1d37bd3`): connected over LAN with the SDK not loaded, and a live-view snapshot
+  decoded. Debug logging for `custom_components.vtech_baby` was set with `logger.set_level`, which a
+  restart undoes. Next: watch it against the `tutk-host` burn-in. Afterwards, the removals in that table (SDK upload, `tooling/`,
   `libtk.so`, the `tutk-host` sets, the worker).
 - **Discuss: the reactor's wait** (`70-runtime.md`, "Status"). It blocks in `recv_from` with
   `SO_RCVTIMEO`, then drains in non-blocking mode, which costs an `ioctl` pair on every wake-up that
