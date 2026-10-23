@@ -17,6 +17,7 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.vtech_baby import config_flow as cf
+from custom_components.vtech_baby import diagnostics as diag
 from custom_components.vtech_baby import manager as mgr
 from custom_components.vtech_baby import native
 from custom_components.vtech_baby.const import (
@@ -25,6 +26,7 @@ from custom_components.vtech_baby.const import (
 from custom_components.vtech_baby.native import Prepared
 from custom_components.vtech_baby.vtech_lan import provision
 
+from fake_link import FakeLinkModule
 from fake_sdk import FakeSdk, i32, thread_client
 from test_extract import apk, bundle
 from test_provision import make_qr
@@ -72,13 +74,27 @@ UPLOADS = {
 }
 
 
+@pytest.fixture
+def backend():
+    """The build-time BACKEND these tests run with; a test overrides it with a parametrize."""
+    return "sdk"
+
+
+@pytest.fixture
+def link_mod():
+    return FakeLinkModule()
+
+
 @pytest.fixture(autouse=True)
-def sdk_patch(fake, sdk):
+def sdk_patch(fake, sdk, backend, link_mod):
     def prep(client, sdk_dir, lib_root):
-        if sdk_dir in sdk["bad"]:
+        if backend == "link":
+            prepared = Prepared(None, "x86_64", "vtech-link", "fp", link_path="/pkg/_vtech_link.abi3.so")
+        elif sdk_dir in sdk["bad"]:
             raise mgr.SdkSetupError(f"cannot load {sdk_dir}")
-        prepared = Prepared(lib_root + "/x86_64", "x86_64", "4.3.8.1", "fp")
-        client.ensure(prepared.libdir, prepared.fingerprint)
+        else:
+            prepared = Prepared(lib_root + "/x86_64", "x86_64", "4.3.8.1", "fp")
+        client.ensure(prepared.libdir, prepared.fingerprint, link_path=prepared.link_path)
         return mgr.SdkHandle(client, prepared)
 
     def install(hass, file_id, sdk_dir):
@@ -88,7 +104,10 @@ def sdk_patch(fake, sdk):
         sdk["present"] = True
         return "4.3.8.1"
     with patch.object(mgr, "_prepare_and_load", prep), patch.object(cf, "_install", install), \
-         patch.object(mgr, "make_client", lambda on_crash: thread_client(fake, on_crash=on_crash)), \
+         patch.object(mgr, "make_client",
+                      lambda on_crash: thread_client(fake, link_loader=lambda _p: link_mod, on_crash=on_crash)), \
+         patch.object(mgr, "BACKEND", backend), patch.object(cf, "BACKEND", backend), \
+         patch.object(diag, "BACKEND", backend), \
          patch.object(native, "host_supported", lambda: "x86_64"), \
          patch.object(native, "sdk_present", lambda d: sdk["present"]), \
          patch.object(native, "bundled_libdir", lambda: sdk["bundled"]), \
@@ -359,6 +378,32 @@ async def test_diagnostics_redacts(hass: HomeAssistant):
     for secret in (UID, "Pw0rdXyz", entry.data[CONF_AUTHKEY]):
         assert secret not in text
     assert d["connected"] and d["state"]["params"]["temp_c"] == 21
+    assert d["backend"] == "sdk" and d["link"] is None
+    await unload(hass, entry)
+
+
+# ── A vtech-link build ───────────────────────────────────────────────────────
+@pytest.mark.parametrize("backend", ["link"])
+async def test_link_build_skips_the_sdk_step(hass: HomeAssistant, sdk, link_mod):
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
+    assert r["type"] is FlowResultType.CREATE_ENTRY
+    assert sdk["installed"] == []
+    await hass.async_block_till_done()
+    assert hass.states.get(TEMP).state == "21"
+    assert [link.uid for link in link_mod.opened] == [UID, UID]        # the probe, then the entry
+    await unload(hass, r["result"])
+
+
+@pytest.mark.parametrize("backend", ["link"])
+async def test_link_build_diagnostics(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    d = await diag.async_get_config_entry_diagnostics(hass, entry)
+    assert d["backend"] == "link"
+    assert d["sdk"]["libdir"] is None and d["sdk"]["link"]["version"] == "0.1.0+fake"
+    assert d["link"]["info"]["mode"] == "lan" and "stats" in d["link"]
+    assert fake.sent_codes() == []                                      # nothing went through the SDK
     await unload(hass, entry)
 
 

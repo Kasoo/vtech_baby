@@ -58,13 +58,13 @@ shared by both stacks. Production switching waits on the end of the `tutk-host` 
 **Resume here (2026-10-23):** "Media losses: next steps" item 1 (gap-aware give-up) and item 2 (NAKs
 the camera ignores), then the 1080p live runs; then Phase 3's integration side. Next:
 
-- **Phase 3, the integration side** (`75-python-api.md`, "Changes in the integration"); `vtech_lan`
-  already runs either backend. Ship `_vtech_link.abi3.so` per arch and libc (`sync_link.sh`), find it
-  (`native.py`), and pass its path to `WorkerClient.ensure`. The backend is a **build-time** choice
-  for now (decided 2026-10-22): which of `tutk-host`, the vendor's SDK and vtech-link a build uses. A
-  runtime or per-entry switch isn't needed, because we swap only until vtech-link is finished, and then
-  it replaces the other two.
-  Diagnostics should show the link's `info()`/`stats()` and the module's `info`.
+- **Phase 3, the integration side** (`75-python-api.md`, "Changes in the integration"). The first step
+  is built (2026-10-23): `const.BACKEND` chooses the transport at build time (decided 2026-10-22: we swap
+  only until vtech-link is finished, then it replaces the other two). A "link" build loads the module
+  `sync_link.sh` installs (`native.bundled_link`/`prepare_link`), skips the SDK step in setup, opens
+  every session on the link, and puts the link's `info()`/`stats()` in diagnostics. Next: run a link build on the
+  live HA and compare with the `tutk-host` burn-in. Afterwards, the removals in that table (SDK upload, `tooling/`,
+  `libtk.so`, the `tutk-host` sets, the worker).
 - **Discuss: the reactor's wait** (`70-runtime.md`, "Status"). It blocks in `recv_from` with
   `SO_RCVTIMEO`, then drains in non-blocking mode, which costs an `ioctl` pair on every wake-up that
   receives data (143 in S4; idle wake-ups no longer make any). Swapping to `poll` plus `recvfrom` with
@@ -113,10 +113,35 @@ the camera ignores), then the 1080p live runs; then Phase 3's integration side. 
     the 1.2 handshake. Ask upstream first (the fork's `TODO.md` has this item).
   - Together about 430 KB: the stripped module from about 1.9 MB to 1.4–1.5 MB, and the HACS download
     from about 7 MB to about 5.5 MB.
+- **Cross-compile the aarch64 sets instead of emulating the compiler.** `release.sh` runs rustc for
+  aarch64 under qemu, copied from `tutk-host/release.sh`, so a full `sync_link.sh` takes about 39 min
+  (2026-10-23), nearly all of it the two aarch64 sets, each built twice. Build them on x86_64 in
+  `ghcr.io/rust-cross/rust-musl-cross:aarch64-musl` and `ghcr.io/rust-cross/manylinux2014-cross:aarch64`
+  (the same libc floors as now), or with `maturin build --zig`. Keep qemu only for the load check in HA's
+  aarch64 image, and pass `--arch` there: the local `home-assistant:stable` tag can be either arch, and
+  musl loads a wrong-arch module far enough to fail with "unsupported relocation type 7". Then
+  check reproducibility and `DT_NEEDED` again, and update `80-build.md` (R35).
 - **Decide the release profile** (`80-build.md`, "Size levers"): fat LTO and `opt-level = "s"` take
   the module from 1,945 KB to 1,411 KB (−27%) on stable, at 3.3× slower crypto with headroom to spare.
   `-Z build-std` adds only about 50 KB more and needs nightly. Not worth it. Measure the arm64 builds and a
   live 1080p stream on `s` before switching.
+
+## Live view stall and go2rtc panic (2026-10-23)
+
+Seen in the live HA log (`/config/HomeAssistantConfig/home-assistant.log` on the NAS) during the new-SDK
+burn-in, the first since HA restarted at 07:38. Neither is explained yet.
+
+- 18:20:02 `vtech_baby.vtech_lan.media`: `111A: live view stopped: no keyframe within 10 s of START`, then
+  `stream_worker` logged `Error opening stream (I/O error, http://127.0.0.1:46429/.../<UID>.ts)`
+  on `camera.vtech_5754_xxxx_live_view`. Find why no keyframe arrived (camera didn't send one, or the
+  receive side dropped it) and whether START should retry.
+- 18:25:15 `homeassistant.components.go2rtc.server`: `panic: runtime error: index out of range [4] with
+  length 0` in `h264.RepairAVCC` (`pkg/h264/avcc.go:20`, go2rtc 1.9.14), so go2rtc stopped. Five minutes
+  after the stall above. `RepairAVCC` indexes the NAL header, so a zero-length NAL reached go2rtc.
+  Hypothesis, not checked: the integration passed an empty or truncated NAL after the stalled START. Check
+  what the live-view path emits when a frame is empty.
+- The integration logs only at WARNING and above, so the healthy hours of the burn-in leave no trace.
+  Consider debug logging for `custom_components.vtech_baby` while it runs.
 
 ## Packaging
 
