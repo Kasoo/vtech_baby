@@ -5,17 +5,17 @@ deliverable, an exit criterion and a way back. Nothing in Home Assistant changes
 `tutk-host` soak that is running now (started 2026-10-20; `tutk-host/NOTES.md`) carries on alongside
 phases 0–2, and the patcher path is retired only after it ends, as already planned.
 
-## Phase 0 — Spikes (de-risk before building)
+## Phase 0 — Prototypes (de-risk before building)
 
-Small throwaway programs in `vtech-link/spikes/`, all read-only against the camera:
+Small throwaway programs in `vtech-link/prototypes/`, all read-only against the camera:
 
-1. **Done 2026-10-21.** **DTLS with dimpl** (`30-dtls.md`, "The dimpl change and the spike"). Add `PSK_WITH_AES_128_GCM_SHA256`
+1. **Done 2026-10-21.** **DTLS with dimpl** (`30-dtls.md`, "The dimpl change and the prototype"). Add `PSK_WITH_AES_128_GCM_SHA256`
    to a local dimpl checkout, and open the upstream issue/PR (Q13). Then the IOTC codec and connect
    (hard-coded, no state machine), and dimpl's PSK client over channel 0. Pass: the handshake completes
    and the AV login replies 0. Settles Q1. If dimpl's hello is refused, compare its extensions with
-   OpenSSL's (in `30-dtls.md`). If dimpl is a dead end, run the same spike with our own client for
+   OpenSSL's (in `30-dtls.md`). If dimpl is a dead end, run the same prototype with our own client for
    `ccac`.
-2. **Done 2026-10-21.** **Wrong AV password** with the same spike. Record which alert the camera sends, if any. Settles Q2.
+2. **Done 2026-10-21.** **Wrong AV password** with the same prototype. Record which alert the camera sends, if any. Settles Q2.
 3. **Done 2026-10-21.** **One socket per link, two links at once**, while HA's own session runs. Pass: three independent
    sessions answer. Settles Q3.
 4. **libgcc_s** in the HA image: done, it's there (`80-build.md`).

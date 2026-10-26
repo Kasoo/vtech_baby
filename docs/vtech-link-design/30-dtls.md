@@ -57,6 +57,29 @@ client's order.
 
 The commands: `TK_CIPHERS=<openssl name>` with the `TK_TRACE=2` probe above.
 
+## Authentication: the PSK, no certificates
+
+The camera presents no certificate. With `0xCCAC` the handshake has no Certificate,
+CertificateRequest or CertificateVerify message, and the ServerKeyExchange carries only the identity
+hint and an unsigned x25519 key (RFC 5489). The fork rejects one that carries a signature. That dimpl
+does no certificate (PKI) validation doesn't matter here, because no certificate suite can be
+negotiated:
+- The link configures exactly one DTLS 1.2 suite and no DTLS 1.3 suites (`core/src/dtls/mod.rs:133`).
+- dimpl's client refuses a ServerHello that picks any other suite (`ServerSelectedDisallowedCipherSuite`).
+- For PSK suites, dimpl skips the certificate states (`src/dtls12/client.rs`, `is_psk()`).
+
+What authenticates each side is the PSK, `SHA-256(AV password)`. Both Finished messages are
+computed with a key derived from the PSK and the x25519 shared secret, over the whole transcript. So
+a valid server Finished proves the peer knows the AV password, and a man in the middle without it
+can't complete the handshake. The x25519 exchange adds forward secrecy.
+
+Limits:
+- **Whoever has the pairing QR or the config entry can impersonate the camera.** The AV password
+  comes from the QR, so the trust anchor is the secrecy of the QR and the config entry, not a
+  certificate.
+- **The key changes only on a re-pair.**
+- **The IOTC layer below uses the authKey,** and no certificates either.
+
 ## Prior art, and the choice
 
 | Option | Fits the camera? | Fits this design? | Verdict |
@@ -67,7 +90,7 @@ The commands: `TK_CIPHERS=<openssl name>` with the `TK_TRACE=2` probe above.
 | **`dimpl`** (algesten, pure Rust, MIT/Apache, built for str0m) | **Not as published**: its only PSK suite is `PSK_AES128_CCM_8`, which the camera ignores | **Exactly our shape**: sans-IO and synchronous (`handle_packet` / `poll_output` / `handle_timeout`); DTLS 1.2 PSK client via `new_12_psk`; RustCrypto backends. It already has AES-GCM and ChaCha20-Poly1305 record protection for its ECDHE_ECDSA suites | **Recommended, with one suite added** (below). |
 | **Our own client** (the rest of this document) | Yes, for `ccac` | Exactly our shape | Fallback if `dimpl` won't take the suite and a fork is unattractive. |
 
-**Decision (2026-10-21, after the spike below): `dimpl`, with two suites added, upstream if they'll
+**Decision (2026-10-21, after the prototype below): `dimpl`, with two suites added, upstream if they'll
 take them.**
 - **The suite to add is `PSK_WITH_AES_128_GCM_SHA256`** (`00a8`). It is the smallest change: dimpl's
   existing PSK key exchange combined with its existing AES-128-GCM record protection.
@@ -80,14 +103,18 @@ take them.**
 - **Dependency risk**: dimpl is young (0.8.0, 2026-10-19; 35 releases in 13 months) and also
   implements DTLS 1.3 and ECDSA, which we don't need. Pin the version, review each upgrade, and enable
   only the features we use.
-- **Phase 0 spike, done** (below): both suites are added to dimpl and work against the camera.
+- **Phase 0 prototype, done** (below): both suites are added to dimpl and work against the camera.
 
-### The dimpl change and the spike (2026-10-21)
+### The dimpl change and the prototype (2026-10-21)
 
 **The change** is branch `psk-suites` on our fork, `git@github.com:Kasoo/dimpl.git` (commit `a72d63a`, on
 dimpl 0.8.0 `f68b009`). It is held there for now, with no upstream PR yet; what a PR would still need is
-listed in the local checkout's uncommitted `TODO.md`. Builds take it through `[patch.crates-io]` at tag
-`vtech-0.8.0-psk.1` (`80-build.md`).
+listed in the local checkout's uncommitted `TODO.md`.
+**Now (2026-10-26)** the fork carries each suite on its own branch for upstream:
+`tls_ecdhe_psk_with_chacha20_poly1305_sha256` (on dimpl 0.9.0, plus the rejection of ServerKeyExchange
+groups the client did not offer and of non-named curves) and `tls_psk_with_aes_128_gsm_sha256` (still on
+0.8.x). Builds take the first through `[patch.crates-io]` at tag `vtech-0.9.0-psk.1` (`11e3135`,
+`80-build.md`), so only `ccac` is available to the link; `00a8` was proven but is no longer used.
 It adds `TLS_PSK_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` for DTLS
 1.2, client and server: about 480 lines added, a third of them tests.
 - **Key exchange**: a new `KeyExchangeAlgorithm::ECDHE_PSK`.
@@ -104,7 +131,7 @@ It adds `TLS_PSK_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1
   (`rust-crypto`: 307 library tests plus the integration suites; the default `aws-lc-rs`: 369 plus the
   integration suites).
 
-**The spike**, `vtech-link/spikes/dtls-camera/`, is about 500 lines. It is a minimal IOTC session
+**The prototype**, `vtech-link/prototypes/dtls-camera/`, is about 500 lines. It is a minimal IOTC session
 (the scramble checked against the kit's worked example; probe, record, connect ack, data), dimpl's PSK
 client on channel 0, the AV login, and a DEVINFO request. It was run from the NAS against the camera,
 read-only:
@@ -139,8 +166,8 @@ ssh $HOST "VTECH_UID=… VTECH_AUTHKEY=… VTECH_PWD=… /tmp/dtls-camera ecdhe-
 
 `core/src/dtls/mod.rs`, about 300 lines: `DtlsClient`, a sans-IO wrapper around dimpl's PSK client in
 the same shape as `IotcSession` (`handle_datagram`, `handle_timeout`, `poll_transmit`, `poll_event`,
-`poll_timeout`). It offers one suite (`Suite::EcdhePskChaCha20` by default, `Suite::PskAes128Gcm` as
-the alternative). It sets dimpl's flight timer to 500 ms doubling, the handshake deadline to
+`poll_timeout`). It offers one suite, `Suite::EcdhePskChaCha20` (`Suite::PskAes128Gcm` was removed with
+the move to dimpl 0.9.0). It sets dimpl's flight timer to 500 ms doubling, the handshake deadline to
 `av_timeout`, and the MTU to one IOTC payload.
 - **Detecting our Finished**: once our outgoing flight carries a ChangeCipherSpec record, the server's
   Finished must arrive within `finished_wait` (3 s); otherwise `AvAuthFailed(Dtls(None))`.
@@ -302,7 +329,7 @@ type u8 | version u16 (fefd; feff on the first ClientHello) | epoch u16 | seq u4
 | `close_notify` (0) or any fatal alert once connected | `Closed(DtlsAlert(code))` |
 | Suite, group or version not what we offered | `Protocol("dtls: unexpected server parameters")` |
 
-The wrong-password row is from the spike (above). Today the same case surfaces as `AV_ER_TIMEOUT` →
+The wrong-password row is from the prototype (above). Today the same case surfaces as `AV_ER_TIMEOUT` →
 `Unreachable` (`av/session.c:217`).
 
 ## Crypto dependencies

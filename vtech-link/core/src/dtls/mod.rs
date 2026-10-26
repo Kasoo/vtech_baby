@@ -30,18 +30,14 @@ const IDENTITY_PREFIX: &str = "AUTHPWD_";
 /// The suite offered (the only one).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Suite {
-    /// `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` (`0xCCAC`): what the camera picks today, with
-    /// forward secrecy.
+    /// `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` (`0xCCAC`), with forward secrecy.
     EcdhePskChaCha20,
-    /// `TLS_PSK_WITH_AES_128_GCM_SHA256` (`0x00A8`): accepted too, without forward secrecy.
-    PskAes128Gcm,
 }
 
 impl Suite {
     fn dimpl(self) -> Dtls12CipherSuite {
         match self {
             Self::EcdhePskChaCha20 => Dtls12CipherSuite::ECDHE_PSK_CHACHA20_POLY1305_SHA256,
-            Self::PskAes128Gcm => Dtls12CipherSuite::PSK_AES128_GCM_SHA256,
         }
     }
 }

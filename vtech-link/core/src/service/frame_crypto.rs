@@ -8,7 +8,7 @@
 
 use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
-use chacha20poly1305::aead::AeadInPlace;
+use chacha20poly1305::aead::AeadInOut;
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce, Tag};
 use zeroize::Zeroizing;
 
@@ -29,11 +29,11 @@ pub fn decrypt(master: &MasterKey, frame: &[u8]) -> Option<Vec<u8>> {
     let mut key = Zeroizing::new([0u8; 32]);
     key.copy_from_slice(header.get(..32)?);
     let nonce: [u8; 12] = header.get(32..44)?.try_into().ok()?;
-    let tag = Tag::clone_from_slice(header.get(44..60)?);
+    let tag = Tag::try_from(header.get(44..60)?).ok()?;
     wrap(master, &nonce, &mut key);
     let mut plain = body.to_vec();
-    ChaCha20Poly1305::new(key.as_ref().into())
-        .decrypt_in_place_detached(Nonce::from_slice(&nonce), b"", &mut plain, &tag)
+    ChaCha20Poly1305::new((&*key).into())
+        .decrypt_inout_detached(&Nonce::from(nonce), b"", plain.as_mut_slice().into(), &tag)
         .ok()?;
     Some(plain)
 }
@@ -44,8 +44,8 @@ pub fn encrypt(master: &MasterKey, frame_key: [u8; 32], nonce: [u8; 12], plain: 
     let mut out = Vec::with_capacity(HEADER_LEN + plain.len());
     let mut body = plain.to_vec();
     // Encryption with a 32-byte key and a 12-byte nonce can't fail below 256 GiB.
-    let tag = ChaCha20Poly1305::new(frame_key.as_ref().into())
-        .encrypt_in_place_detached(Nonce::from_slice(&nonce), b"", &mut body)
+    let tag = ChaCha20Poly1305::new((&*frame_key).into())
+        .encrypt_inout_detached(&Nonce::from(nonce), b"", body.as_mut_slice().into())
         .unwrap_or_default();
     let mut wrapped = *frame_key;
     wrap(master, &nonce, &mut wrapped);

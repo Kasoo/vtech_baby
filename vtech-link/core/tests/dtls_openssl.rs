@@ -193,7 +193,6 @@ fn interop(suite: Suite, cipher: &str, extra: &[&str]) {
     );
     let expected = match suite {
         Suite::EcdhePskChaCha20 => 0xccac,
-        Suite::PskAes128Gcm => 0x00a8,
     };
     assert_eq!(client.negotiated_suite(), Some(expected));
 
@@ -250,9 +249,4 @@ fn ecdhe_psk_chacha20_cookie_exchange() {
         "ECDHE-PSK-CHACHA20-POLY1305",
         &["-groups", "X25519", "-listen"],
     );
-}
-
-#[test]
-fn psk_aes128_gcm() {
-    interop(Suite::PskAes128Gcm, "PSK-AES128-GCM-SHA256", &[]);
 }

@@ -1,7 +1,7 @@
 //! The live-view key exchange (`0x820`/`0x821`) and the session master it yields. Port of
 //! `vtech_lan/crypto.py` `KeyExchange`; kit `docs/vtech-lan-kit/docs/50-media-decryption.md`.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;

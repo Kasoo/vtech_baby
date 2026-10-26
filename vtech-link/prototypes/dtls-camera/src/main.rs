@@ -1,9 +1,9 @@
-//! Phase 0 spike: connect to the camera over a minimal IOTC session, run dimpl's DTLS 1.2 PSK
+//! Phase 0 prototype: connect to the camera over a minimal IOTC session, run dimpl's DTLS 1.2 PSK
 //! client on channel 0, log in to the AV channel and ask for the device info.
 //!
 //!   VTECH_UID=... VTECH_AUTHKEY=... VTECH_PWD=... dtls-camera <suite> [camera-ip] [options]
 //!
-//! <suite> is one of ecdhe-psk-chacha, psk-gcm, psk-ccm8. Options:
+//! <suite> is one of ecdhe-psk-chacha, psk-ccm8. Options:
 //!   --wrong-pwd          log in with a wrong AV password
 //!   --sdk-version 0xNN   the SDK version advertised (default 0x04030864, 4.3.8.100)
 //!   --window N           after DEVINFO, send N read-only GETs back to back, unacknowledged
@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use dimpl::crypto::Dtls12CipherSuite;
 use dimpl::{Config, Dtls, Output, PskResolver};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 
 const KEY: &[u8; 16] = b"Charlie is the d";
@@ -349,10 +349,9 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let suite = match args.get(1).map(String::as_str) {
         Some("ecdhe-psk-chacha") => Dtls12CipherSuite::ECDHE_PSK_CHACHA20_POLY1305_SHA256,
-        Some("psk-gcm") => Dtls12CipherSuite::PSK_AES128_GCM_SHA256,
         Some("psk-ccm8") => Dtls12CipherSuite::PSK_AES128_CCM_8,
         _ => {
-            eprintln!("usage: dtls-camera ecdhe-psk-chacha|psk-gcm|psk-ccm8 [camera-ip] [--wrong-pwd]");
+            eprintln!("usage: dtls-camera ecdhe-psk-chacha|psk-ccm8 [camera-ip] [--wrong-pwd]");
             exit(2);
         }
     };
@@ -377,7 +376,7 @@ fn main() {
     let mut authkey = [0u8; 8];
     authkey.copy_from_slice(authkey_s.as_bytes());
     let mut token = [0u8; 8];
-    getrandom::getrandom(&mut token).unwrap();
+    getrandom::fill(&mut token).unwrap();
 
     let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
     sock.set_broadcast(true).unwrap();
@@ -508,7 +507,7 @@ fn main() {
 
     // AV login, then DEVINFO, the window of GETs, the hold, and DEVINFO again.
     let mut nonce = [0u8; 4];
-    getrandom::getrandom(&mut nonce).unwrap();
+    getrandom::fill(&mut nonce).unwrap();
     let nonce = u32::from_le_bytes(nonce) | 1;
     let mut av = Av::default();
     let t2 = Instant::now();

@@ -146,13 +146,13 @@ length / 0. That works because the camera keys on `+0x1c` and only needs `+0x12`
 **Sending policy.** User frames go out through a window of **8 unacknowledged frames**
 (`ctrl_window`, configurable), with a FIFO behind it. Internal frames (the reset) bypass the window.
 The camera takes 8 back-to-back unacknowledged GETs and answers every one with no retransmission
-(spike, 2026-10-21; Q5). Today concurrency is limited above us by `Session._send_lock`, because the SDK
+(prototype, 2026-10-21; Q5). Today concurrency is limited above us by `Session._send_lock`, because the SDK
 refuses a second concurrent send (`-20021`). With the window in the stream, callers queue instead of
 retrying on "busy" (R11).
 
 **The camera's own control frames are stop and wait.** It sends one, and sends the next only after our
 ACK covers it. With 8 requests outstanding, the replies came about 110 ms apart when we ACKed every
-100 ms, about 55 ms apart at 50 ms, and about 33 ms apart at 10 ms (spike `--window 8 --ack-ms N`,
+100 ms, about 55 ms apart at 50 ms, and about 33 ms apart at 10 ms (prototype `--window 8 --ack-ms N`,
 2026-10-21). So **the ACK after an inbound control frame must be prompt**. The 10 ms coalescing deadline
 below is what lets a full state re-read (about 12 requests) finish in about 0.4 s rather than 1.3 s.
 `tutk-host` behaves the same way through its 10 ms transmit tick.

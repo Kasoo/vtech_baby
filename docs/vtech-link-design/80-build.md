@@ -25,7 +25,7 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 | `mio` (`net`, `os-poll`) | the reactor | core |
 | `socket2` | socket options before handing the socket to mio | core |
 | `if-addrs` | `getifaddrs` | core |
-| `dimpl` (`"0.8"`, `default-features = false`, `rust-crypto`; from our fork until upstream has the PSK suites, below) | DTLS 1.2 PSK client | core |
+| `dimpl` (`"0.9"`, `default-features = false`, `rust-crypto`; from our fork until upstream has the PSK suites, below) | DTLS 1.2 PSK client | core |
 | `x25519-dalek` (`static_secrets`) | live-view key exchange (and DTLS ECDHE in the own-client fallback) | core |
 | `sha2`, `sha1`, `hmac` | PRF, transcript, connect-record HMAC, PSK | core |
 | `chacha20poly1305`, `chacha20` | DTLS records, frame crypto, key unwrap | core |
@@ -39,6 +39,11 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 | `clap`, `env_logger` | CLI | cli |
 | `proptest`, `libfuzzer-sys`/`cargo-fuzz` | tests | dev |
 
+The crypto crates (`x25519-dalek`, `sha1`, `sha2`, `hmac`, `chacha20`, `chacha20poly1305`, `getrandom`)
+are pinned to the major versions dimpl uses, so the module carries one copy of each. Cargo can't
+inherit a dependency's version, so after each dimpl bump `cargo tree -d -e normal` must list only
+`syn` (build-time only).
+
 Each added crate is a reviewed decision, as the import allow-list was for `tutk-host`. `cargo deny`
 fails the build on an unlisted licence (MIT, Apache-2.0, BSD-3-Clause and Unicode are allowed), a
 RustSec advisory, or a banned crate (`openssl`, `openssl-sys`, `ring` and any `*-sys` that builds C).
@@ -51,11 +56,11 @@ root swaps in our fork.
 
 ```toml
 # core/Cargo.toml
-dimpl = { version = "0.8", default-features = false, features = ["rust-crypto"] }
+dimpl = { version = "0.9", default-features = false, features = ["rust-crypto"] }
 
 # Cargo.toml (workspace root)
 [patch.crates-io]
-dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
+dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
 ```
 
 - **Tag, not branch.** Each fork revision gets a new tag (`vtech-<upstream version>-psk.<n>`), so a
@@ -66,16 +71,16 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
   suites.
 - **Offline builds**, if wanted: `release.sh` runs `cargo vendor` before starting the containers and
   passes the vendor directory and its `.cargo/config.toml` in. `vendor/` is not committed.
-- Proven by the spike (`spikes/dtls-camera/Cargo.toml`), which builds from the tag with `--locked`.
+- Proven by the prototype (`prototypes/dtls-camera/Cargo.toml`), which builds from the tag with `--locked`.
 
 ## The four builds (R35)
 
 | Build | Image | Target | Wheel tag (for reference) |
 |---|---|---|---|
 | `x86_64-glibc` | `quay.io/pypa/manylinux2014_x86_64` + rustup | `x86_64-unknown-linux-gnu` | manylinux2014 (glibc 2.17) |
-| `aarch64-glibc` | `quay.io/pypa/manylinux2014_aarch64` + rustup (qemu) | `aarch64-unknown-linux-gnu` | manylinux2014 |
+| `aarch64-glibc` | `ghcr.io/rust-cross/manylinux2014-cross:aarch64` + rustup (cross, glibc 2.17 sysroot) | `aarch64-unknown-linux-gnu` | manylinux2014 |
 | `x86_64-musl` | `docker.io/library/alpine:3.24` + rustup | `x86_64-unknown-linux-musl`, `-C target-feature=-crt-static` | musllinux_1_2 |
-| `aarch64-musl` | `alpine:3.24` + rustup (qemu) | `aarch64-unknown-linux-musl`, `-crt-static` | musllinux_1_2 |
+| `aarch64-musl` | `ghcr.io/rust-cross/rust-musl-cross:aarch64-musl` + rustup (cross) | `aarch64-unknown-linux-musl`, `-crt-static` | musllinux_1_2 |
 
 - Built with **maturin** 1.15.0 from pip (`maturin build --release --strip --locked --compatibility <tag>`),
   with the toolchain pinned by `rust-toolchain.toml` installed by rustup in every container (Alpine's own
@@ -88,8 +93,13 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
 - **Reproducible**: `--locked`, `SOURCE_DATE_EPOCH` from the commit, `--remap-path-prefix` for the
   source and cargo-home paths. `release.sh` builds twice and compares hashes; all four sets matched on 2026-10-22. It builds a `git archive`
   of one revision, not the working tree.
-- **qemu** for the foreign arch, as `tutk-host/release.sh` does. Pass `--arch` explicitly, since the
-  local `alpine:3.24` tag flips arch on pull.
+- **Cross-compiled aarch64** (since 2026-10-26): every build runs on the host's arch, and the aarch64
+  sets link with the rust-cross images' target gcc (`release.sh` sets `CARGO_TARGET_<T>_LINKER`, since
+  its own `CARGO_HOME` hides the image's config). Both aarch64 sets take about 108 s together, against
+  about 39 min under qemu. The cross musl names libc `libc.so` in `DT_NEEDED`, not Alpine's
+  `libc.musl-*.so.1`; musl's loader resolves both to itself, and `tools/ha_import_check.sh` loads the
+  module in HA's arm64 image. qemu is now used only by that check, with `--arch` explicit (the local
+  `home-assistant:stable` tag can be either arch).
 
 ## The import check
 
