@@ -42,6 +42,12 @@ LINK_WAIT_S = 0.2             # how long one `LinkMediaSource.poll` waits for a 
 OnData = Callable[[bytes | None], None]
 
 
+def has_nal(access_unit: bytes) -> bool:
+    """True if an Annex-B access unit holds anything besides start codes and zero bytes. go2rtc crashes
+    on an empty video packet."""
+    return any(access_unit.replace(b"\x00\x00\x01", b""))
+
+
 def is_keyframe(access_unit: bytes) -> bool:
     """True if an Annex-B access unit holds an IDR slice (NAL type 5)."""
     i = 0
@@ -371,6 +377,10 @@ class LiveStream:
                             emit(mux.audio(f.data, pts(f.arrived)))
                         continue
                     au = f.data
+                    if not has_nal(au):
+                        st["bad"] += 1
+                        _LOG.debug("%s: dropped an empty video frame (%d bytes)", self.name, len(au))
+                        continue
                     st["video"] += 1
                     key = is_keyframe(au)
                     if key:

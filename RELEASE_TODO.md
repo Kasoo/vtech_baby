@@ -58,7 +58,7 @@ dimpl's major versions (sha2/sha1 0.11, hmac 0.13, chacha20 0.10, chacha20poly13
         modules without a restart, which the worker allowed, goes away.
 - [ ] **Live-view stall and go2rtc panic** (`TODO.md`, "Live view stall and go2rtc panic"). There was
       "no keyframe within 10 s of START", then a zero-length NAL crashed go2rtc in `RepairAVCC`.
-  - Make sure the integration never emits an empty NAL.
+  - Make sure the integration never emits an empty NAL (done 2026-10-26, `media.has_nal`).
   - Find out whether the link build shows the same stall.
 - [ ] **Media losses, items 1 and 2** (`86-live-losses.md`, "Open"):
   - give up an incomplete frame only after a gap below it has been skipped (built 2026-10-26, verify

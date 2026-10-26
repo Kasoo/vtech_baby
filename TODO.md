@@ -133,10 +133,12 @@ burn-in, the first since HA restarted at 07:38. Neither is explained yet.
 - 18:25:15 `homeassistant.components.go2rtc.server`: `panic: runtime error: index out of range [4] with
   length 0` in `h264.RepairAVCC` (`pkg/h264/avcc.go:20`, go2rtc 1.9.14), so go2rtc stopped. Five minutes
   after the stall above. `RepairAVCC` indexes the NAL header, so a zero-length NAL reached go2rtc.
-  Hypothesis, not checked: the integration passed an empty or truncated NAL after the stalled START. Check
-  what the live-view path emits when a frame is empty.
-- The integration logs only at WARNING and above, so the healthy hours of the burn-in leave no trace.
-  Consider debug logging for `custom_components.vtech_baby` while it runs.
+  Guarded since 2026-10-26: the live view drops a video access unit with nothing but start codes
+  (`media.has_nal`), counting it bad. PyAV muxes a bare start code as its own PES, which go2rtc's
+  MPEG-TS reader turns into an empty packet, and takes an empty packet as a flush. Whether one of these
+  caused this crash is still unknown: the debug log names each dropped frame.
+- Debug logging for `custom_components.vtech_baby` is on in the NAS HA's `configuration.yaml` (`logger:`)
+  since 2026-10-26, so it survives restarts; the systemd journal keeps more than `home-assistant.log`.
 
 ## Packaging
 
