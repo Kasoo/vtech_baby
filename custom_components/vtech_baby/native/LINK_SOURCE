@@ -1,6 +1,6 @@
-vtech_link_commit: b1e244f3f9413d2e5ef34d4e8196586da912111b
-synced: 2026-10-26T21:55:57Z
-8d7eb49a44061e42355a93a02a9bc9741bbb6807e70a878ce9bd8e775c012a39  native/aarch64-glibc/_vtech_link.abi3.so
-ca232a82f36a21ac3b18d20e98ca6c861e8a6809bba27196cd390fb2ed6e0c16  native/aarch64-musl/_vtech_link.abi3.so
-6e2d391e881d2ea568131331c78b8d7c1cb88501cdcf31864483ae487fb3f8a4  native/x86_64-glibc/_vtech_link.abi3.so
-0a96a1fad3376438349eafe668f67cb21809da95ed54c60993bca3d1b188394f  native/x86_64-musl/_vtech_link.abi3.so
+vtech_link_commit: 140c15d665f80f89cb1b881c1b43e0dc94e1b3ae
+synced: 2026-10-26T22:03:05Z
+7c82cb042e052c546e1cc1037bb76e78fca7ef7767a385b282f96af64aab4c95  native/aarch64-glibc/_vtech_link.abi3.so
+8255a4d765dac1ba1a8d780324871b819881c981f573a0bac71e947270c2f53b  native/aarch64-musl/_vtech_link.abi3.so
+c91f51db3c871d149d612925c8360c95a0fc96158c8b0fda98ebb16bb79b9649  native/x86_64-glibc/_vtech_link.abi3.so
+537dd2faa7ddc0415c80e4f95b1d13e45cb0e104773682335b8052709d733006  native/x86_64-musl/_vtech_link.abi3.so
