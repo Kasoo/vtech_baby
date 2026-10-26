@@ -6,7 +6,7 @@ publish = false
 
 # Phase 0 spike: dimpl's PSK client against the camera over a hand-rolled IOTC session.
 [dependencies]
-dimpl = { version = "0.8", default-features = false, features = ["rust-crypto"] }
+dimpl = { version = "0.9", default-features = false, features = ["rust-crypto"] }
 hmac = "0.12"
 sha1 = "0.10"
 getrandom = "0.2"
@@ -19,4 +19,4 @@ opt-level = 2
 
 # Our fork's PSK suites until upstream dimpl has them (docs/vtech-link-design/80-build.md).
 [patch.crates-io]
-dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
+dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }

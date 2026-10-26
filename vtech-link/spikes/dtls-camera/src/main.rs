@@ -3,7 +3,7 @@
 //!
 //!   VTECH_UID=... VTECH_AUTHKEY=... VTECH_PWD=... dtls-camera <suite> [camera-ip] [options]
 //!
-//! <suite> is one of ecdhe-psk-chacha, psk-gcm, psk-ccm8. Options:
+//! <suite> is one of ecdhe-psk-chacha, psk-ccm8. Options:
 //!   --wrong-pwd          log in with a wrong AV password
 //!   --sdk-version 0xNN   the SDK version advertised (default 0x04030864, 4.3.8.100)
 //!   --window N           after DEVINFO, send N read-only GETs back to back, unacknowledged
@@ -349,10 +349,9 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let suite = match args.get(1).map(String::as_str) {
         Some("ecdhe-psk-chacha") => Dtls12CipherSuite::ECDHE_PSK_CHACHA20_POLY1305_SHA256,
-        Some("psk-gcm") => Dtls12CipherSuite::PSK_AES128_GCM_SHA256,
         Some("psk-ccm8") => Dtls12CipherSuite::PSK_AES128_CCM_8,
         _ => {
-            eprintln!("usage: dtls-camera ecdhe-psk-chacha|psk-gcm|psk-ccm8 [camera-ip] [--wrong-pwd]");
+            eprintln!("usage: dtls-camera ecdhe-psk-chacha|psk-ccm8 [camera-ip] [--wrong-pwd]");
             exit(2);
         }
     };

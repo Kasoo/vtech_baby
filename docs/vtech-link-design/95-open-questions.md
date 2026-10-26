@@ -7,7 +7,7 @@ Each item says what is unknown, why it matters, how it gets settled, and the def
 | ID | Question | Matters for | Settled by | Default |
 |---|---|---|---|---|
 | Q1 | Does the camera accept dimpl's ClientHello? | `30-dtls.md` | **Settled 2026-10-21: yes**, for `ccac` and `00a8` (the dimpl spike) | — |
-| Q13 | Will dimpl upstream take `PSK_WITH_AES_128_GCM_SHA256` (and later `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`)? | The DTLS choice | An issue/PR on `algesten/dimpl` | Carry the suite as a patch on a fork; else our own client |
+| Q13 | Will dimpl upstream take `PSK_WITH_AES_128_GCM_SHA256` (and later `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`)? | The DTLS choice | An issue/PR on `algesten/dimpl`. Each suite is on its own fork branch; builds use only `ccac`, at tag `vtech-0.9.0-psk.1` | Carry the suite as a patch on a fork; else our own client |
 | Q2 | What does the camera do for a wrong AV password (a PSK mismatch)? | R4 | **Settled 2026-10-21**: it sends the ServerHello, then nothing after our Finished (no alert). `AvAuthFailed` after 3 s of silence following our Finished | — |
 | Q3 | Does the camera handle several sessions from one host on separate source ports? | `70-runtime.md` socket per link | **Settled 2026-10-21: yes.** Two spike links on separate sockets (one per DTLS suite), each held for 20 s and answering, alongside HA's session and the parent unit streaming; HA logged nothing | — |
 | Q4 | What does control-frame `+0x12` mean? | Multi-fragment inbound frames (R16) | **Settled 2026-10-21** (TUTK kit agent, from the binary; kit commit `4da044d`): the per-fragment packet number, a duplicate gate only. Count `+0x14`, index `+0x16`, frame `+0x1c`; reassembly keys on frame + index; ACK `+0x0c` counts messages (`40-av-client.md`) | — |

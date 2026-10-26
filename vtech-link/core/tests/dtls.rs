@@ -100,7 +100,6 @@ fn config(suite: Suite) -> DtlsConfig {
 fn dimpl_suite(suite: Suite) -> Dtls12CipherSuite {
     match suite {
         Suite::EcdhePskChaCha20 => Dtls12CipherSuite::ECDHE_PSK_CHACHA20_POLY1305_SHA256,
-        Suite::PskAes128Gcm => Dtls12CipherSuite::PSK_AES128_GCM_SHA256,
     }
 }
 
@@ -162,11 +161,11 @@ fn without_cookie_like_the_camera() {
 }
 
 #[test]
-fn handshake_and_data_both_suites() {
+fn handshake_and_data() {
     // With a HelloVerifyRequest, which the camera doesn't send but a conformant server may.
-    for (suite, id) in [(Suite::EcdhePskChaCha20, 0xccac), (Suite::PskAes128Gcm, 0x00a8)] {
+    for suite in [Suite::EcdhePskChaCha20] {
         let (mut client, mut camera, t0) = connect(suite);
-        assert_eq!(client.negotiated_suite(), Some(id));
+        assert_eq!(client.negotiated_suite(), Some(0xccac));
         client.send(t0, b"login").unwrap();
         run(&mut client, &mut camera, t0, &mut |_, _| false);
         assert_eq!(camera.app, [b"login".to_vec()]);

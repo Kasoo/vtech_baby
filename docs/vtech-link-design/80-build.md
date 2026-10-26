@@ -25,7 +25,7 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 | `mio` (`net`, `os-poll`) | the reactor | core |
 | `socket2` | socket options before handing the socket to mio | core |
 | `if-addrs` | `getifaddrs` | core |
-| `dimpl` (`"0.8"`, `default-features = false`, `rust-crypto`; from our fork until upstream has the PSK suites, below) | DTLS 1.2 PSK client | core |
+| `dimpl` (`"0.9"`, `default-features = false`, `rust-crypto`; from our fork until upstream has the PSK suites, below) | DTLS 1.2 PSK client | core |
 | `x25519-dalek` (`static_secrets`) | live-view key exchange (and DTLS ECDHE in the own-client fallback) | core |
 | `sha2`, `sha1`, `hmac` | PRF, transcript, connect-record HMAC, PSK | core |
 | `chacha20poly1305`, `chacha20` | DTLS records, frame crypto, key unwrap | core |
@@ -51,11 +51,11 @@ root swaps in our fork.
 
 ```toml
 # core/Cargo.toml
-dimpl = { version = "0.8", default-features = false, features = ["rust-crypto"] }
+dimpl = { version = "0.9", default-features = false, features = ["rust-crypto"] }
 
 # Cargo.toml (workspace root)
 [patch.crates-io]
-dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.8.0-psk.1" }
+dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
 ```
 
 - **Tag, not branch.** Each fork revision gets a new tag (`vtech-<upstream version>-psk.<n>`), so a
