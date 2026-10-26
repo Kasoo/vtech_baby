@@ -61,7 +61,8 @@ dimpl's major versions (sha2/sha1 0.11, hmac 0.13, chacha20 0.10, chacha20poly13
   - Make sure the integration never emits an empty NAL.
   - Find out whether the link build shows the same stall.
 - [ ] **Media losses, items 1 and 2** (`86-live-losses.md`, "Open"):
-  - give up an incomplete frame only after a gap below it has been skipped;
+  - give up an incomplete frame only after a gap below it has been skipped (built 2026-10-26, verify
+    live);
   - find out why the camera ignores about 1 in 11 NAKs.
 
   Both stacks have them, but they visibly drop keyframes.

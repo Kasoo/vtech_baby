@@ -80,7 +80,11 @@ under drops while delivering fewer audio frames than vtech-link in the same 120 
 
 ## Open
 
-1. **Don't give up a frame that is still arriving (both stacks).** A frame missing fragments while the
+1. **Don't give up a frame that is still arriving (both stacks).** Built in vtech-link (2026-10-26):
+   an incomplete frame waits 500 ms only after a packet gap has been skipped, otherwise 2 s
+   (`incomplete_wait`, `45-media-receive.md`), with offline tests for a keyframe trickled over 505 ms
+   and for a gap skip. Each give-up's debug line says which rule applied. Still to verify live, as
+   below. A frame missing fragments while the
    packet numbering has no gap below them hasn't lost anything; the camera just hasn't finished sending
    it. Proposed rule for `media_rx.rs`: give up an incomplete frame only once a gap at or below its
    packets has been skipped (or after a much longer backstop, e.g. 2 s). The offline tests need a case

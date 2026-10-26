@@ -83,7 +83,8 @@ the camera ignores), then the 1080p live runs; then Phase 3's integration side. 
   found no vtech-link defect: both stacks lose the same frames under the same conditions.
   1. Give up an incomplete frame only after a packet gap below it has been skipped, not after 500 ms
      alone. The camera trickles large keyframes over about 0.5 s, so both stacks lose an occasional
-     keyframe. Add an offline test, then verify with a long live run.
+     keyframe. Built with offline tests (2026-10-26, `incomplete_wait`); verify with a long live run:
+     no "gave up ... (no packet gap skipped)" line should appear.
   2. Find out why the camera ignores about 1 in 11 NAKs under forced drops (both stacks): log the NAK
      lists and skipped packet numbers and look for a pattern; try a 600 ms gap skip; compare with the
      vendor SDK.

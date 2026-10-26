@@ -178,7 +178,7 @@ back needs `unsafe`.
 `LinkConfig.timing` (`Timing`) holds the protocol timers, with the SDK's values as defaults: the IOTC
 keepalive tick (1 s) and silence limit (60 ticks), the first DTLS retransmission (500 ms) and the
 Finished wait (3 s), the key-exchange timeout (5 s), the talk-back listen timeout (60 s), and the media
-receive timers (`MediaConfig`: gap skip 300 ms, partial wait 500 ms, NAK repeat 50 ms). They exist for
+receive timers (`MediaConfig`: gap skip 300 ms, partial wait 500 ms, incomplete wait 2 s, NAK repeat 50 ms). They exist for
 tests. The Python module doesn't expose them.
 
 ## Packet trace (R33)

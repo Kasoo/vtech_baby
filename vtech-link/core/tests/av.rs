@@ -340,12 +340,15 @@ fn loss_nak_late_and_given_up() {
     assert_eq!((f.number, f.late), (20, true));
     assert_eq!(rx.poll_frame().unwrap().number, 21);
 
-    // A frame that never completes is given up after 500 ms, and the next one says so.
+    // A frame that never completes, with no packet gap skipped: the camera may still be sending it,
+    // so it is given up only after 2 s, and the next one says so.
     let t1 = t0 + 100 * MS;
     rx.on_fragment(t1, &media(5, 4, 2, 0, 22, &[0; 1024], None));
     rx.on_fragment(t1, &media(5, 5, 1, 0, 23, &[0; 10], Some(INFO)));
-    assert_eq!(rx.poll_timeout(), Some(t1 + 500 * MS));
-    rx.handle_timeout(t1 + 500 * MS);
+    assert_eq!(rx.poll_timeout(), Some(t1 + 2000 * MS));
+    rx.handle_timeout(t1 + 1999 * MS);
+    assert!(rx.poll_frame().is_none());
+    rx.handle_timeout(t1 + 2000 * MS);
     let f = rx.poll_frame().unwrap();
     assert_eq!((f.number, f.lost_before), (23, 1));
     let s = rx.stats();
@@ -397,13 +400,63 @@ fn late_fragments_of_a_given_up_frame_are_dropped() {
     let mut rx = MediaRx::new(MediaConfig::default());
     rx.on_fragment(t0, &media(5, 0, 2, 0, 2, &[0; 1024], None));
     rx.on_fragment(t0, &media(5, 2, 1, 0, 3, &[0; 8], Some(INFO)));
+    // An audio packet 300 ms later skips the gap at pn 1, so frame 2 is given up at 500 ms.
+    rx.on_fragment(t0 + 300 * MS, &media(3, 3, 1, 0, 1, &[0; 8], Some(INFO)));
+    assert_eq!(rx.poll_frame().map(|f| f.stream), Some(StreamKind::Audio));
     rx.handle_timeout(t0 + 500 * MS);
     assert_eq!(rx.poll_frame().map(|f| (f.number, f.lost_before)), Some((3, 1)));
     // Frame 2's last fragment, resent: it would otherwise start a new frame 2 and come out after 3.
-    rx.on_fragment(t0 + 600 * MS, &media(5, 1, 2, 1, 2, &[0; 8], Some(INFO)));
+    rx.on_fragment(t0 + 600 * MS, &media(5, 4, 2, 1, 2, &[0; 8], Some(INFO)));
     rx.handle_timeout(t0 + 2000 * MS);
     assert!(rx.poll_frame().is_none());
     assert_eq!(rx.stats().fragments_behind, 1);
+}
+
+#[test]
+fn trickled_keyframe_is_waited_for() {
+    // A 4-fragment keyframe sent over 505 ms between audio packets, with no packet number missing.
+    let t0 = Instant::now();
+    let mut rx = MediaRx::new(MediaConfig::default());
+    rx.on_fragment(t0, &media(7, 0, 4, 0, 1, &[0; 1024], None));
+    rx.on_fragment(t0, &media(7, 1, 4, 1, 1, &[1; 1024], None));
+    rx.on_fragment(t0 + 200 * MS, &media(3, 2, 1, 0, 1, &[0; 8], Some(INFO)));
+    rx.on_fragment(t0 + 300 * MS, &media(5, 3, 1, 0, 2, &[0; 8], Some(INFO)));
+    assert_eq!(rx.poll_timeout(), Some(t0 + 2000 * MS));
+    rx.handle_timeout(t0 + 500 * MS);
+    rx.on_fragment(t0 + 505 * MS, &media(7, 4, 4, 2, 1, &[2; 1024], None));
+    rx.on_fragment(t0 + 513 * MS, &media(7, 5, 4, 3, 1, &[3; 10], Some(INFO)));
+    let frames: Vec<_> = std::iter::from_fn(|| rx.poll_frame())
+        .map(|f| (f.stream, f.number, f.data.len(), f.lost_before))
+        .collect();
+    assert_eq!(
+        frames,
+        [
+            (StreamKind::Audio, 1, 8, 0),
+            (StreamKind::Video, 1, 3082, 0),
+            (StreamKind::Video, 2, 8, 0)
+        ]
+    );
+    assert_eq!(rx.stats().video.given_up, 0);
+}
+
+#[test]
+fn incomplete_frame_after_a_gap_skip_waits_500_ms() {
+    let t0 = Instant::now();
+    let mut rx = MediaRx::new(MediaConfig::default());
+    // Frame 1's second fragment (pn 1) is lost and never resent; audio goes on around it.
+    rx.on_fragment(t0, &media(7, 0, 2, 0, 1, &[0; 1024], None));
+    rx.on_fragment(t0, &media(3, 2, 1, 0, 1, &[0; 8], Some(INFO)));
+    rx.on_fragment(t0 + 300 * MS, &media(3, 3, 1, 0, 2, &[0; 8], Some(INFO)));
+    assert_eq!(rx.stats().gaps_skipped, 1);
+    assert_eq!(rx.poll_timeout(), Some(t0 + 500 * MS));
+    rx.handle_timeout(t0 + 500 * MS);
+    rx.on_fragment(t0 + 510 * MS, &media(5, 4, 1, 0, 2, &[0; 8], Some(INFO)));
+    let video: Vec<_> = std::iter::from_fn(|| rx.poll_frame())
+        .filter(|f| f.stream == StreamKind::Video)
+        .map(|f| (f.number, f.lost_before))
+        .collect();
+    assert_eq!(video, [(2, 1)]);
+    assert_eq!(rx.stats().video.given_up, 1);
 }
 
 #[test]

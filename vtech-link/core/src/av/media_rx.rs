@@ -28,8 +28,12 @@ const MAX_FRAME_GAP: u32 = 64;
 pub struct MediaConfig {
     /// How long a gap in packet numbers may stay open before the ACK moves past it.
     pub gap_skip: Duration,
-    /// How long an incomplete frame holds back the frames after it.
+    /// How long an incomplete frame holds back the frames after it, once a packet gap has been skipped
+    /// since it began.
     pub partial_wait: Duration,
+    /// How long it holds them back when no gap has been skipped: nothing has been lost, and the camera
+    /// can take over 500 ms to send a large keyframe.
+    pub incomplete_wait: Duration,
     /// The least time between two NAK lists.
     pub nak_repeat: Duration,
     /// Drop every Nth media or parity packet on arrival (0: none), to exercise recovery on a clean
@@ -42,6 +46,7 @@ impl Default for MediaConfig {
         Self {
             gap_skip: Duration::from_millis(300),
             partial_wait: Duration::from_millis(500),
+            incomplete_wait: Duration::from_secs(2),
             nak_repeat: Duration::from_millis(50),
             drop_every: 0,
         }
@@ -288,7 +293,19 @@ pub struct MediaRx {
     arrivals: u64,
     /// When the last media or parity packet arrived, to log pauses.
     last_arrival: Option<Instant>,
+    /// When a packet gap was last skipped.
+    last_skip: Option<Instant>,
     stats: MediaStats,
+}
+
+/// How long an incomplete frame first seen at `first_at` may hold back the frames after it. A skip up
+/// to `gap_skip` before it counts: its first fragments' gap may have opened just before them.
+fn incomplete_wait(config: &MediaConfig, last_skip: Option<Instant>, first_at: Instant) -> Duration {
+    if last_skip.is_some_and(|t| t + config.gap_skip >= first_at) {
+        config.partial_wait
+    } else {
+        config.incomplete_wait
+    }
 }
 
 impl MediaRx {
@@ -305,6 +322,7 @@ impl MediaRx {
             reset_seq: 0,
             arrivals: 0,
             last_arrival: None,
+            last_skip: None,
             stats: MediaStats::default(),
         }
     }
@@ -355,6 +373,7 @@ impl MediaRx {
             Err(false) => return self.stats.packets_stale += 1,
             Ok(skipped) => {
                 if skipped {
+                    self.last_skip = Some(now);
                     log::debug!(
                         "media: gave up waiting for packets before {:#06x}, now pn_cum {:#06x} pn_high {:#06x}",
                         frag.pn,
@@ -408,9 +427,10 @@ impl MediaRx {
     }
 
     /// Move frames out in frame order: the oldest once complete, or given up once it has waited
-    /// `partial_wait` (`media_recv.c` `release`). A frame that follows a gap in the per-stream count
-    /// waits as long for the missing frames, whose packets may all have been lost and be on their way
-    /// again; `tutk-host` releases it at once, and the resent frame then comes out after it.
+    /// `partial_wait` after a packet gap was skipped, `incomplete_wait` otherwise (`media_recv.c`
+    /// `release` gives up after 500 ms either way). A frame that follows a gap in the per-stream count
+    /// waits `partial_wait` for the missing frames, whose packets may all have been lost and be on their
+    /// way again; `tutk-host` releases it at once, and the resent frame then comes out after it.
     fn release(&mut self, now: Instant, stream: StreamKind) {
         let asm = match stream {
             StreamKind::Video => &mut self.video,
@@ -435,19 +455,21 @@ impl MediaRx {
                 counters.given_up += u64::from(missing);
             }
             if p.have < p.count || p.info.is_none() {
-                if !waited {
+                let wait = incomplete_wait(&self.config, self.last_skip, p.first_at);
+                if now.saturating_duration_since(p.first_at) < wait {
                     // The frames before it are given up; it keeps its own wait.
                     asm.last = Some(p.seq.wrapping_sub(1));
                     return;
                 }
                 log::debug!(
-                    "media: gave up {stream:?} frame {number} (count {}, kind {}) with {}/{} fragments{} after {} ms",
+                    "media: gave up {stream:?} frame {number} (count {}, kind {}) with {}/{} fragments{} after {} ms ({})",
                     p.seq,
                     p.kind,
                     p.have,
                     p.count,
                     if p.info.is_some() { "" } else { ", no frame info" },
-                    now.saturating_duration_since(p.first_at).as_millis()
+                    now.saturating_duration_since(p.first_at).as_millis(),
+                    if wait == self.config.partial_wait { "a packet gap was skipped" } else { "no packet gap skipped" }
                 );
                 asm.last = Some(p.seq);
                 asm.partial.remove(&number);
@@ -478,14 +500,17 @@ impl MediaRx {
         }
     }
 
-    /// When an incomplete frame will be given up.
+    /// When an incomplete frame, or the wait for frames missing before it, will be given up.
     pub fn poll_timeout(&self) -> Option<Instant> {
         [&self.video, &self.audio]
             .into_iter()
             .filter_map(|a| {
-                a.partial
-                    .get(&a.oldest()?)
-                    .map(|p| p.first_at + self.config.partial_wait)
+                let p = a.partial.get(&a.oldest()?)?;
+                let wait = match a.place(p.seq) {
+                    Place::After { .. } => self.config.partial_wait,
+                    _ => incomplete_wait(&self.config, self.last_skip, p.first_at),
+                };
+                Some(p.first_at + wait)
             })
             .min()
     }
@@ -542,6 +567,7 @@ impl MediaRx {
         self.window = PacketWindow::new(cum);
         self.nak_at = None;
         self.last_arrival = None;
+        self.last_skip = None;
         let mut payload = [0u8; 8];
         payload[..2].copy_from_slice(&self.reset_seq.to_le_bytes());
         payload[2..4].copy_from_slice(&cum.to_le_bytes());
