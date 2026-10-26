@@ -2,7 +2,7 @@
 //! ("Outbound datagrams, byte by byte", "The `0x602` reply"); reference `tutk-host/iotc/handshake.c`,
 //! `wire.c`, `inbound.c`.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 
 use super::scramble::{scramble, unscramble};

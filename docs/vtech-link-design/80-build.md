@@ -39,6 +39,11 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 | `clap`, `env_logger` | CLI | cli |
 | `proptest`, `libfuzzer-sys`/`cargo-fuzz` | tests | dev |
 
+The crypto crates (`x25519-dalek`, `sha1`, `sha2`, `hmac`, `chacha20`, `chacha20poly1305`, `getrandom`)
+are pinned to the major versions dimpl uses, so the module carries one copy of each. Cargo can't
+inherit a dependency's version, so after each dimpl bump `cargo tree -d -e normal` must list only
+`syn` (build-time only).
+
 Each added crate is a reviewed decision, as the import allow-list was for `tutk-host`. `cargo deny`
 fails the build on an unlisted licence (MIT, Apache-2.0, BSD-3-Clause and Unicode are allowed), a
 RustSec advisory, or a banned crate (`openssl`, `openssl-sys`, `ring` and any `*-sys` that builds C).

@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use dimpl::crypto::Dtls12CipherSuite;
 use dimpl::{Config, Dtls, Output, PskResolver};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 
 const KEY: &[u8; 16] = b"Charlie is the d";
@@ -376,7 +376,7 @@ fn main() {
     let mut authkey = [0u8; 8];
     authkey.copy_from_slice(authkey_s.as_bytes());
     let mut token = [0u8; 8];
-    getrandom::getrandom(&mut token).unwrap();
+    getrandom::fill(&mut token).unwrap();
 
     let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
     sock.set_broadcast(true).unwrap();
@@ -507,7 +507,7 @@ fn main() {
 
     // AV login, then DEVINFO, the window of GETs, the hold, and DEVINFO again.
     let mut nonce = [0u8; 4];
-    getrandom::getrandom(&mut nonce).unwrap();
+    getrandom::fill(&mut nonce).unwrap();
     let nonce = u32::from_le_bytes(nonce) | 1;
     let mut av = Av::default();
     let t2 = Instant::now();

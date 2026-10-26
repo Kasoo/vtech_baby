@@ -10,7 +10,12 @@ and the ServerKeyExchange group checks) is tagged `vtech-0.9.0-psk.1` (`11e3135`
 `kasoo`), and every pin and lockfile points at it. `PSK_AES128_GCM` is on a separate fork branch, so
 vtech-link dropped `Suite::PskAes128Gcm` (the link only ever offered `ccac`). Docs updated
 (`30-dtls.md`, `80-build.md`, `README.md`, `95-open-questions.md`). dimpl's own tests pass on both
-crypto backends; its 74 clippy warnings are all upstream's.
+crypto backends; its 74 clippy warnings are all upstream's. vtech-link's own crypto crates moved to
+dimpl's major versions (sha2/sha1 0.11, hmac 0.13, chacha20 0.10, chacha20poly1305 0.11, x25519-dalek
+3, getrandom 0.4), so nothing but `syn` is duplicated; the core crypto vectors pass.
+
+- [ ] Fail the build on duplicate crates: cargo-deny `[bans] multiple-versions = "deny"` (skip
+      `syn`), or a `cargo tree -d -e normal` check in `release.sh` and CI.
 
 - [ ] Retest: `cargo test --workspace`, clippy, the simulator scenarios and T3 interop (in the
       workspace tests), the fuzz builds, `vtech-link/py/tests/run.sh`, and the DTLS test against the camera

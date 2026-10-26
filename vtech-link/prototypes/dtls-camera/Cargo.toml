@@ -7,10 +7,10 @@ publish = false
 # Phase 0 prototype: dimpl's PSK client against the camera over a hand-rolled IOTC session.
 [dependencies]
 dimpl = { version = "0.9", default-features = false, features = ["rust-crypto"] }
-hmac = "0.12"
-sha1 = "0.10"
-getrandom = "0.2"
-sha2 = "0.10"
+hmac = "0.13"
+sha1 = "0.11"
+getrandom = "0.4"
+sha2 = "0.11"
 
 [profile.release]
 opt-level = 2
