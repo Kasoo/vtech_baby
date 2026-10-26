@@ -6,10 +6,10 @@ Each item says what is unknown, why it matters, how it gets settled, and the def
 
 | ID | Question | Matters for | Settled by | Default |
 |---|---|---|---|---|
-| Q1 | Does the camera accept dimpl's ClientHello? | `30-dtls.md` | **Settled 2026-10-21: yes**, for `ccac` and `00a8` (the dimpl spike) | — |
+| Q1 | Does the camera accept dimpl's ClientHello? | `30-dtls.md` | **Settled 2026-10-21: yes**, for `ccac` and `00a8` (the dimpl prototype) | — |
 | Q13 | Will dimpl upstream take `PSK_WITH_AES_128_GCM_SHA256` (and later `ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`)? | The DTLS choice | An issue/PR on `algesten/dimpl`. Each suite is on its own fork branch; builds use only `ccac`, at tag `vtech-0.9.0-psk.1` | Carry the suite as a patch on a fork; else our own client |
 | Q2 | What does the camera do for a wrong AV password (a PSK mismatch)? | R4 | **Settled 2026-10-21**: it sends the ServerHello, then nothing after our Finished (no alert). `AvAuthFailed` after 3 s of silence following our Finished | — |
-| Q3 | Does the camera handle several sessions from one host on separate source ports? | `70-runtime.md` socket per link | **Settled 2026-10-21: yes.** Two spike links on separate sockets (one per DTLS suite), each held for 20 s and answering, alongside HA's session and the parent unit streaming; HA logged nothing | — |
+| Q3 | Does the camera handle several sessions from one host on separate source ports? | `70-runtime.md` socket per link | **Settled 2026-10-21: yes.** Two prototype links on separate sockets (one per DTLS suite), each held for 20 s and answering, alongside HA's session and the parent unit streaming; HA logged nothing | — |
 | Q4 | What does control-frame `+0x12` mean? | Multi-fragment inbound frames (R16) | **Settled 2026-10-21** (TUTK kit agent, from the binary; kit commit `4da044d`): the per-fragment packet number, a duplicate gate only. Count `+0x14`, index `+0x16`, frame `+0x1c`; reassembly keys on frame + index; ACK `+0x0c` counts messages (`40-av-client.md`) | — |
 | Q5 | Does the camera tolerate more than one unacknowledged user control frame? | Throughput of bursts of requests | **Settled 2026-10-21: yes, at least 8**, with no retransmits. Its own replies are stop and wait on our ACK (`40-av-client.md`) | Window 8 |
 | Q6 | During the post-connect stall (`AGENTS.md` "Known issues"), are our control frames ACKed but not answered, or not ACKed at all? | Whether an AV-level dead-link timeout is safe | The ack-latency histogram (R31) during the soak | No AV-level timeout |
@@ -24,7 +24,7 @@ Each item says what is unknown, why it matters, how it gets settled, and the def
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Our DTLS client has an interop bug only the camera exposes (e.g. a transcript detail) | Medium | Blocks phase 2 | Phase 0 spike first; OpenSSL interop tests; the 2026-10-21 trace to compare record by record |
+| Our DTLS client has an interop bug only the camera exposes (e.g. a transcript detail) | Medium | Blocks phase 2 | Phase 0 prototype first; OpenSSL interop tests; the 2026-10-21 trace to compare record by record |
 | Timing differences (ACK coalescing instead of a fixed 10 ms tick) change the camera's sending | Low | Stalls or bursts | T4 trace comparison; config values default to today's; the ACK deadline can drop back to a fixed 10 ms tick |
 | A security bug in our own DTLS | Low | The link carries the camera's password and its control traffic | Narrow scope (one suite, one peer, LAN-only); RFC-checked key schedule; fuzzing; secrets zeroized. The DTLS here protects against passive LAN observers, as OpenSSL did. It doesn't widen any exposure we have today |
 | Rust toolchain or crate supply chain | Low | Build integrity | `--locked`, `cargo deny`, pinned toolchain, reproducible builds, and a short reviewed crate list (`80-build.md`) |

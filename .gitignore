@@ -15,5 +15,5 @@ LICENSE_KEY.txt
 # The author's private development journal (kept locally, never published)
 /HA_INTEGRATION.md
 vtech-link/third_party/*/
-vtech-link/spikes/*/target*/
-vtech-link/spikes/*/.cargo-home/
+vtech-link/prototypes/*/target*/
+vtech-link/prototypes/*/.cargo-home/

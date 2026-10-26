@@ -90,7 +90,7 @@ Limits:
 | **`dimpl`** (algesten, pure Rust, MIT/Apache, built for str0m) | **Not as published**: its only PSK suite is `PSK_AES128_CCM_8`, which the camera ignores | **Exactly our shape**: sans-IO and synchronous (`handle_packet` / `poll_output` / `handle_timeout`); DTLS 1.2 PSK client via `new_12_psk`; RustCrypto backends. It already has AES-GCM and ChaCha20-Poly1305 record protection for its ECDHE_ECDSA suites | **Recommended, with one suite added** (below). |
 | **Our own client** (the rest of this document) | Yes, for `ccac` | Exactly our shape | Fallback if `dimpl` won't take the suite and a fork is unattractive. |
 
-**Decision (2026-10-21, after the spike below): `dimpl`, with two suites added, upstream if they'll
+**Decision (2026-10-21, after the prototype below): `dimpl`, with two suites added, upstream if they'll
 take them.**
 - **The suite to add is `PSK_WITH_AES_128_GCM_SHA256`** (`00a8`). It is the smallest change: dimpl's
   existing PSK key exchange combined with its existing AES-128-GCM record protection.
@@ -103,9 +103,9 @@ take them.**
 - **Dependency risk**: dimpl is young (0.8.0, 2026-10-19; 35 releases in 13 months) and also
   implements DTLS 1.3 and ECDSA, which we don't need. Pin the version, review each upgrade, and enable
   only the features we use.
-- **Phase 0 spike, done** (below): both suites are added to dimpl and work against the camera.
+- **Phase 0 prototype, done** (below): both suites are added to dimpl and work against the camera.
 
-### The dimpl change and the spike (2026-10-21)
+### The dimpl change and the prototype (2026-10-21)
 
 **The change** is branch `psk-suites` on our fork, `git@github.com:Kasoo/dimpl.git` (commit `a72d63a`, on
 dimpl 0.8.0 `f68b009`). It is held there for now, with no upstream PR yet; what a PR would still need is
@@ -131,7 +131,7 @@ It adds `TLS_PSK_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1
   (`rust-crypto`: 307 library tests plus the integration suites; the default `aws-lc-rs`: 369 plus the
   integration suites).
 
-**The spike**, `vtech-link/spikes/dtls-camera/`, is about 500 lines. It is a minimal IOTC session
+**The prototype**, `vtech-link/prototypes/dtls-camera/`, is about 500 lines. It is a minimal IOTC session
 (the scramble checked against the kit's worked example; probe, record, connect ack, data), dimpl's PSK
 client on channel 0, the AV login, and a DEVINFO request. It was run from the NAS against the camera,
 read-only:
@@ -329,7 +329,7 @@ type u8 | version u16 (fefd; feff on the first ClientHello) | epoch u16 | seq u4
 | `close_notify` (0) or any fatal alert once connected | `Closed(DtlsAlert(code))` |
 | Suite, group or version not what we offered | `Protocol("dtls: unexpected server parameters")` |
 
-The wrong-password row is from the spike (above). Today the same case surfaces as `AV_ER_TIMEOUT` →
+The wrong-password row is from the prototype (above). Today the same case surfaces as `AV_ER_TIMEOUT` →
 `Unreachable` (`av/session.c:217`).
 
 ## Crypto dependencies

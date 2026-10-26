@@ -13,8 +13,8 @@ vtech-link dropped `Suite::PskAes128Gcm` (the link only ever offered `ccac`). Do
 crypto backends; its 74 clippy warnings are all upstream's.
 
 - [ ] Retest: `cargo test --workspace`, clippy, the simulator scenarios and T3 interop (in the
-      workspace tests), the fuzz builds, `vtech-link/py/tests/run.sh`, and the camera spike
-      (`spikes/dtls-camera ecdhe-psk-chacha`, from the camera's LAN).
+      workspace tests), the fuzz builds, `vtech-link/py/tests/run.sh`, and the DTLS test against the camera
+      (`prototypes/dtls-camera ecdhe-psk-chacha`, from the camera's LAN).
 - [ ] Rebuild with `sync_link.sh` (about 39 min with the qemu aarch64 builds) and redeploy to the NAS.
       The module in the package predates the backend switch: `native/LINK_SOURCE` names `0e60255`.
 - [ ] The fork's uncommitted `TODO.md` still describes `psk-suites` and both suites.

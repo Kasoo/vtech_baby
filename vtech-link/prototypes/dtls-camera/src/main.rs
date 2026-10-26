@@ -1,4 +1,4 @@
-//! Phase 0 spike: connect to the camera over a minimal IOTC session, run dimpl's DTLS 1.2 PSK
+//! Phase 0 prototype: connect to the camera over a minimal IOTC session, run dimpl's DTLS 1.2 PSK
 //! client on channel 0, log in to the AV channel and ask for the device info.
 //!
 //!   VTECH_UID=... VTECH_AUTHKEY=... VTECH_PWD=... dtls-camera <suite> [camera-ip] [options]

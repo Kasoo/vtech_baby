@@ -182,7 +182,7 @@ defaults are the values proven live in `tutk-host`.
 | `search_interval` | 100 ms | `iotc/discovery.c:8` |
 | `alive_interval` / `silence_limit` | 1 s / 60 s | `iotc/init.c:8–9` |
 | `ctrl_retransmit` | 60 ms | `av/ioctrl.c:14` |
-| `ctrl_window` | 8 unacknowledged user frames | spike, `40-av-client.md` |
+| `ctrl_window` | 8 unacknowledged user frames | prototype, `40-av-client.md` |
 | `ack_idle` / `report_interval` | 110 ms / 200 ms | `av/transport.c:10–11` |
 | `nak_repeat` / `gap_skip` / `partial_wait` | 50 / 300 / 500 ms | `av/transport.c:14`, `av/media_recv.c:20–21` |
 | `video_queue` / `audio_queue` / `push_queue` | 60 / 200 / 256 | `av/media_recv.c:18–19`; new |

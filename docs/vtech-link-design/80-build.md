@@ -66,7 +66,7 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
   suites.
 - **Offline builds**, if wanted: `release.sh` runs `cargo vendor` before starting the containers and
   passes the vendor directory and its `.cargo/config.toml` in. `vendor/` is not committed.
-- Proven by the spike (`spikes/dtls-camera/Cargo.toml`), which builds from the tag with `--locked`.
+- Proven by the prototype (`prototypes/dtls-camera/Cargo.toml`), which builds from the tag with `--locked`.
 
 ## The four builds (R35)
 

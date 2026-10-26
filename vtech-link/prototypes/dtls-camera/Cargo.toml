@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
-# Phase 0 spike: dimpl's PSK client against the camera over a hand-rolled IOTC session.
+# Phase 0 prototype: dimpl's PSK client against the camera over a hand-rolled IOTC session.
 [dependencies]
 dimpl = { version = "0.9", default-features = false, features = ["rust-crypto"] }
 hmac = "0.12"
