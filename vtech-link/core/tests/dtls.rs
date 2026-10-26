@@ -163,17 +163,15 @@ fn without_cookie_like_the_camera() {
 #[test]
 fn handshake_and_data() {
     // With a HelloVerifyRequest, which the camera doesn't send but a conformant server may.
-    for suite in [Suite::EcdhePskChaCha20] {
-        let (mut client, mut camera, t0) = connect(suite);
-        assert_eq!(client.negotiated_suite(), Some(0xccac));
-        client.send(t0, b"login").unwrap();
-        run(&mut client, &mut camera, t0, &mut |_, _| false);
-        assert_eq!(camera.app, [b"login".to_vec()]);
-        camera.dtls.send_application_data(&[0x5a; 1359]).unwrap();
-        camera.pump();
-        run(&mut client, &mut camera, t0, &mut |_, _| false);
-        assert_eq!(events(&mut client), [DtlsEvent::Data(vec![0x5a; 1359])]);
-    }
+    let (mut client, mut camera, t0) = connect(Suite::EcdhePskChaCha20);
+    assert_eq!(client.negotiated_suite(), Some(0xccac));
+    client.send(t0, b"login").unwrap();
+    run(&mut client, &mut camera, t0, &mut |_, _| false);
+    assert_eq!(camera.app, [b"login".to_vec()]);
+    camera.dtls.send_application_data(&[0x5a; 1359]).unwrap();
+    camera.pump();
+    run(&mut client, &mut camera, t0, &mut |_, _| false);
+    assert_eq!(events(&mut client), [DtlsEvent::Data(vec![0x5a; 1359])]);
 }
 
 #[test]

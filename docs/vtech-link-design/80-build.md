@@ -78,9 +78,9 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
 | Build | Image | Target | Wheel tag (for reference) |
 |---|---|---|---|
 | `x86_64-glibc` | `quay.io/pypa/manylinux2014_x86_64` + rustup | `x86_64-unknown-linux-gnu` | manylinux2014 (glibc 2.17) |
-| `aarch64-glibc` | `quay.io/pypa/manylinux2014_aarch64` + rustup (qemu) | `aarch64-unknown-linux-gnu` | manylinux2014 |
+| `aarch64-glibc` | `ghcr.io/rust-cross/manylinux2014-cross:aarch64` + rustup (cross, glibc 2.17 sysroot) | `aarch64-unknown-linux-gnu` | manylinux2014 |
 | `x86_64-musl` | `docker.io/library/alpine:3.24` + rustup | `x86_64-unknown-linux-musl`, `-C target-feature=-crt-static` | musllinux_1_2 |
-| `aarch64-musl` | `alpine:3.24` + rustup (qemu) | `aarch64-unknown-linux-musl`, `-crt-static` | musllinux_1_2 |
+| `aarch64-musl` | `ghcr.io/rust-cross/rust-musl-cross:aarch64-musl` + rustup (cross) | `aarch64-unknown-linux-musl`, `-crt-static` | musllinux_1_2 |
 
 - Built with **maturin** 1.15.0 from pip (`maturin build --release --strip --locked --compatibility <tag>`),
   with the toolchain pinned by `rust-toolchain.toml` installed by rustup in every container (Alpine's own
@@ -93,8 +93,13 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
 - **Reproducible**: `--locked`, `SOURCE_DATE_EPOCH` from the commit, `--remap-path-prefix` for the
   source and cargo-home paths. `release.sh` builds twice and compares hashes; all four sets matched on 2026-10-22. It builds a `git archive`
   of one revision, not the working tree.
-- **qemu** for the foreign arch, as `tutk-host/release.sh` does. Pass `--arch` explicitly, since the
-  local `alpine:3.24` tag flips arch on pull.
+- **Cross-compiled aarch64** (since 2026-10-26): every build runs on the host's arch, and the aarch64
+  sets link with the rust-cross images' target gcc (`release.sh` sets `CARGO_TARGET_<T>_LINKER`, since
+  its own `CARGO_HOME` hides the image's config). Both aarch64 sets take about 108 s together, against
+  about 39 min under qemu. The cross musl names libc `libc.so` in `DT_NEEDED`, not Alpine's
+  `libc.musl-*.so.1`; musl's loader resolves both to itself, and `tools/ha_import_check.sh` loads the
+  module in HA's arm64 image. qemu is now used only by that check, with `--arch` explicit (the local
+  `home-assistant:stable` tag can be either arch).
 
 ## The import check
 

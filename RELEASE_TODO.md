@@ -20,7 +20,7 @@ dimpl's major versions (sha2/sha1 0.11, hmac 0.13, chacha20 0.10, chacha20poly13
 - [ ] Retest: `cargo test --workspace`, clippy, the simulator scenarios and T3 interop (in the
       workspace tests), the fuzz builds, `vtech-link/py/tests/run.sh`, and the DTLS test against the camera
       (`prototypes/dtls-camera ecdhe-psk-chacha`, from the camera's LAN).
-- [ ] Rebuild with `sync_link.sh` (about 39 min with the qemu aarch64 builds) and redeploy to the NAS.
+- [ ] Rebuild with `sync_link.sh` (a few minutes now the aarch64 sets cross-compile) and redeploy to the NAS.
       The module in the package predates the backend switch: `native/LINK_SOURCE` names `0e60255`.
 - [ ] The fork's uncommitted `TODO.md` still describes `psk-suites` and both suites.
 
@@ -92,10 +92,9 @@ file, so the package becomes pure Python.
       `native/<arch>-<libc>/_vtech_link.abi3.so`, `native/LINK_SOURCE`, `sync_link.sh` and
       `native.bundled_link`/`prepare_link`, and import the installed module. Update the `AGENTS.md`
       rule ("only `sync_link.sh` installs it"): the exact pin and the CI build from a tag replace it.
-- [ ] **GitLab is the primary host; GitLab CI builds the wheels.** Cross-compile with maturin
-      (`--zig`, or the `rust-musl-cross`/`manylinux-cross` images) rather than qemu; keep qemu only
-      for an import check in HA's aarch64 image, with `--arch`. This replaces the "cross-compile the
-      aarch64 sets" and `sync_link.sh` items.
+- [ ] **GitLab is the primary host; GitLab CI builds the wheels.** `release.sh` already
+      cross-compiles aarch64 in the rust-cross images (2026-10-26); CI can run it as is, plus
+      `tools/ha_import_check.sh` under qemu. This replaces the `sync_link.sh` item.
 - [ ] **PyPI trusted publishing from GitLab CI** (PyPI supports GitLab as an OIDC publisher), on tags
       only, with attestations.
 - [ ] **CI checks on GitLab:** `cargo test --workspace`, clippy, the Python module tests, `pytest`, and

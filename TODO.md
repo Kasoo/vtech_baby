@@ -115,14 +115,6 @@ the camera ignores), then the 1080p live runs; then Phase 3's integration side. 
     the 1.2 handshake. Ask upstream first (the fork's `TODO.md` has this item).
   - Together about 430 KB: the stripped module from about 1.9 MB to 1.4–1.5 MB, and the HACS download
     from about 7 MB to about 5.5 MB.
-- **Cross-compile the aarch64 sets instead of emulating the compiler.** `release.sh` runs rustc for
-  aarch64 under qemu, copied from `tutk-host/release.sh`, so a full `sync_link.sh` takes about 39 min
-  (2026-10-23), nearly all of it the two aarch64 sets, each built twice. Build them on x86_64 in
-  `ghcr.io/rust-cross/rust-musl-cross:aarch64-musl` and `ghcr.io/rust-cross/manylinux2014-cross:aarch64`
-  (the same libc floors as now), or with `maturin build --zig`. Keep qemu only for the load check in HA's
-  aarch64 image, and pass `--arch` there: the local `home-assistant:stable` tag can be either arch, and
-  musl loads a wrong-arch module far enough to fail with "unsupported relocation type 7". Then
-  check reproducibility and `DT_NEEDED` again, and update `80-build.md` (R35).
 - **Decide the release profile** (`80-build.md`, "Size levers"): fat LTO and `opt-level = "s"` take
   the module from 1,945 KB to 1,411 KB (−27%) on stable, at 3.3× slower crypto with headroom to spare.
   `-Z build-std` adds only about 50 KB more and needs nightly. Not worth it. Measure the arm64 builds and a
