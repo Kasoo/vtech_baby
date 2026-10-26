@@ -3,6 +3,31 @@
 What a link-only release still needs, as of 2026-10-24. The detail behind most items is in `TODO.md`;
 this file only orders them for the release.
 
+## Resume here (2026-10-26)
+
+Done this session: dimpl 0.9.0 (`vtech-0.9.0-psk.1`) with vtech-link's crypto crates on the same
+majors, `spikes/` renamed `prototypes/`, aarch64 cross-compiled (`sync_link.sh` about 4 min), the
+incomplete-frame wait (`86-live-losses.md` Open 1), the empty-NAL guard, and NAK / gap-skip debug logs.
+The package's modules are from `140c15d`; the full offline matrix passed at `a6b6917`, and the workspace
+and integration tests pass at HEAD.
+
+1. **Deploy to the NAS and restart HA** (not done: the SSH key wasn't touched in time). Open the shared
+   connection (`ssh -fN $HOST`), then `deploy-vtech-baby.sh --restart` (needs
+   passwordless sudo on the NAS). The restart also starts the worker at debug level: the `logger:` block
+   in the NAS HA's `configuration.yaml` (deployed 2026-10-26, backup `configuration.yaml.bak-20261026`)
+   only reaches the worker when it starts.
+2. **Watch the debug log** (`sudo journalctl -u homeassistant`, which keeps more than
+   `home-assistant.log`'s two days):
+   - no `gave up ... (no packet gap skipped)` line, which verifies Open 1;
+   - `dropped an empty video frame`: if it appears, it was the go2rtc `RepairAVCC` crash's input;
+   - `live view stopped: Invalid argument: '<none>' returned 22`, seen 3 times in the soak, each time in
+     the same millisecond as a go2rtc EOF: find what returns EINVAL when a viewer leaves;
+   - the `media: NAK [...]` and `gave up waiting for N packet(s) [...]` lines for Open 2.
+3. **Re-sign the unsigned commits** (every one from `7f284ea`, including this session's `d22b8d8`,
+   `b1e244f`, `4711c7e`, `36168b4`, `140c15d`, `5797cea`): see section 4.
+4. **Then**: the 1080p live runs (check the parent handset first, restore the resolution after) and a
+   forced-drop run for Open 2; the section 2 blockers (Phase 3 removals, retiring the worker).
+
 ## 1. Move dimpl to 0.9.0 (done 2026-10-26, except the rebuild)
 
 The fork's branch `tls_ecdhe_psk_with_chacha20_poly1305_sha256` (upstream 0.9.0 plus the `ccac` suite
