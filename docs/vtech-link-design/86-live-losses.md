@@ -92,7 +92,8 @@ under drops while delivering fewer audio frames than vtech-link in the same 120 
    long run with the new rule should show no given-up frame without a gap skip. Consider the same fix in
    `tutk-host` if it stays in production.
 2. **Why the camera ignores some NAKs.** Unknown. Leads to check, cheapest first:
-   - log each NAK list and each skipped packet number (vtech-link debug) and see whether the ignored
+   - log each NAK list and each skipped packet number (vtech-link debug, built 2026-10-26: `media: NAK
+     [...]` and `media: gave up waiting for N packet(s) [...]`) and see whether the ignored
      ones share something: the same parity group, a group whose parity was also dropped, the first
      packet after a parity packet, or audio;
    - try a longer gap skip (600 ms) to rule out slow resends;

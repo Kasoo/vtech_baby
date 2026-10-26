@@ -165,8 +165,8 @@ impl PacketWindow {
     }
 
     /// Mark `pn` received. `Err(true)` for a duplicate, `Err(false)` for one at or behind `cum` or
-    /// too far ahead. `Ok(true)` when a gap was skipped.
-    fn track(&mut self, now: Instant, pn: u16, gap_skip: Duration) -> Result<bool, bool> {
+    /// too far ahead. `Ok` with the packet numbers given up when a gap was skipped, else empty.
+    fn track(&mut self, now: Instant, pn: u16, gap_skip: Duration) -> Result<Vec<u16>, bool> {
         if !seq_after16(pn, self.cum) || pn.wrapping_sub(self.cum) >= WINDOW {
             return Err(false);
         }
@@ -178,7 +178,7 @@ impl PacketWindow {
             self.high = pn;
         }
         self.advance_contiguous();
-        let mut skipped = false;
+        let mut skipped = Vec::new();
         match self.gap_since {
             _ if self.cum == self.high => self.gap_since = None,
             None => self.gap_since = Some(now),
@@ -187,6 +187,7 @@ impl PacketWindow {
                 // what the cumulative ACK has passed.
                 loop {
                     self.cum = self.cum.wrapping_add(1);
+                    skipped.push(self.cum);
                     if self.cum == self.high || self.get(self.cum.wrapping_add(1)) {
                         break;
                     }
@@ -196,7 +197,6 @@ impl PacketWindow {
                 self.set(self.cum, false);
                 self.advance_contiguous();
                 self.gap_since = (self.cum != self.high).then_some(now);
-                skipped = true;
             }
             Some(_) => {}
         }
@@ -372,16 +372,18 @@ impl MediaRx {
             Err(true) => return self.stats.packets_duplicate += 1,
             Err(false) => return self.stats.packets_stale += 1,
             Ok(skipped) => {
-                if skipped {
+                if !skipped.is_empty() {
                     self.last_skip = Some(now);
+                    self.stats.gaps_skipped += 1;
                     log::debug!(
-                        "media: gave up waiting for packets before {:#06x}, now pn_cum {:#06x} pn_high {:#06x}",
+                        "media: gave up waiting for {} packet(s) {:04x?} (on {:#06x}), now pn_cum {:#06x} pn_high {:#06x}",
+                        skipped.len(),
+                        skipped.get(..32).unwrap_or(&skipped),
                         frag.pn,
                         self.window.cum,
                         self.window.high
                     );
                 }
-                self.stats.gaps_skipped += u64::from(skipped);
             }
         }
         let asm = match frag.stream {
@@ -539,6 +541,11 @@ impl MediaRx {
         {
             naks = self.window.naks(packet::MAX_NAKS);
             if !naks.is_empty() {
+                log::debug!(
+                    "media: NAK {:04x?} (pn_cum {:#06x})",
+                    naks.iter().map(|o| self.window.cum.wrapping_add(*o)).collect::<Vec<_>>(),
+                    self.window.cum
+                );
                 self.nak_at = Some(now);
                 self.stats.packets_requested += naks.len() as u64;
             }
