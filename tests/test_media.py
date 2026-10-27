@@ -98,6 +98,22 @@ def test_receive_counters_refresh_and_log_losses(cam, monkeypatch, caplog):
     assert ls.stats["receive"]["video_given_up"] == 2
 
 
+def test_losses_before_a_start_are_not_logged_again(cam, monkeypatch, caplog):
+    sdk, _, ls, _ = cam
+    monkeypatch.setattr(media, "RECV_STATS_S", 0.05)
+    zero = dict.fromkeys(("packets_requested", "video_given_up", "video_late", "video_overflow",
+                          "audio_given_up", "audio_late", "audio_overflow", "packets_recovered"), 0)
+    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 2}
+    caplog.set_level("DEBUG", logger=media.__name__)
+    sink = Sink()
+    sub = ls.subscribe(sink)
+    assert wait_for(lambda: sink.chunks)
+    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 3}
+    assert wait_for(lambda: "frames lost: {'video_given_up': 1}" in caplog.text)
+    assert "'video_given_up': 2}" not in caplog.text
+    sub.close()
+
+
 def test_no_receive_counters_with_the_vendor_sdk(cam):
     _, _, ls, _ = cam
     sink = Sink()

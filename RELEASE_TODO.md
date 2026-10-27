@@ -11,13 +11,15 @@ incomplete-frame wait (`86-live-losses.md` Open 1), the empty-NAL guard, and NAK
 The package's modules are from `140c15d`; the full offline matrix passed at `a6b6917`, and the workspace
 and integration tests pass at HEAD.
 
-1. **Deploy to the NAS and restart HA** (not done: the SSH key wasn't touched in time). Open the shared
-   connection (`ssh -fN $HOST`), then `deploy-vtech-baby.sh --restart` (needs
-   passwordless sudo on the NAS). The restart also starts the worker at debug level: the `logger:` block
-   in the NAS HA's `configuration.yaml` (deployed 2026-10-26, backup `configuration.yaml.bak-20261026`)
-   only reaches the worker when it starts.
-2. **Watch the debug log** (`sudo journalctl -u homeassistant`, which keeps more than
-   `home-assistant.log`'s two days):
+1. **Deployed to the NAS 2026-10-27 18:56** (`140c15d`, HA restarted, worker at debug level). Connected
+   over the link in 1 s. A 3.5 min live view in the HA dialog (720p, night vision) was clean: 2072 video
+   frames, 104 keyframes, 0 given up, 0 NAKs, 1 packet recovered; closing the dialog stopped it with no
+   EINVAL. Start/stop stress from Chrome (9 rapid open/close cycles, 3 tabs at once with a reload,
+   reopening 0.6 s after a stop) was clean: go2rtc holds one camera stream for all viewers and stops it
+   about 25 s after the last leaves, so the browser's churn mostly doesn't reach the integration.
+   Redeployed 20:09 with a fix for "frames lost" re-reporting earlier losses at each start. Redeploy with `deploy-vtech-baby.sh --restart` after `ssh -fN $HOST`.
+2. **Keep watching the debug log** over the soak (`sudo journalctl -u homeassistant`, which keeps more
+   than `home-assistant.log`'s two days):
    - no `gave up ... (no packet gap skipped)` line, which verifies Open 1;
    - `dropped an empty video frame`: if it appears, it was the go2rtc `RepairAVCC` crash's input;
    - `live view stopped: Invalid argument: '<none>' returned 22`, seen 3 times in the soak, each time in
@@ -28,7 +30,7 @@ and integration tests pass at HEAD.
 4. **Then**: the 1080p live runs (check the parent handset first, restore the resolution after) and a
    forced-drop run for Open 2; the section 2 blockers (Phase 3 removals, retiring the worker).
 
-## 1. Move dimpl to 0.9.0 (done 2026-10-26, except the rebuild)
+## 1. Move dimpl to 0.9.0 (done 2026-10-26; the package's modules are rebuilt, from `140c15d`)
 
 The fork's branch `tls_ecdhe_psk_with_chacha20_poly1305_sha256` (upstream 0.9.0 plus the `ccac` suite
 and the ServerKeyExchange group checks) is tagged `vtech-0.9.0-psk.1` (`11e3135`, signed, pushed to
@@ -45,8 +47,7 @@ dimpl's major versions (sha2/sha1 0.11, hmac 0.13, chacha20 0.10, chacha20poly13
 - [ ] Retest: `cargo test --workspace`, clippy, the simulator scenarios and T3 interop (in the
       workspace tests), the fuzz builds, `vtech-link/py/tests/run.sh`, and the DTLS test against the camera
       (`prototypes/dtls-camera ecdhe-psk-chacha`, from the camera's LAN).
-- [ ] Rebuild with `sync_link.sh` (a few minutes now the aarch64 sets cross-compile) and redeploy to the NAS.
-      The module in the package predates the backend switch: `native/LINK_SOURCE` names `0e60255`.
+- [x] Rebuild with `sync_link.sh` and redeploy to the NAS (modules from `140c15d`, deployed 2026-10-27).
 - [ ] The fork's uncommitted `TODO.md` still describes `psk-suites` and both suites.
 
 ## 2. Blockers for a link-only release

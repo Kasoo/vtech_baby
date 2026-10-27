@@ -308,7 +308,9 @@ class LiveStream:
         for op in (ops.VIDEO_FULLRATE, ops.START):
             session.send(op)
         st = self.stats
-        st.update(starts=st["starts"] + 1, video=0, audio=0, bad=0, keyframes=0, bytes=0, receive=None)
+        # The receive counters run for the life of the channel, so losses are counted from here.
+        st.update(starts=st["starts"] + 1, video=0, audio=0, bad=0, keyframes=0, bytes=0,
+                  receive=source.stats())
         self._set_running(True)
         started = t0 = time.monotonic()
         idle_since: float | None = None
