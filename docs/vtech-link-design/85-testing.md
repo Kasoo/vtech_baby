@@ -103,12 +103,17 @@ exists only in debug builds, behind a cargo feature.
   the repo. Subcommands:
   - `connect` (read-only): connect, DEVINFO, close; prints `info()`.
   - `watch` (read-only): pushes for N seconds.
-  - `stream` (read-only): N seconds of media; counters; optional `--out file.h264`.
+  - `stream` (read-only): N seconds of media; counters; optional `--out file.h264`. `--per-second`
+    adds frames, keyframes and the longest gap each second, and each keyframe whose SPS/PPS changed,
+    with the size the SPS declares.
   - `restart` (read-only): reset/START/STOP cycles.
   - `talk --silent`: A-law silence; still opens the speaker path, so it needs the owner's OK.
   - `--drop N` (debug builds only): drop every Nth inbound media or parity packet, like `TK_DROP`.
-- **The live probes** (`tests/live/probe_*.py`) gain a `BACKEND=link` switch. The runner script already
-  ships a library directory into the HA image (`PATCHED=`). It ships the module the same way.
+- **The live probes** (`tests/live/probe_*.py`) test the integration's Python layers on a real camera:
+  `phase1` (every GET, the event list, reconnects), `control`, `stall`, `stream` (`LiveStream` and
+  go2rtc) and `talk` (`TalkBack`). They run on `LinkSession`; `run.sh` ships `vtech_lan` as a zip and
+  the package's musl module next to them. The transport-only probes (`counters`, `restart`, `sps`)
+  were replaced by the CLI's `stream`, `restart` and `stream --per-second`.
 - The camera is a live baby monitor: everything that makes light or sound needs the owner present
   (`AGENTS.md` "Rules"). `connect`, `watch`, `stream` and `restart` are read-only and safe headless.
 

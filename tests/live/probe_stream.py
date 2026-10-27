@@ -1,7 +1,7 @@
 """Live-view check — READ-ONLY (no light, sound or setting changes; no images are kept or viewed).
 
 Runs inside the HA image, on a host on the camera's LAN, via run.sh ($VTECH_LIVE_RUNNER), with vtech_lan
-shipped as a zip:
+shipped as a zip and the vtech-link module (_vtech_link.abi3.so) next to the probe:
 
     cd tests/live && ./run.sh probe_stream.py [seconds] [cycles]
 
@@ -11,7 +11,6 @@ ports) is then given that URL the way HA's go2rtc integration does (the URL plus
 `ffmpeg:<name>#audio=opus`), and driven as HA would: a snapshot, an RTSP consumer, and an Opus consumer.
 Reports codecs, time to first output, keyframe spacing, and that everything stops cleanly.
 """
-import json
 import os
 import queue
 import socket
@@ -20,14 +19,13 @@ import sys
 import tempfile
 import threading
 import time
-import ctypes as C
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "vtech_lan.zip"))
 
-from vtech_lan import Session, ops, sdk  # noqa: E402
+from vtech_lan import LinkSession, link  # noqa: E402
 from vtech_lan.media import LiveStream  # noqa: E402
 
 SECONDS = int(sys.argv[1]) if len(sys.argv) > 1 else 20
@@ -37,11 +35,6 @@ T0 = time.monotonic()
 
 def log(*a):
     print(f"[{time.monotonic() - T0:7.2f}]", *a, flush=True)
-
-
-def license_key():
-    with open(os.path.join(HERE, "LICENSE_KEY.txt")) as f:
-        return next(ln.split("license_key=", 1)[1].strip() for ln in f if "license_key=" in ln)
 
 
 def free_port():
@@ -131,11 +124,12 @@ def wait_idle(media, timeout=15):
 
 
 def main():
-    s_dk = sdk.load(HERE, license_key())
-    s = Session(s_dk, os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
+    module = link.load(os.path.join(HERE, "_vtech_link.abi3.so"))
+    log(f"vtech-link {module.__version__}")
+    s = LinkSession(module, os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
                 os.environ.get("VTECH_ACCOUNT", "admin"), name="stream", keepalive_s=20)
-    log("connected", s.connect())
-    media = LiveStream(s_dk, lambda: s, name="live", grace_s=2.0)
+    log("connected", s.connect(), s.info())
+    media = LiveStream(lambda: s, name="live", grace_s=2.0)
     port = free_port()
     srv = serve(media, port)
     url = f"http://127.0.0.1:{port}/cam"
