@@ -87,9 +87,11 @@ Port of `av_media_on_packet` and `release` (`av/media_recv.c:124–200`):
   slot is already filled, is dropped. The payload is stored without the frame info; the last fragment
   also stores the info.
 - **Release** runs after each fragment and on every deadline. While the oldest partial frame is
-  complete, move it to `ready`. If the oldest is incomplete and has waited `partial_wait` (500 ms), drop
-  it and count it `given_up`. It holds back every frame after it until then, which keeps delivery
-  ordered.
+  complete, move it to `ready`. If the oldest is incomplete, drop it and count it `given_up` once it
+  has waited `partial_wait` (500 ms) when a packet gap has been skipped since `gap_skip` before its first
+  fragment, or `incomplete_wait` (2 s) when none has: then nothing has been lost, and the camera can take
+  over 500 ms to send a large keyframe (`86-live-losses.md`, finding 1). `tutk-host` gives up after
+  500 ms either way. It holds back every frame after it until then, which keeps delivery ordered.
 - A frame released while a NAK was outstanding (`nak_at ≥ first_at`) is counted `late`
   (`media_recv.c:146`, commit `a0e6452`).
 - `ready` drains into the link's video or audio **output queue** (`70-runtime.md`). When the queue is

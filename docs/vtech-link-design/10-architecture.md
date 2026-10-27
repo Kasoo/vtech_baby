@@ -184,7 +184,7 @@ defaults are the values proven live in `tutk-host`.
 | `ctrl_retransmit` | 60 ms | `av/ioctrl.c:14` |
 | `ctrl_window` | 8 unacknowledged user frames | prototype, `40-av-client.md` |
 | `ack_idle` / `report_interval` | 110 ms / 200 ms | `av/transport.c:10–11` |
-| `nak_repeat` / `gap_skip` / `partial_wait` | 50 / 300 / 500 ms | `av/transport.c:14`, `av/media_recv.c:20–21` |
+| `nak_repeat` / `gap_skip` / `partial_wait` / `incomplete_wait` | 50 / 300 / 500 ms / 2 s | `av/transport.c:14`, `av/media_recv.c:20–21`; `incomplete_wait` new (`45-media-receive.md`) |
 | `video_queue` / `audio_queue` / `push_queue` | 60 / 200 / 256 | `av/media_recv.c:18–19`; new |
 | `talk_queue` / `talk_frame` | 10 frames / 20 ms | new; `talkback.py` `FRAME_S` |
 | `trace` | off | R33 |

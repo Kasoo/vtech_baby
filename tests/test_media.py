@@ -9,9 +9,10 @@ av = pytest.importorskip("av")
 
 from vtech_lan import media, ops  # noqa: E402
 from vtech_lan.errors import AV_ER_SESSION_CLOSE_BY_REMOTE, SessionGone  # noqa: E402
-from vtech_lan.media import LiveStream, is_keyframe  # noqa: E402
+from vtech_lan.media import LiveStream, has_nal, is_keyframe  # noqa: E402
 from vtech_lan.session import Session  # noqa: E402
 
+import fake_sdk  # noqa: E402
 from fake_sdk import FakeSdk, clip, enable_live_view  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not clip(), reason="needs ffmpeg for the test clip")
@@ -95,6 +96,22 @@ def test_receive_counters_refresh_and_log_losses(cam, monkeypatch, caplog):
     sub.close()
     assert wait_for(lambda: not ls.running)
     assert ls.stats["receive"]["video_given_up"] == 2
+
+
+def test_losses_before_a_start_are_not_logged_again(cam, monkeypatch, caplog):
+    sdk, _, ls, _ = cam
+    monkeypatch.setattr(media, "RECV_STATS_S", 0.05)
+    zero = dict.fromkeys(("packets_requested", "video_given_up", "video_late", "video_overflow",
+                          "audio_given_up", "audio_late", "audio_overflow", "packets_recovered"), 0)
+    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 2}
+    caplog.set_level("DEBUG", logger=media.__name__)
+    sink = Sink()
+    sub = ls.subscribe(sink)
+    assert wait_for(lambda: sink.chunks)
+    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 3}
+    assert wait_for(lambda: "frames lost: {'video_given_up': 1}" in caplog.text)
+    assert "'video_given_up': 2}" not in caplog.text
+    sub.close()
 
 
 def test_no_receive_counters_with_the_vendor_sdk(cam):
@@ -245,6 +262,24 @@ def test_is_keyframe():
     frames = clip()
     assert is_keyframe(frames[0]) and not is_keyframe(frames[1])
     assert sum(map(is_keyframe, frames)) == 3
+
+
+def test_has_nal():
+    assert has_nal(clip()[1])
+    assert not any(map(has_nal, [b"", b"\x00\x00\x00\x01", b"\x00\x00\x01\x00\x00\x00\x01\x00"]))
+
+
+def test_empty_video_frames_are_dropped(cam, monkeypatch):
+    # PyAV takes an empty packet as a flush, and muxes a bare start code as a PES that go2rtc's
+    # MPEG-TS reader turns into an empty packet (a panic in its H.264 repair).
+    sdk, _, ls, _ = cam
+    frames = clip()
+    monkeypatch.setattr(fake_sdk, "clip", lambda: [frames[0], b"", b"\x00\x00\x00\x01", *frames[1:]])
+    sink = Sink()
+    sub = ls.subscribe(sink)
+    assert wait_for(lambda: ls.stats.get("bad", 0) >= 2 and len(sink.data) > 50_000)
+    sub.close()
+    assert streams_of(sink.data) == [("audio", "aac"), ("video", "h264")]
 
 
 def test_send_busy_is_retried():

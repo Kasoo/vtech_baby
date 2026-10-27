@@ -80,7 +80,11 @@ under drops while delivering fewer audio frames than vtech-link in the same 120 
 
 ## Open
 
-1. **Don't give up a frame that is still arriving (both stacks).** A frame missing fragments while the
+1. **Don't give up a frame that is still arriving (both stacks).** Built in vtech-link (2026-10-26):
+   an incomplete frame waits 500 ms only after a packet gap has been skipped, otherwise 2 s
+   (`incomplete_wait`, `45-media-receive.md`), with offline tests for a keyframe trickled over 505 ms
+   and for a gap skip. Each give-up's debug line says which rule applied. Still to verify live, as
+   below. A frame missing fragments while the
    packet numbering has no gap below them hasn't lost anything; the camera just hasn't finished sending
    it. Proposed rule for `media_rx.rs`: give up an incomplete frame only once a gap at or below its
    packets has been skipped (or after a much longer backstop, e.g. 2 s). The offline tests need a case
@@ -88,7 +92,8 @@ under drops while delivering fewer audio frames than vtech-link in the same 120 
    long run with the new rule should show no given-up frame without a gap skip. Consider the same fix in
    `tutk-host` if it stays in production.
 2. **Why the camera ignores some NAKs.** Unknown. Leads to check, cheapest first:
-   - log each NAK list and each skipped packet number (vtech-link debug) and see whether the ignored
+   - log each NAK list and each skipped packet number (vtech-link debug, built 2026-10-26: `media: NAK
+     [...]` and `media: gave up waiting for N packet(s) [...]`) and see whether the ignored
      ones share something: the same parity group, a group whose parity was also dropped, the first
      packet after a parity packet, or audio;
    - try a longer gap skip (600 ms) to rule out slow resends;
