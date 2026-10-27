@@ -23,8 +23,8 @@ Python. Not affiliated with VTech or ThroughTek.
 | `docs/vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client on the vendor's SDK, and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. The package uses none of the kit's code. |
 | `docs/vtech-lan-kit/sdk/<arch>/` | Local development copies of the vendor's SDK, for the reference client. **Gitignored; never commit them** (see Rules). |
 | `tests/` | Offline tests (`fake_link.py` stands in for `_vtech_link`, `fake_camera.py` for the camera); `tests/live/` probes for a real camera. |
-| `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns. |
-| `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork) and `render.sh` (needs inkscape) for `brand/`. |
+| `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns; `social-preview.png` is the GitHub social preview, rendered from `brand-src/social.svg` and uploaded by hand (Settings → General → Social preview). |
+| `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork), `social.svg` (the social preview, built from the icon and `images/device.png`) and `render.sh` (needs inkscape and Open Sans) for `brand/` and `images/social-preview.png`. |
 | `sync_link.sh` | Builds vtech-link's `_vtech_link.abi3.so` (`vtech-link/release.sh`) and installs it into `native/<arch>-<libc>/`, recording the revision in `native/LINK_SOURCE`. |
 
 ## Read first
