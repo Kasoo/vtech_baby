@@ -6,29 +6,26 @@ Notes for working on this repo. User-facing docs are in `README.md`; keep that s
 
 A Home Assistant integration (domain `vtech_baby`) that controls and monitors the **VTech RM5754HD**
 baby-monitor camera **LAN-direct, with no cloud**. The camera speaks only ThroughTek's Kalay P2P
-protocol (TUTK), so the integration drives a TUTK SDK, in a worker process of its own so a crash in it
-can't take Home Assistant down. It ships its own implementation of the SDK libraries (`tutk-host/`), one
-set per arch and libc; on a host without a set it falls back to the vendor's Android libraries, uploaded
-by the user and patched at setup to load on HA's musl or glibc libc. Everything above the transport (opcodes, live-view
-crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
+protocol (TUTK). The integration ships its own implementation of the transport, vtech-link
+(`vtech-link/`, Rust), as a Python extension module per arch and libc, and runs it in a worker process
+of its own so a crash in it can't take Home Assistant down. The opcode layer above the transport is
+Python. Not affiliated with VTech or ThroughTek.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (protocol library), `tooling/` (vendored SDK patcher), `native/<arch>-<libc>/` (our SDK libraries, built from `tutk-host/`), `native/<arch>/libtk.so` (prebuilt companion for the patched fallback, built from `docs/vtech-lan-kit/tooling/companion/`), `brand/`. |
-| `tutk-host/` | Our implementation of the three TUTK SDK libraries, built for the host libc; `release.sh` builds the shipped sets. See `tutk-host/NOTES.md`. |
+| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (opcode layer, sessions, worker), `native/<arch>-<libc>/_vtech_link.abi3.so` (vtech-link, built by `sync_link.sh`), `brand/`. |
+| `vtech-link/` | The transport: protocol core, CLI, simulator, Python module (`_vtech_link`). Status and next steps: `TODO.md` ("vtech-link"). |
+| `tutk-host/` | Not shipped. Our earlier implementation of the three TUTK SDK libraries, which the package used before vtech-link (tag `dual-backend-v1`); kept for A/B runs against vtech-link. See `tutk-host/NOTES.md`. |
 | `tutk-sdk/` | Archived (tag `tutk-sdk-dropin-v1`): the drop-in build of the same libraries for the patched path. |
-| `vtech-link/` | The Rust/PyO3 replacement for `tutk-host` and the ctypes layer: protocol core, CLI, simulator, Python module. Status and next steps: `TODO.md` ("vtech-link"). |
 | `docs/vtech-link-design/` | Its design, with a "Status" section per document for what was built and how it differs. Start at its `README.md`. |
-| `docs/vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. |
-| `docs/vtech-lan-kit/sdk/<arch>/` | Local development copies of the SDK. **Gitignored; never commit them** (see Rules). |
-| `tests/` | Offline tests (fake SDK, fake manager); `tests/live/` probes for a real camera. |
+| `docs/vtech-lan-kit/` | The protocol kit: `docs/` (the spec), `client/` (reference client on the vendor's SDK, and QR provisioning), `tooling/` (SDK patcher and companion sources), `sdk/README.md`. The package uses none of the kit's code. |
+| `docs/vtech-lan-kit/sdk/<arch>/` | Local development copies of the vendor's SDK, for the reference client. **Gitignored; never commit them** (see Rules). |
+| `tests/` | Offline tests (`fake_link.py` stands in for `_vtech_link`, `fake_camera.py` for the camera); `tests/live/` probes for a real camera. |
 | `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns. |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork) and `render.sh` (needs inkscape) for `brand/`. |
-| `sync_vendored.sh` | Refreshes `tooling/` and `native/<arch>/libtk.so` from the kit. |
-| `sync_sdk.sh` | Builds `tutk-host/` release sets and installs them into `native/<arch>-<libc>/`, recording the revision in `native/SDK_SOURCE`. |
-| `sync_link.sh` | Builds vtech-link's `_vtech_link.abi3.so` (`vtech-link/release.sh`) and installs it into `native/<arch>-<libc>/`, recording the revision in `native/LINK_SOURCE`. Used when `const.BACKEND` is "link". |
+| `sync_link.sh` | Builds vtech-link's `_vtech_link.abi3.so` (`vtech-link/release.sh`) and installs it into `native/<arch>-<libc>/`, recording the revision in `native/LINK_SOURCE`. |
 
 ## Read first
 
@@ -37,26 +34,21 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 | "Design notes" below | Decisions, the entity map, open protocol questions and known issues. |
 | `docs/vtech-lan-kit/docs/README.md` → `00`–`95` | **Protocol authority**: opcodes, payloads, pushes, crypto, talk-back. |
 | `docs/vtech-lan-kit/docs/05-provisioning.md` | Credentials come from the pairing QR: UID + AV password decoded, authKey derived. |
-| `docs/vtech-lan-kit/docs/85-ha-deployment.md`, `90-ha-runtime.md` | How the native layer ships, patches, loads, threads, fails and reconnects inside HA. Follow these; don't re-derive them. |
+| `docs/vtech-lan-kit/docs/90-ha-runtime.md` | How a session threads, fails and reconnects inside HA. Its SDK specifics (ctypes, buffers, return codes) are background now: vtech-link handles them. `85-ha-deployment.md` is the SDK-era packaging, kept as background. |
+| `docs/vtech-link-design/` | vtech-link's design; `75-python-api.md` is the module's surface the package uses. |
 | `docs/vtech-lan-kit/client/vtech_camera_client.py` | Working reference implementation. Use it to check behaviour. |
-| `docs/vtech-lan-kit/tooling/README.md` | How the SDK patch and the companion `libtk.so` work. |
 
 ## Rules
 
 ### Proprietary material and secrets
-- **Our own SDK libraries** (`native/<arch>-<libc>/`) are built only by `sync_sdk.sh`, never by hand, so
-  `native/SDK_SOURCE` always names the `tutk-host/` revision they came from. Their imports are limited to
-  `tutk-host/tools/imports-allowed.txt`; widening it is a deliberate, reviewed change. The same goes for
-  `native/<arch>-<libc>/_vtech_link.abi3.so`: only `sync_link.sh` installs it, recording the
-  revision in `native/LINK_SOURCE`.
-- **The vendor's SDK libraries are user-supplied** (the patched fallback): the user uploads ThroughTek's Kalay Mobile app (or any zip
-  of the four libraries) in the config flow, and `tooling/extract_sdk.py` keeps the four libraries. Only SDK **4.3.8.1** is accepted (checked
-  from the libraries' version string, not a hash). The package must never ship, download or commit them,
-  patched or not (`docs/vtech-lan-kit/sdk/README.md`, `docs/85-ha-deployment.md`). `.gitignore` excludes
-  `docs/vtech-lan-kit/sdk/*/` and every `.so` except our own (`libtk.so` and `native/<arch>-<libc>/`).
-- The SDK license key and the QR/HKDF provisioning constants are app-wide values **embedded** in the
-  package (`vtech_lan/sdk.py`, `vtech_lan/provision.py`), matching the kit's reference client (a test
-  enforces it). They live in code only: the docs name and describe them but never print the values.
+- **`native/<arch>-<libc>/_vtech_link.abi3.so`** is installed only by `sync_link.sh`, never by hand, so
+  `native/LINK_SOURCE` always names the vtech-link revision it came from.
+- **The vendor's SDK libraries** are used only by the kit's reference client and `tutk-host` A/B runs,
+  from local copies. Never ship, download or commit them, patched or not (`docs/vtech-lan-kit/sdk/README.md`).
+  `.gitignore` excludes `docs/vtech-lan-kit/sdk/*/` and every `.so` except our own.
+- The QR/HKDF provisioning constants are app-wide values **embedded** in the package
+  (`vtech_lan/provision.py`), matching the kit's reference client (a test enforces it). They live in code
+  only: the docs name and describe them but never print the values.
 - Per-camera credentials (UID, AV password, derived authKey; account `admin`) come from the owner's
   **pairing QR** and live only in the config entry.
 - **Never write a real camera's credentials (or a real pairing QR) into code, tests, fixtures, docs or
@@ -67,31 +59,25 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 ### Code
 - `vtech_lan/` has **no `homeassistant` imports**, so it can be unit-tested and run standalone.
 - **Native code only ever runs in the worker process** (`vtech_lan/worker.py`, started by
-  `vtech_lan/worker_client.py` through `_worker_main.py`): the SDK (the vendor's, patched, or `tutk-host`)
-  and vtech-link's `_vtech_link` module. Home Assistant's process patches the libraries but never loads
-  them. The worker imports no Home Assistant code; keep it that way (`tests/test_worker.py` checks).
-- **Three implementations, two session classes.** `SdkSession` (`Session`) drives an SDK through ctypes,
-  which covers both the vendor's libraries and `tutk-host`. `LinkSession` drives `_vtech_link`
-  (`vtech_lan/link.py`). Each session names its backend ("sdk" or "link"), so one worker can run cameras
-  on both. **Which one a build uses is `const.BACKEND`**, fixed at build time: "sdk" or "link". A
-  "link" build has no SDK step in setup and needs `sync_link.sh`'s modules in the package. Everything above the transport lives in `SessionBase`, `media.py` and `talkback.py`. Each
-  session hands out a media source and an uplink, and a change to either must work on both
-  (`tests/test_link_session.py` runs the link side against `tests/fake_link.py`).
+  `vtech_lan/worker_client.py` through `_worker_main.py`): vtech-link's `_vtech_link` module. Home
+  Assistant's process finds the module (`native.py`) but never loads it. The worker imports no Home
+  Assistant code; keep it that way (`tests/test_worker.py` checks).
+- **Sessions:** `SessionBase` holds everything above the transport (the opcode helpers, push decoding,
+  the keepalive); `LinkSession` drives `_vtech_link` (`vtech_lan/link.py`), which matches replies,
+  decrypts and paces media itself. It hands out the live view's media source (`media.py`) and the
+  talk-back uplink (`talkback.py`).
 - **Messages between HA and the worker** are pickles over a socket pair (`vtech_lan/ipc.py`). The
   session proxy forwards any public session method by name, so a new session method needs no IPC
   change. Live-view video never crosses the socket: the worker serves it over loopback HTTP.
 - **Runtime model** (`docs/vtech-lan-kit/docs/90-ha-runtime.md`), inside the worker:
-  - Load and initialise the SDK once per worker, and never unload it; a new SDK means a new worker.
-  - Never make an SDK call on the event loop.
-  - One reader thread per session takes what the camera sends (`avRecvIOCtrl`, or the link's pushes).
+  - Load the module once per worker, and never unload it; a new module means a new worker.
+  - Never make a blocking module call on the event loop.
+  - One reader thread per session takes the link's pushes.
   - Long-lived loops run on dedicated threads, not the shared executor.
-  - Pass buffers from `ctypes.create_string_buffer` with exact sizes.
 - **Reply opcodes are listed explicitly per op**, never computed as request + 1: `0x709 → 0x710` and
   `0x729 → 0x730` break that rule.
 - **The kit is the spec.** If you find a protocol fact that is new or wrong, fix `docs/vtech-lan-kit/docs/` in
   the same change.
-- **Vendored copies match the kit.** `tooling/` and `native/` are refreshed together by
-  `sync_vendored.sh`, which records the kit revision in `native/SOURCE`.
 - **Facts, not derivations.** The kit and the code comments state what the protocol is and how the
   camera behaves, never how it was found: no sources, tools, captures, dates or references to private
   notes. Where something is unknown or unconfirmed, say so in words.
@@ -108,14 +94,12 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 ## Development
 
 - **Camera reachability:** only from its own L2 segment. Connecting is by UID; LAN discovery is a subnet
-  broadcast the camera answers on fixed UDP **32762**, so the client calls
-  `IOTC_Set_LanSearchPort(32762)` (the SDK default 32761 is unanswered).
+  broadcast the camera answers on fixed UDP **32762** (vtech-link's default; the SDK's default 32761
+  is unanswered, so the reference client calls `IOTC_Set_LanSearchPort(32762)`).
 - **Offline tests:**
   `python3 -m venv .venv && .venv/bin/pip install -r requirements_test.txt`, then `.venv/bin/pytest`
-  from the repo root. The tests that need the real SDK look in `docs/vtech-lan-kit/sdk/<arch>/` (or
-  `$VTECH_SDK_DIR`) and in `.build/<arch>/` for a patched set
-  (`docs/vtech-lan-kit/tooling/patch.sh docs/vtech-lan-kit/sdk/x86_64 .build/x86_64`); they skip without them.
-  Run tests from the root. Platform modules are named by Home Assistant (`select.py`, `sensor.py`, ...)
+  from the repo root. The test that loads the real module needs `sync_link.sh`'s build for this host;
+  it skips without one. Run tests from the root. Platform modules are named by Home Assistant (`select.py`, `sensor.py`, ...)
   and shadow other modules of the same name, so never put `custom_components/vtech_baby` (or
   `vtech_lan/`) on `sys.path` ahead of the standard library; the worker refuses to start if it is there
   at all.
@@ -143,13 +127,13 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
 ## Design notes
 
 ### Decisions
-- **The SDK runs in a worker process** (`90-ha-runtime.md` §6). One worker per HA process serves every
+- **The module runs in a worker process** (`90-ha-runtime.md` §6). One worker per HA process serves every
   camera. It is started with `subprocess` and `python -I`, and imports the package's `vtech_lan` without
   running the integration's `__init__` (`_worker_main.py` registers the parent packages as empty
   modules), so it holds no Home Assistant code and `vtech_lan` classes cross the IPC under their own
   names. If it dies, every session is lost with `WorkerDied`, a Repairs issue (`worker_crashed`, not
-  persistent) records why, and the next reconnect starts a new worker. A new SDK upload restarts it too,
-  so switching SDKs no longer needs an HA restart.
+  persistent) records why, and the next reconnect starts a new worker. A different module (a new
+  fingerprint) restarts it too.
 - **The live view is served by the worker** (MPEG-TS over HTTP on 127.0.0.1). HA binds the listening
   socket once and passes it to every worker, so the URL (port and token) HA's go2rtc has registered
   survives worker restarts and entry reloads.
@@ -157,11 +141,14 @@ crypto) is implemented in Python. Not affiliated with VTech or ThroughTek.
   and initialises the SDK per session; HA needs one reader thread per channel and one init per process.
 - **Pushes drive state** (`local_push`). GETs run on connect, after a reconnect, on the keepalive, and to
   confirm a write.
-- **LAN-only, always.** The companion's egress policy keeps the SDK off the internet, the client sets
-  `IOTC_Set_LanSearchPort(32762)`, and `Session.connect()` refuses any session whose mode isn't LAN
-  (`NotLanDirect`). Without that, the SDK falls back to ThroughTek's relay.
-- **Several cameras share one SDK** per process (`vtech_lan.sdk.load()`, 16 AV channels); loading it again
-  with a different library dir or licence is refused.
+- **LAN-only, always.** vtech-link implements only LAN-direct sessions: it sends only to directly
+  attached IPv4 subnets (host or directed broadcast) or 255.255.255.255, never resolves names, and has
+  no P2P or relay path. `lan_only_stats()` counts refused sends (`vtech-link-design/00-requirements.md`, R5).
+- **Several cameras share one module** per process (`vtech_lan.link.load()`); loading it again from a
+  different path is refused (`ModuleMismatch`).
+- **Version 2 config entries** (2026-10): version 1 ran on the vendor's SDK and stored its directory;
+  `async_migrate_entry` drops it and deletes the extracted and patched libraries under the HA config
+  directory.
 
 ### Entity map
 
@@ -209,6 +196,6 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   followed by ~35–40 s with no replies. The session isn't lost and recovers by itself; the cause is
   unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. Re-reads keep their
   previous values and stop after two timeouts, and a write during the stall fails cleanly.
-- **A native crash in the SDK or the companion kills the worker**, and with it every camera's session
+- **A native crash in the module kills the worker**, and with it every camera's session
   until the reconnect (10 s backoff). Home Assistant keeps running. The worker's stderr (the
   container log) has the faulthandler dump of its Python threads.

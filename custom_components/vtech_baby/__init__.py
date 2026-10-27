@@ -1,11 +1,14 @@
-"""The VTech RM5754HD baby-monitor integration: LAN-direct over the vendor's Kalay SDK.
+"""The VTech RM5754HD baby-monitor integration: LAN-direct over ThroughTek's Kalay protocol.
 
-Design notes: AGENTS.md. The SDK runs in one worker process shared by all entries
-(`vtech_lan/worker.py`); each config entry owns one CameraManager (one camera session).
+Design notes: AGENTS.md. The protocol module (vtech-link) runs in one worker process shared by all
+entries (`vtech_lan/worker.py`); each config entry owns one CameraManager (one camera session).
 """
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import os
+import shutil
 
 import voluptuous as vol
 
@@ -18,8 +21,10 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_RESTART_REQUIRED
-from .manager import CameraManager, SdkSetupError, async_load_sdk
+from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_RESTART_REQUIRED, SDK_DIRS
+from .manager import CameraManager, SetupError, async_load
+
+_LOG = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR, Platform.CAMERA, Platform.EVENT, Platform.LIGHT, Platform.MEDIA_PLAYER,
@@ -55,9 +60,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> bool:
     try:
-        handle = await async_load_sdk(hass, entry.data[CONF_SDK_DIR])
-    except SdkSetupError as err:
-        raise ConfigEntryError(f"cannot prepare the VTech SDK: {err}") from err
+        client = await async_load(hass)
+    except SetupError as err:
+        raise ConfigEntryError(f"cannot load the VTech protocol module: {err}") from err
     # Restarts are no longer needed to switch SDKs (the worker restarts instead): drop the old issue.
     ir.async_delete_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED)
 
@@ -66,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> boo
     if old := reg.async_get_entity_id("select", DOMAIN, f"{entry.data[CONF_UID]}_night_light"):
         reg.async_remove(old)
 
-    manager = CameraManager(hass, entry, handle.client)
+    manager = CameraManager(hass, entry, client)
     await manager.async_first_connect()
     entry.runtime_data = manager
     entry.async_on_unload(manager.async_close)
@@ -76,3 +81,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> boo
 
 async def async_unload_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> bool:
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> bool:
+    """Version 1 → 2: the vendor's SDK is gone. Drop the entry's SDK directory, and the extracted and
+    patched libraries under the HA config directory."""
+    if entry.version > 2:
+        return False                            # written by a newer version of the integration
+    if entry.version == 1:
+        data = {k: v for k, v in entry.data.items() if k != CONF_SDK_DIR}
+        await hass.async_add_executor_job(_remove_sdk_dirs, hass.config.path())
+        hass.config_entries.async_update_entry(entry, data=data, version=2)
+    return True
+
+
+def _remove_sdk_dirs(config_dir: str) -> None:
+    """Executor job: delete what version 1 wrote under the config directory, then its parent if empty."""
+    root = os.path.join(config_dir, SDK_DIRS[0][0])
+    for parts in SDK_DIRS:
+        path = os.path.join(config_dir, *parts)
+        if os.path.isdir(path):
+            _LOG.info("removing %s: the vendor's SDK is no longer used", path)
+            shutil.rmtree(path, ignore_errors=True)
+    try:
+        os.rmdir(root)
+    except OSError:
+        pass                                    # absent, or holds something else

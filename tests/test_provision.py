@@ -11,7 +11,7 @@ import sys
 import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from vtech_lan import provision, sdk
+from vtech_lan import provision
 from vtech_lan.provision import InvalidQr
 
 KIT_CLIENT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "vtech-lan-kit", "client")
@@ -76,10 +76,3 @@ def test_parity_with_kit(pwd):
     assert (provision.QR_AES_KEY, provision.QR_AES_IV, provision.HKDF_MASTER_KEY) == \
         (kit.QR_AES_KEY, kit.QR_AES_IV, kit.HKDF_MASTER_KEY)
 
-
-def test_license_matches_kit():
-    src = open(os.path.join(KIT_CLIENT, "vtech_camera_client.py")).read()
-    start = src.index("DEFAULT_LICENSE_KEY = (")
-    ns = {}
-    exec(src[start:src.index(")", start) + 1], ns)
-    assert sdk.DEFAULT_LICENSE_KEY == ns["DEFAULT_LICENSE_KEY"]

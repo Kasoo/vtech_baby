@@ -1,6 +1,6 @@
 """Camera: the live view (H.264 + AAC) and snapshots.
 
-`stream_source()` points at the SDK worker's loopback HTTP server (`vtech_lan/worker.py`), which serves
+`stream_source()` points at the worker's loopback HTTP server (`vtech_lan/worker.py`), which serves
 the camera's MPEG-TS; HA's go2rtc serves it as WebRTC and its stream component as HLS. Media runs only
 while something watches (`vtech_lan/media.py`).
 Snapshots decode the newest keyframe; with nothing watching, the stream starts briefly and a snapshot is

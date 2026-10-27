@@ -1,6 +1,6 @@
 """Characterise the IOCtrl stall seen after a 0x731 SET_PARAMS write (2026-10-05).
 
-Writes only the camera's CURRENT values back (no setting changes, no light or sound), then times a
+Needs vtech_lan.zip and _vtech_link.abi3.so next to it. Writes only the camera's CURRENT values back (no setting changes, no light or sound), then times a
 GET 0x733 every second. Scenarios (argv[1]):
   731       0x731 with the current values
   790       0x790 with the current notification interval (fire-and-forget), then 0x792 re-read
@@ -19,7 +19,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "vtech_lan.zip"))
 
-from vtech_lan import Session, sdk  # noqa: E402
+from vtech_lan import LinkSession, link  # noqa: E402
 from vtech_lan.errors import VtechError  # noqa: E402
 
 SCENARIO = sys.argv[1] if len(sys.argv) > 1 else "731"
@@ -40,13 +40,13 @@ def timed(label, fn):
 
 
 def main():
-    s = Session(sdk.load(HERE), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
+    s = LinkSession(link.load(os.path.join(HERE, "_vtech_link.abi3.so")), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
                 name="stall", keepalive_s=0,
                 on_push=lambda p: print(f"{ts()}  push 0x{p.code:x}: {p.value}", flush=True))
     print(f"{ts()} connected: {s.connect()} mode={s.connection_mode()}", flush=True)
     if SCENARIO == "abandon":
         s.get_params()
-        print(f"{ts()} abandoning the session (no avClientStop / IOTC_Session_Close)", flush=True)
+        print(f"{ts()} abandoning the session (no close)", flush=True)
         os._exit(0)
     before = s.get_params()
     interval = s.get_notify_interval()

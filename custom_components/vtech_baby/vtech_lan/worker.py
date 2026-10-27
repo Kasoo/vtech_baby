@@ -1,14 +1,13 @@
-"""The SDK worker: the process that loads the native code and runs every camera session and live view.
+"""The worker: the process that loads the native module (`_vtech_link`) and runs every camera session
+and live view.
 
-The native code is a ThroughTek SDK (the vendor's, patched, or our `tutk-host`), `_vtech_link`, or both:
-each session names its backend ("sdk" or "link"), so cameras can use different ones side by side. Running
-it in its own process means a crash in it (a segfault, an abort) ends this process only: Home Assistant
-sees the socket close, and reconnects with a fresh worker (`worker_client.py`). Started by
+Running it in its own process means a crash in it (a segfault, an abort) ends this process only: Home
+Assistant sees the socket close, and reconnects with a fresh worker (`worker_client.py`). Started by
 `_worker_main.py`; this module holds the worker's logic, so it can also run on a thread (tests) with any
-SDK object.
+module object.
 
 The worker:
-- answers requests from Home Assistant (`ipc.py`), each on a pool thread since SDK calls block;
+- answers requests from Home Assistant (`ipc.py`), each on a pool thread since module calls block;
 - owns the `Session`s and forwards their pushes and losses;
 - serves each camera's live view as MPEG-TS over HTTP on a loopback socket Home Assistant bound and
   passed in, so the URL stays the same across worker restarts and decrypted frames never cross the IPC;
@@ -31,10 +30,10 @@ from collections import deque
 from typing import Any, Callable
 
 from . import link
-from .errors import SdkMismatch, SessionGone, VtechError
+from .errors import ModuleMismatch, SessionGone, VtechError
 from .ipc import Channel
 from .media import LiveStream
-from .session import LinkSession, SdkSession, SessionBase
+from .session import LinkSession, SessionBase
 from .talkback import TalkBack
 
 _LOG = logging.getLogger(__name__)
@@ -44,16 +43,12 @@ POOL_THREADS = 32             # concurrent blocking requests (connects take up t
 
 
 class Worker:
-    def __init__(self, chan: Channel, sdk_factory: Callable[[str], Any],
-                 listen: socket.socket | None = None, forward_logs: bool = False,
+    def __init__(self, chan: Channel, listen: socket.socket | None = None, forward_logs: bool = False,
                  link_loader: Callable[[str], Any] = link.load):
         self.chan = chan
-        self._factory = sdk_factory
         self._link_loader = link_loader
         self._listen = listen
         self._forward_logs = forward_logs
-        self.sdk: Any = None
-        self.libdir: str | None = None
         self.link: Any = None                        # the _vtech_link module, once loaded
         self._link_path: str | None = None
         self.sessions: dict[int, SessionBase] = {}
@@ -131,44 +126,25 @@ class Worker:
             self.http = _MediaServer(self, self._listen)
         return os.getpid()
 
-    def _do_load(self, libdir: str) -> dict[str, Any]:
-        with self._lock:
-            if self.sdk is None:
-                self.sdk, self.libdir = self._factory(libdir), libdir
-            elif libdir != self.libdir:
-                raise SdkMismatch(f"worker already has the SDK from {self.libdir}")
-        return self._do_sdk_info()
-
     def _do_load_link(self, path: str) -> dict[str, Any]:
         with self._lock:
             if self.link is not None and path != self._link_path:
-                raise SdkMismatch(f"worker already has vtech-link from {self._link_path}")
-            self.link, self._link_path = self._link_loader(path), path
-        return self._do_sdk_info()
+                raise ModuleMismatch(f"worker already has vtech-link from {self._link_path}")
+            if self.link is None:
+                self.link, self._link_path = self._link_loader(path), path
+        return self._do_module_info()
 
-    def _do_sdk_info(self) -> dict[str, Any]:
-        sdk = self.sdk
-        stats = getattr(sdk, "lan_only_stats", None)
-        return {"libdir": getattr(sdk, "libdir", self.libdir), "arch": getattr(sdk, "arch", None),
-                "lan_only": stats() if stats else None, "pid": os.getpid(),
-                "link": link.info(self.link) if self.link is not None else None,
+    def _do_module_info(self) -> dict[str, Any]:
+        return {"pid": os.getpid(), "link": link.info(self.link) if self.link is not None else None,
                 "link_path": self._link_path}
 
     def _do_open(self, key: int, uid: str, authkey: str, password: str, account: str,
-                 options: dict[str, Any], media: bool, backend: str = "sdk") -> None:
-        callbacks: dict[str, Any] = {"on_push": lambda p: self._notify("push", key, p),
-                                     "on_lost": lambda e: self._on_lost(key, s, e)}
-        s: SessionBase
-        if backend == "link":
-            if self.link is None:
-                raise SessionGone("vtech-link isn't loaded in the worker", call="open")
-            s = LinkSession(self.link, uid, authkey, password, account, **callbacks, **options)
-        elif backend == "sdk":
-            if self.sdk is None:
-                raise SessionGone("the SDK isn't loaded in the worker", call="open")
-            s = SdkSession(self.sdk, uid, authkey, password, account, **callbacks, **options)
-        else:
-            raise ValueError(f"unknown backend {backend!r}")
+                 options: dict[str, Any], media: bool) -> None:
+        if self.link is None:
+            raise SessionGone("vtech-link isn't loaded in the worker", call="open")
+        s: SessionBase = LinkSession(self.link, uid, authkey, password, account,
+                                     on_push=lambda p: self._notify("push", key, p),
+                                     on_lost=lambda e: self._on_lost(key, s, e), **options)
         with self._lock:
             self.sessions[key] = s
             if media:
@@ -352,19 +328,17 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="vtech_baby worker")
     ap.add_argument("--fd", type=int, required=True, help="the IPC socket")
     ap.add_argument("--listen-fd", type=int, help="the loopback live-view socket, already listening")
-    ap.add_argument("--sdk-factory", default=None, help="module:callable taking libdir (tests)")
+    ap.add_argument("--link-loader", default=None, help="module:callable taking the module path (tests)")
     ap.add_argument("--path", action="append", default=[], help="append to sys.path (tests)")
     a = ap.parse_args(argv)
     faulthandler.enable()                   # a native crash dumps the Python stacks to stderr
     sys.path.extend(a.path)
-    if a.sdk_factory:
-        mod, _, attr = a.sdk_factory.partition(":")
-        factory = getattr(importlib.import_module(mod), attr)
-    else:
-        from . import sdk as vsdk           # noqa: PLC0415
-        factory = vsdk.load
+    loader = link.load
+    if a.link_loader:
+        mod, _, attr = a.link_loader.partition(":")
+        loader = getattr(importlib.import_module(mod), attr)
     chan = Channel(socket.socket(fileno=a.fd))
     listen = socket.socket(fileno=a.listen_fd) if a.listen_fd is not None else None
-    Worker(chan, factory, listen, forward_logs=True).run()
+    Worker(chan, listen, forward_logs=True, link_loader=loader).run()
     logging.shutdown()
-    os._exit(0)                             # don't wait for SDK-owned threads
+    os._exit(0)                             # don't wait for the module's own threads

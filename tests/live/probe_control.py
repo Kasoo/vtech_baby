@@ -1,4 +1,4 @@
-"""Control and push check. CHANGES SETTINGS for a few seconds (the LEDs light), then restores them:
+"""Control and push check. CHANGES SETTINGS for a few seconds (the LEDs light), then restores them. Needs vtech_lan.zip and _vtech_link.abi3.so next to it:
 
     cd tests/live && ./run.sh probe_control.py --allow-writes [temp_wait_s]
 
@@ -18,18 +18,13 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "vtech_lan.zip"))
 
-from vtech_lan import Session, ops, sdk  # noqa: E402
+from vtech_lan import LinkSession, link, ops  # noqa: E402
 
 T0 = time.monotonic()
 
 
 def log(*a):
     print(f"[{time.monotonic() - T0:7.2f}]", *a, flush=True)
-
-
-def license_key():
-    with open(os.path.join(HERE, "LICENSE_KEY.txt")) as f:
-        return next(ln.split("license_key=", 1)[1].strip() for ln in f if "license_key=" in ln)
 
 
 def main() -> int:
@@ -60,7 +55,7 @@ def main() -> int:
         log(f"  {what}: NOT received in {timeout:.0f} s")
         return False
 
-    s = Session(sdk.load(HERE, license_key()), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"],
+    s = LinkSession(link.load(os.path.join(HERE, "_vtech_link.abi3.so")), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"],
                 os.environ["VTECH_PWD"], os.environ.get("VTECH_ACCOUNT", "admin"), name="control",
                 keepalive_s=20, on_push=on_push)
     log("connected", s.connect())

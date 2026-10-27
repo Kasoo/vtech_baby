@@ -1,11 +1,11 @@
-"""Home Assistant's side of the SDK worker (`worker.py`): start it, talk to it, notice when it dies.
+"""Home Assistant's side of the worker (`worker.py`): start it, talk to it, notice when it dies.
 
 `WorkerClient` is one per Home Assistant process. It hands out proxies with the same blocking methods
 as `Session` and the live view, so the integration drives them exactly as before (from executor
 threads). Every proxy call is a request over the socket (`ipc.py`).
 
-If the worker dies (a crash in the SDK, or killed), every session it held is reported lost with
-`WorkerDied`, and the next connect starts a new worker with the same SDK. The live-view socket is
+If the worker dies (a crash in the module, or killed), every session it held is reported lost with
+`WorkerDied`, and the next connect starts a new worker with the same module. The live-view socket is
 bound here and passed to each worker, so the stream URL survives worker restarts.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ _LOG = logging.getLogger(__name__)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PACKAGE = __name__.rsplit(".", 2)[0]       # the integration's package, e.g. custom_components.vtech_baby
-REQUEST_TIMEOUT_S = 120.0                  # backstop: every SDK call has its own, shorter timeout
+REQUEST_TIMEOUT_S = 120.0                  # backstop: every module call has its own, shorter timeout
 STOP_TIMEOUT_S = 10.0
 
 
@@ -73,7 +73,6 @@ class WorkerClient:
         self._chan: Channel | None = None
         self._handle: WorkerHandle | None = None
         self.gen = 0                            # worker generation; proxies remember theirs
-        self._libdir: str | None = None
         self._link_path: str | None = None
         self._fingerprint: str | None = None
         self._ids = itertools.count(1)
@@ -88,26 +87,25 @@ class WorkerClient:
         self.pid: int | None = None
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
-    def ensure(self, libdir: str | None, fingerprint: str = "", link_path: str | None = None) -> dict[str, Any]:
-        """Make sure a worker runs with this SDK (`libdir`) and this `_vtech_link` module (`link_path`);
-        either may be None, not both. A change (a new upload) restarts the worker, so its sessions are lost
-        and reconnect on the new one. Blocking."""
+    def ensure(self, link_path: str, fingerprint: str = "") -> dict[str, Any]:
+        """Make sure a worker runs with this `_vtech_link` module. A different module restarts the
+        worker, so its sessions are lost and reconnect on the new one. Blocking."""
         with self._lock:
             if self.closed:
-                raise SessionGone("the SDK worker is shut down", call="load")
-            wanted = (libdir, link_path, fingerprint)
-            if self._chan is not None and wanted != (self._libdir, self._link_path, self._fingerprint):
-                _LOG.info("SDK changed; restarting the worker")
+                raise SessionGone("the worker is shut down", call="load")
+            wanted = (link_path, fingerprint)
+            if self._chan is not None and wanted != (self._link_path, self._fingerprint):
+                _LOG.info("module changed; restarting the worker")
                 self._stop_worker()
-            self._libdir, self._link_path, self._fingerprint = wanted
+            self._link_path, self._fingerprint = wanted
             if self._chan is None:
                 self._start()
-        return self.request("sdk_info")
+        return self.request("module_info")
 
     def _start(self) -> None:
-        """Start a worker and load the SDK and vtech-link in it (lock held)."""
-        if self._libdir is None and self._link_path is None:
-            raise SessionGone("the SDK isn't loaded", call="load")
+        """Start a worker and load the module in it (lock held)."""
+        if self._link_path is None:
+            raise SessionGone("the module isn't loaded", call="load")
         ours, theirs = socket.socketpair()
         try:
             handle = self._spawn(theirs, self._listen)
@@ -120,19 +118,16 @@ class WorkerClient:
         level = self._log_level if self._log_level is not None else logging.getLogger(PACKAGE).getEffectiveLevel()
         try:
             self.pid = self.request("init", self.token, level)
-            if self._libdir is not None:
-                self.request("load", self._libdir)
-            if self._link_path is not None:
-                self.request("load_link", self._link_path)
+            self.request("load_link", self._link_path)
         except BaseException:
             self._stop_worker()
             raise
-        _LOG.debug("SDK worker %s started (pid %s)", self.gen, self.pid)
+        _LOG.debug("worker %s started (pid %s)", self.gen, self.pid)
 
     def _ensure_running(self) -> int:
         with self._lock:
             if self.closed:
-                raise SessionGone("the SDK worker is shut down", call="worker")
+                raise SessionGone("the worker is shut down", call="worker")
             if self._chan is None:
                 self._start()
             return self.gen
@@ -151,7 +146,7 @@ class WorkerClient:
         if handle is not None and handle.wait(STOP_TIMEOUT_S) is None:
             handle.kill()
             handle.wait(STOP_TIMEOUT_S)
-        self._worker_gone(self.gen, WorkerDied("the SDK worker was restarted", call="worker"))
+        self._worker_gone(self.gen, WorkerDied("the worker was restarted", call="worker"))
 
     def stop(self) -> None:
         """Shut down for good (Home Assistant stopping)."""
@@ -170,19 +165,19 @@ class WorkerClient:
         with self._lock:
             chan = self._chan
             if chan is None or (gen is not None and gen != self.gen):
-                raise WorkerDied("the SDK worker isn't running", call=kind)
+                raise WorkerDied("the worker isn't running", call=kind)
             rid, fut = next(self._ids), Future()
             self._pending[rid] = (fut, self.gen)
         try:
             chan.send((kind, rid, *args))
         except OSError as err:
             self._pending.pop(rid, None)
-            raise WorkerDied(f"the SDK worker went away: {err}", call=kind) from err
+            raise WorkerDied(f"the worker went away: {err}", call=kind) from err
         try:
             return fut.result(timeout)
         except FutureTimeout:
             self._pending.pop(rid, None)
-            raise VtechError(f"the SDK worker didn't answer {kind} within {timeout:.0f} s", call=kind) from None
+            raise VtechError(f"the worker didn't answer {kind} within {timeout:.0f} s", call=kind) from None
 
     def _read(self, chan: Channel, gen: int, handle: WorkerHandle) -> None:
         try:
@@ -191,7 +186,7 @@ class WorkerClient:
         except EOFError:
             pass
         except Exception:                                       # noqa: BLE001
-            _LOG.exception("SDK worker: bad message")
+            _LOG.exception("worker: bad message")
         code = handle.wait()
         with self._lock:
             if gen != self.gen or self._chan is not chan:
@@ -200,9 +195,9 @@ class WorkerClient:
             self.last_exit = exit_reason(code)
             if not expected:
                 self.crashes += 1
-            self._worker_gone(gen, WorkerDied(f"the SDK worker stopped ({self.last_exit})", call="worker"))
+            self._worker_gone(gen, WorkerDied(f"the worker stopped ({self.last_exit})", call="worker"))
         if not expected:
-            _LOG.error("The VTech SDK worker died (%s); reconnecting with a new one", self.last_exit)
+            _LOG.error("The VTech worker died (%s); reconnecting with a new one", self.last_exit)
             if self.on_crash is not None:
                 self.on_crash(self.last_exit, self.crashes)
 
@@ -260,11 +255,10 @@ class WorkerClient:
     def session(self, uid: str, authkey: str, password: str, account: str = "admin", *,
                 on_push: Callable[[Any], None] | None = None,
                 on_lost: Callable[[VtechError], None] | None = None,
-                media: bool = False, backend: str = "sdk", **options: Any) -> SessionProxy:
+                media: bool = False, **options: Any) -> SessionProxy:
         """A session to one camera, opened in the worker on `connect()`. `media=True` makes it the one
-        this camera's live view uses. `backend` is "sdk" or "link". `options` are session keyword
-        arguments (name, keepalive_s, ...)."""
-        return SessionProxy(self, uid, authkey, password, account, on_push, on_lost, media, options, backend)
+        this camera's live view uses. `options` are session keyword arguments (name, keepalive_s, ...)."""
+        return SessionProxy(self, uid, authkey, password, account, on_push, on_lost, media, options)
 
     def media(self, uid: str, on_running: Callable[[bool], None] | None = None) -> MediaProxy:
         m = MediaProxy(self, uid, on_running)
@@ -279,11 +273,11 @@ class WorkerClient:
     def url(self, uid: str) -> str:
         return f"http://127.0.0.1:{self.port}/{self.token}/{uid}.ts"
 
-    def sdk_info(self) -> dict[str, Any] | None:
+    def module_info(self) -> dict[str, Any] | None:
         if not self.running:
             return None
         try:
-            return self.request("sdk_info", timeout=5)
+            return self.request("module_info", timeout=5)
         except VtechError:
             return None
 
@@ -297,10 +291,9 @@ class SessionProxy:
 
     def __init__(self, client: WorkerClient, uid: str, authkey: str, password: str, account: str,
                  on_push: Callable[[Any], None] | None, on_lost: Callable[[VtechError], None] | None,
-                 media: bool, options: dict[str, Any], backend: str = "sdk"):
+                 media: bool, options: dict[str, Any]):
         self._client = client
-        self._args = (uid, authkey, password, account, options, media, backend)
-        self.backend = backend
+        self._args = (uid, authkey, password, account, options, media)
         self.uid = uid
         self.name: str = options.get("name", "camera")
         self.on_push, self.on_lost = on_push, on_lost

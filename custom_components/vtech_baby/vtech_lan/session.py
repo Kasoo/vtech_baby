@@ -3,49 +3,30 @@
 Authority: docs/vtech-lan-kit/docs/90-ha-runtime.md §2–5 (sessions, threading, errors, teardown),
 20-ioctrl-framework.md (per-session prep), 30-opcode-reference.md (payloads, via `ops`).
 
-Two transports share everything above the wire (`SessionBase`):
-- `SdkSession` drives a TUTK SDK through ctypes (`sdk.py`): the vendor's libraries (patched) or our
-  `tutk-host` build of them. `Session` is this class.
-- `LinkSession` drives `_vtech_link`, the Rust protocol library (`link.py`), which owns sockets,
-  request matching, crypto and pacing itself.
+`SessionBase` holds everything above the wire; `LinkSession` drives `_vtech_link`, the Rust protocol
+library (`link.py`), which owns sockets, request matching, crypto and pacing itself.
 
 Threading model:
 - `connect()`, `request()`, `send()` and `close()` block; call them from worker threads, never an
   event loop. `request()`/`send()` may be called from any thread concurrently.
-- A dedicated reader thread takes everything the camera sends. On the SDK it completes the pending
-  request whose reply opcode matches; either way it hands camera pushes to `on_push`.
+- A dedicated reader thread takes the camera's pushes and hands them to `on_push`.
 - A keepalive thread GETs 0x733 every `keepalive_s`; `keepalive_misses` missed replies in a row mark
   the session lost. Its replies are also delivered to `on_push` as `Push(0x734, Params)`.
 - `on_push` / `on_lost` run on those internal threads, possibly concurrently: keep them short and
   thread-safe (e.g. `loop.call_soon_threadsafe`). `on_lost` fires at most once.
 
 A session is single-use: after it is lost or closed, `close()` it and build a new one to reconnect.
-Session IDs and AV indexes are reused by the SDK, so never cache them across sessions.
 """
 from __future__ import annotations
 
 import datetime as dt
 import logging
-import queue
 import threading
 import time
 from typing import Any, Callable, NamedTuple
 
 from . import ops
-from .crypto import KeyExchange
-from .errors import (
-    AV_ER_NOT_SUPPORT,
-    NO_DATA,
-    SEND_BUSY,
-    NotLanDirect,
-    ProtocolError,
-    RequestTimeout,
-    SessionGone,
-    VtechError,
-    check,
-    error_for,
-    from_link,
-)
+from .errors import ProtocolError, RequestTimeout, SessionGone, VtechError, from_link
 
 _LOG = logging.getLogger(__name__)
 
@@ -57,13 +38,12 @@ class Push(NamedTuple):
 
 
 PARAMS_UPDATE = ops.GET_PARAMS.reply     # Push code used for keepalive 0x734 reads
-SEND_RETRIES, SEND_RETRY_S = 20, 0.05     # a busy channel (SEND_BUSY) is retried for up to ~1 s
 
 
 class SessionBase:
-    """What both transports share: the public surface, push decoding, the keepalive, the typed helpers.
-    A subclass supplies the transport: `_open`, `_close_transport`, `_send_raw`, `_read_loop`,
-    `_transact` where it matches replies itself, `connection_mode`, `media_source` and `uplink`."""
+    """Everything above the wire: the public surface, push decoding, the keepalive, the typed helpers.
+    A subclass supplies the transport: `_open`, `_close_transport`, `_send_raw`, `_transact`,
+    `_read_loop`, `connection_mode`, `media_source` and `uplink`."""
 
     backend = ""
 
@@ -94,8 +74,6 @@ class SessionBase:
         self.devinfo: ops.DevInfo | None = None
 
         self._lock = threading.Lock()                       # guards the fields below
-        self._waiters: dict[int, queue.Queue] = {}          # reply opcode -> queue of payloads
-        self._reply_locks: dict[int, threading.Lock] = {}   # one outstanding request per reply opcode
         self._lost: VtechError | None = None
         self._open_ok = False
         self._used = self._closed = False
@@ -107,8 +85,7 @@ class SessionBase:
     def connect(self) -> ops.DevInfo:
         """Connect, start the AV channel, run the per-session prep. Returns the device info.
 
-        Raises Unreachable (NotLanDirect for a P2P/relay session, which is refused), AuthFailed, Unlicensed,
-        CapacityExceeded, RequestTimeout or VtechError.
+        Raises Unreachable, AuthFailed, CapacityExceeded, RequestTimeout or VtechError.
         """
         with self._lock:
             if self._used:
@@ -143,10 +120,7 @@ class SessionBase:
             if self._closed:
                 return
             self._closed = True
-            waiters = list(self._waiters.values())
         self._stop.set()
-        for q in waiters:
-            q.put(SessionGone("session closed"))
         me = threading.current_thread()
         for t in self._threads:
             if t is not me:
@@ -163,8 +137,8 @@ class SessionBase:
         """A fresh source of decrypted live-view frames (`media.py`)."""
         raise NotImplementedError
 
-    def uplink(self, frame_s: float) -> Any:
-        """A fresh talk-back uplink (`talkback.py`); `frame_s` paces it where the transport doesn't."""
+    def uplink(self) -> Any:
+        """A fresh talk-back uplink (`talkback.py`)."""
         raise NotImplementedError
 
     @property
@@ -192,34 +166,8 @@ class SessionBase:
 
     def _transact(self, op: ops.Op, args: tuple, timeout: float | None,
                   done: Callable[[bytes], bool]) -> list[bytes]:
-        """Send `op` and collect replies until `done(reply)` is true. The reader fills the queue."""
-        reply = op.reply
-        with self._lock:
-            lock = self._reply_locks.setdefault(reply, threading.Lock())
-        deadline = time.monotonic() + (timeout or self.request_timeout_s)
-        with lock:
-            q: queue.Queue = queue.Queue()
-            with self._lock:
-                if self._lost is not None or self._closed:
-                    raise SessionGone(f"{op.name}: session is not connected", call=op.name)
-                self._waiters[reply] = q
-            try:
-                self._send_raw(op.code, op.encode(*args), op.name)
-                out: list[bytes] = []
-                while True:
-                    try:
-                        item = q.get(timeout=max(0.0, deadline - time.monotonic()))
-                    except queue.Empty:
-                        raise RequestTimeout(f"{op.name}: no 0x{reply:x} reply", call=op.name) from None
-                    if isinstance(item, BaseException):
-                        raise item
-                    out.append(item)
-                    if done(item):
-                        return out
-            finally:
-                with self._lock:
-                    if self._waiters.get(reply) is q:
-                        del self._waiters[reply]
+        """Send `op` and collect replies until `done(reply)` is true."""
+        raise NotImplementedError
 
     def _send_raw(self, code: int, payload: bytes, name: str) -> None:
         raise NotImplementedError
@@ -234,11 +182,6 @@ class SessionBase:
         raise NotImplementedError
 
     def _dispatch(self, code: int, payload: bytes) -> None:
-        with self._lock:
-            q = self._waiters.get(code)
-        if q is not None:
-            q.put(payload)
-            return
         dec = ops.PUSH_DECODERS.get(code)
         if dec is None:
             _LOG.debug("%s: unhandled IOCtrl 0x%x len=%d %s", self.name, code, len(payload), payload[:32].hex())
@@ -283,10 +226,7 @@ class SessionBase:
             if self._lost is not None or self._closed:
                 return
             self._lost = err
-            waiters = list(self._waiters.values())
         self._stop.set()
-        for q in waiters:
-            q.put(err)
         _LOG.info("%s: session lost: %s", self.name, err)
         if self.on_lost is not None:
             try:
@@ -410,131 +350,10 @@ def _enum(cls: type, value: int):
         return value
 
 
-class SdkSession(SessionBase):
-    """A session over a TUTK SDK (`sdk.py`): the vendor's libraries, patched, or our `tutk-host` build."""
-
-    backend = "sdk"
-
-    def __init__(self, sdk: Any, uid: str, authkey: str, password: str, account: str = "admin", **kw: Any):
-        super().__init__(uid, authkey, password, account, **kw)
-        self._sdk = sdk
-        self.sid: int | None = None
-        self.av: int | None = None
-        self.master: bytes | None = None
-        self._send_lock = threading.Lock()                  # serialises avSendIOCtrl (90-ha-runtime §3)
-        self._master_lock = threading.Lock()
-
-    def _open(self) -> None:
-        sdk = self._sdk
-        sid = check(sdk.get_session_id(), "IOTC_Get_SessionID")
-        try:
-            ses = check(sdk.connect(self._uid, sid, self._authkey, self.connect_timeout_s),
-                        "IOTC_Connect_ByUIDEx")
-            mode = self._mode_of(ses)
-            if mode not in (None, "lan"):
-                raise NotLanDirect(f"SDK connected via {mode}, not LAN-direct; refused (LAN-only)",
-                                   call="IOTC_Session_Check")
-            av = check(sdk.client_start(ses, self._account, self._password, self.av_timeout_s),
-                       "avClientStartEx")
-        except BaseException:
-            sdk.session_close(sid)       # releases the ID from IOTC_Get_SessionID (unconfirmed)
-            raise
-        self.sid, self.av = ses, av
-
-    def _after_open(self) -> None:
-        """0x0ff, the first IOCtrl on a new AV channel. The SDK refuses it from application code with
-        AV_ER_NOT_SUPPORT (-20033) on SDK 4.3.8.1; the reference client never checked
-        this rc, and every later IOCtrl works regardless. Kept (and tolerated) in case another SDK
-        build accepts it."""
-        try:
-            self.send(ops.SND_DATA_DELAY)
-        except VtechError as e:
-            if e.code != AV_ER_NOT_SUPPORT:
-                raise
-            _LOG.debug("%s: SDK refused 0x0ff (AV_ER_NOT_SUPPORT); continuing", self.name)
-
-    def _close_transport(self) -> None:
-        """avClientStop + IOTC_Session_Close."""
-        if self.av is not None:
-            self._sdk.client_stop(self.av)
-        if self.sid is not None:
-            self._sdk.session_close(self.sid)
-        self.av = self.sid = None
-
-    def connection_mode(self) -> str | None:
-        """How the SDK reached the camera: "lan", "p2p" or "relay" (None if unknown). Without the
-        companion's LAN-only policy the SDK falls back to ThroughTek's P2P/relay servers when the LAN
-        path fails; connect() refuses any non-LAN session as a backstop."""
-        return self._mode_of(self.sid)
-
-    def _mode_of(self, sid: int | None) -> str | None:
-        if sid is None or not hasattr(self._sdk, "session_mode"):
-            return None
-        return {0: "p2p", 1: "relay", 2: "lan"}.get(self._sdk.session_mode(sid))
-
-    @property
-    def connected(self) -> bool:
-        return self.av is not None and self._lost is None and not self._closed
-
-    def _send_raw(self, code: int, payload: bytes, name: str) -> None:
-        av = self.av
-        if av is None or self._lost is not None or self._closed:
-            raise SessionGone(f"{name}: session is not connected", call=name)
-        with self._send_lock:            # one avSendIOCtrl per channel at a time (-20021 otherwise)
-            for _ in range(SEND_RETRIES):
-                rc = self._sdk.send_ioctrl(av, code, payload)
-                if rc not in SEND_BUSY:  # busy: the SDK is still in another send or a buffer clean
-                    break
-                time.sleep(SEND_RETRY_S)
-        if rc < 0:
-            err = error_for(rc, f"avSendIOCtrl({name})")
-            if isinstance(err, SessionGone):
-                self._lose(err)
-            raise err
-
-    def _read_loop(self) -> None:
-        av = self.av
-        while not self._stop.is_set():
-            try:
-                rc, code, payload = self._sdk.recv_ioctrl(av, self.recv_timeout_ms)
-            except Exception as e:      # noqa: BLE001 — never let the reader die silently
-                self._lose(SessionGone(f"avRecvIOCtrl raised {e!r}", call="avRecvIOCtrl"))
-                return
-            if rc >= 0:
-                if code:
-                    self._dispatch(code, payload)
-            elif rc in NO_DATA:
-                continue
-            elif not self._stop.is_set():
-                self._lose(error_for(rc, "avRecvIOCtrl"))
-                return
-
-    def live_view_master(self) -> bytes:
-        """Run the 0x820/0x821 exchange once per session (round 2 only) and return the master key."""
-        with self._master_lock:
-            if self.master is None:
-                kx = KeyExchange.new()
-                self.master = kx.master(self.request(ops.LIVE_VIEW_KEY, kx.hello()))
-            return self.master
-
-    def media_source(self) -> Any:
-        from .media import SdkMediaSource                   # noqa: PLC0415 - media imports avmux lazily
-
-        return SdkMediaSource(self._sdk, self)
-
-    def uplink(self, frame_s: float) -> Any:
-        from .talkback import SdkUplink                     # noqa: PLC0415
-
-        return SdkUplink(self._sdk, self, frame_s)
-
-
-Session = SdkSession
-
-
 class LinkSession(SessionBase):
     """A session over `_vtech_link` (`link.py`). The module matches replies, keeps the transport alive,
     runs the live-view key exchange and decrypts and paces media itself; this class keeps the opcode
-    layer and the application keepalive, as on the SDK."""
+    layer and the application keepalive."""
 
     backend = "link"
 
@@ -619,7 +438,7 @@ class LinkSession(SessionBase):
 
         return LinkMediaSource(self)
 
-    def uplink(self, frame_s: float) -> Any:
+    def uplink(self) -> Any:
         from .talkback import LinkUplink                    # noqa: PLC0415
 
         return LinkUplink(self)

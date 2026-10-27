@@ -1,7 +1,7 @@
 """Speaker: the camera's lullabies, and media (TTS, media sources, URLs) played through it as talk-back.
 
 - Lullabies are the sources; one plays until stopped or until the camera's lullaby timer runs out.
-- Media is fetched and decoded by the SDK worker as it plays (`vtech_lan/talkback.py`), so streams of any
+- Media is fetched and decoded by the worker as it plays (`vtech_lan/talkback.py`), so streams of any
   length play until stopped. `play_media` returns when the media has played, so automations can sequence
   on it; new media replaces what is playing.
 - Media stops a playing lullaby first. An announcement restarts that lullaby afterwards (from the start,

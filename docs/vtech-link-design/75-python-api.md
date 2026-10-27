@@ -135,7 +135,8 @@ the migration ends, and are removed then (`90-migration.md`).
 
 ## Changes in `vtech_lan`
 
-**Built 2026-10-22, alongside the SDK, not instead of it.** The SDK path (vendor libraries or `tutk-host`)
+**Built 2026-10-22, alongside the SDK, not instead of it** (the SDK path was removed 2026-10-27: see
+"Changes in the integration"). The SDK path (vendor libraries or `tutk-host`)
 stays, and each session picks its backend. Differences from the table below:
 - `session.py` has `SessionBase`, `SdkSession` (still exported as `Session`) and `LinkSession`. A worker
   can hold both kinds at once (`worker.py` `_do_open(..., backend)`, `WorkerClient.session(backend=)`,
@@ -169,6 +170,20 @@ stays, and each session picks its backend. Differences from the table below:
 | `ops.py`, `avmux.py`, `audio.py`, `provision.py` | Unchanged. |
 
 ## Changes in the integration
+
+**The SDK path was removed 2026-10-27** (Phase 3; the last state with both is tag `dual-backend-v1`).
+The worker stays for now. Differences from the table below:
+- `native.py` keeps its name: `prepare()` returns `Prepared(arch, link_path, fingerprint)`; the
+  fingerprint is the module's sha256.
+- `WorkerClient.ensure(link_path, fingerprint)`; `module_info()` (the worker's pid, the module path and
+  `link.info()`) replaces `sdk_info()`. `const.BACKEND` and the sessions' `backend` are gone.
+- `diagnostics.py` reports `module` and each camera's `link` (`info()` and `stats()`).
+- Config entries are version 2. `async_migrate_entry` drops version 1's `sdk_dir` and deletes the
+  extracted and patched libraries under the HA config directory.
+- `crypto.py` moved to `tests/camera_crypto.py`: the fake camera still encrypts frames the way the
+  camera does. Uplinks lost `prepare()`, and `TalkBack` its `frame_s`.
+- `NotLanDirect`, `Unlicensed`, the SDK return codes and `check`/`error_for` are gone from `errors.py`;
+  `SdkMismatch` is `ModuleMismatch`.
 
 | File | Change |
 |---|---|

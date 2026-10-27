@@ -1,6 +1,7 @@
 """Talk-back check. MAKES SOUND in the nursery: run it only with the owner at the camera.
 
-Runs inside the HA image, on a host on the camera's LAN, via run.sh ($VTECH_LIVE_RUNNER):
+Runs inside the HA image, on a host on the camera's LAN, via run.sh ($VTECH_LIVE_RUNNER), with vtech_lan.zip and the vtech-link module
+(_vtech_link.abi3.so) next to the probe:
 
     cd tests/live && ./run.sh probe_talk.py --owner-present [media URL]
     cd tests/live && ./run.sh probe_talk.py --silent
@@ -24,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "vtech_lan.zip"))
 
-from vtech_lan import Session, sdk  # noqa: E402
+from vtech_lan import LinkSession, link  # noqa: E402
 from vtech_lan.media import LiveStream  # noqa: E402
 from vtech_lan.talkback import TalkBack  # noqa: E402
 
@@ -33,11 +34,6 @@ T0 = time.monotonic()
 
 def log(*a):
     print(f"[{time.monotonic() - T0:7.2f}]", *a, flush=True)
-
-
-def license_key():
-    with open(os.path.join(HERE, "LICENSE_KEY.txt")) as f:
-        return next(ln.split("license_key=", 1)[1].strip() for ln in f if "license_key=" in ln)
 
 
 def tone_wav(silent: bool = False) -> bytes:
@@ -102,15 +98,15 @@ def main() -> int:
     args.remove("--owner-present")
     url = args[0] if args else serve(tone_wav())
 
-    s_dk = sdk.load(HERE, license_key())
-    s = Session(s_dk, os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
+    module = link.load(os.path.join(HERE, "_vtech_link.abi3.so"))
+    s = LinkSession(module, os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
                 os.environ.get("VTECH_ACCOUNT", "admin"), name="talk", keepalive_s=20)
-    log("connected", s.connect())
+    log("connected", s.connect(), s.info())
     try:
         log("uplink format", s.get_audio_out_format())
         log("speaker volume (0x734 @20)", s.get_params().volume)
-        stream = LiveStream(s_dk, lambda: s, name="talk")
-        talk = TalkBack(s_dk, lambda: s, name="talk", audio_wanted=lambda: stream.running)
+        stream = LiveStream(lambda: s, name="talk")
+        talk = TalkBack(lambda: s, name="talk", audio_wanted=lambda: stream.running)
 
         log("── 1. talk-back alone")
         play(talk, url)

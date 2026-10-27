@@ -32,15 +32,11 @@ If you try another model, please report how it went.
 
 - The camera already set up with its parent unit, on the same network broadcast domain as Home
   Assistant.
-- Home Assistant running on x86_64 or arm64 Linux.
+- Home Assistant running on x86_64 or arm64 Linux: Home Assistant OS or Container (musl), or another
+  Linux install with glibc 2.17 or later.
 
-The integration includes its own implementation of the camera's network libraries (ThroughTek's Kalay
-SDK), for x86_64 and arm64 on both Home Assistant OS/Container (musl) and other Linux installs (glibc
-2.17 or later, with OpenSSL 3). Nothing needs downloading.
-
-On a host where it doesn't recognise the C library, setup instead asks for ThroughTek's **Kalay Mobile**
-app for Android (`com.tutk.kalaymobile`, version `2.0.0`, the `x86_64` or `arm64-v8a` variant), whose SDK
-libraries (version `4.3.8.1`) it extracts and adapts.
+The integration includes its own implementation of the camera's network protocol (ThroughTek's Kalay),
+for each of those. Nothing needs downloading.
 
 ## Install
 
@@ -66,6 +62,6 @@ on the parent unit, and paste the text in.
 
 ## Notes
 
-- The integration stops the libraries from contacting any internet servers: it only talks to the camera
-  over the local network.
+- The integration only talks to the camera over the local network, and never contacts any internet
+  servers.
 - While the parent unit is on, video quality is limited to 720p.

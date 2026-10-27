@@ -1,6 +1,8 @@
 """LinkSession, LinkMediaSource and LinkUplink over the fake `_vtech_link` (`fake_link.py`), the error
-mapping, the worker running both backends side by side, and loading the real module when it is built."""
+mapping, a worker loading the module, and loading the real module when it is built."""
+import datetime as dt
 import os
+import struct
 import subprocess
 import sys
 import threading
@@ -14,7 +16,6 @@ from vtech_lan.errors import (
     CapacityExceeded,
     ProtocolError,
     RequestTimeout,
-    SdkMismatch,
     SessionGone,
     Unreachable,
     VtechError,
@@ -22,8 +23,8 @@ from vtech_lan.errors import (
 )
 from vtech_lan.session import PARAMS_UPDATE, LinkSession, Push
 
-from fake_link import FakeLinkModule, LinkError
-from fake_sdk import FakeSdk, clip, enable_live_view, thread_client
+from fake_camera import clip, enable_live_view, i32
+from fake_link import FakeLinkModule, LinkError, thread_client
 
 FRAMES = [bytes([i]) * 160 for i in range(5)]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,7 +92,7 @@ def test_connect_runs_the_prep_and_answers_requests(conn):
     link = mod.opened[0]
     assert s.connected and s.backend == "link" and s.connection_mode() == "lan"
     assert s.devinfo.model == "RM5754"
-    assert link.sent_codes() == [0x330]                     # DEVINFO first; no 0x0ff on the link
+    assert link.sent_codes() == [0x330]                     # DEVINFO first
     assert mod.connects[0]["account"] == "admin"
     assert s.get_params().volume == 5
     s.set_night_light(ops.NightLight(1))
@@ -99,7 +100,7 @@ def test_connect_runs_the_prep_and_answers_requests(conn):
     assert s.info()["dtls_suite"] == 0xCCAC
 
 
-def test_connect_failures_map_to_the_sdk_exceptions(mod):
+def test_connect_failures_map_to_the_typed_exceptions(mod):
     mod.connect_error = LinkError("iotc_rejected", "auth_key", -68)
     with pytest.raises(AuthFailed) as e:
         session(mod).connect()
@@ -148,9 +149,7 @@ def test_failed_ack_raises(conn):
 
 
 def test_event_list_collects_every_page(conn):
-    import datetime as dt
-
-    from test_ops import event_page                         # the same pages the SDK tests use
+    from test_ops import event_page
     mod, s, _, _ = conn
     t = [dt.datetime(2026, 9, 22, h, tzinfo=ops.UTC) for h in range(3)]
     mod.camera.event_pages = [event_page(3, 0, 0, t[:2]), event_page(3, 1, 1, t[2:])]
@@ -175,6 +174,156 @@ def test_close_closes_the_link(conn):
     s.close()
     assert mod.opened[0].closed.detail == "local"
     assert not lost
+
+
+# ── Request dispatch, errors and loss ────────────────────────────────────────
+def test_devinfo_timeout_tears_down(mod):
+    mod.camera.silent.add(0x330)
+    with pytest.raises(RequestTimeout):
+        session(mod).connect()
+    assert mod.opened[0].closed.detail == "local"
+
+
+def test_push_interleaved_before_reply(conn):
+    mod, s, pushes, _ = conn
+    mod.opened[0].push(0x738, i32(23, 73, 0))               # arrives before the reply
+    assert s.get_params().temp_c == 21
+    assert wait_for(lambda: pushes)
+    assert pushes[0] == Push(0x738, ops.TempNotify(23, 73, 0))
+
+
+def test_set_emits_ack_and_push(conn):
+    mod, s, pushes, _ = conn
+    s.set_night_light(ops.NightLight.ORANGE)
+    assert mod.camera.night_light == 2
+    assert wait_for(lambda: any(p.code == 0x7AC for p in pushes))
+    assert s.get_night_light() is ops.NightLight.ORANGE
+
+
+def test_timeout_leaves_session_usable(conn):
+    mod, s, _, _ = conn
+    mod.camera.silent.add(0x7B0)
+    with pytest.raises(RequestTimeout):
+        s.get_sound_detect()
+    assert s.connected
+    assert s.get_params().volume == 5
+
+
+def test_unknown_opcode_ignored(conn):
+    mod, s, pushes, _ = conn
+    mod.opened[0].push(0x1234, b"\x01\x02")
+    mod.opened[0].push(0x738, b"\x01")                      # malformed push: dropped, not fatal
+    assert s.get_params()
+    assert pushes == []
+
+
+def test_reply_opcode_exceptions(conn):
+    mod, s, _, _ = conn
+    link = mod.opened[0]
+    mod.camera.led_off = 1
+    assert s.get_status_led() is False                      # 0x709 answered by 0x710
+    s.set_status_led(True)
+    assert link.sent[-1] == (0x711, i32(0, 0))
+
+
+def test_update_params_rmw_echoes_opaque(conn):
+    mod, s, _, _ = conn
+    s.update_params(volume=3)
+    code, payload = mod.opened[0].sent[-1]
+    assert code == 0x731
+    assert struct.unpack("<6i", payload) == (0, 1800, 3, 2, 50, 1234)   # sound sens + @28 as read
+
+
+def test_motion_keeps_record_flag(conn):
+    mod, s, _, _ = conn
+    s.set_motion_sensitivity(ops.MotionSensitivity.HIGH)
+    assert mod.camera.motion == [75, 1]
+
+
+def test_temp_alert_partial_update(conn):
+    mod, s, _, _ = conn
+    s.set_temp_alert(enabled=True)
+    assert mod.camera.temp_alert == [1, 250, 160]
+    s.set_temp_alert(max_c=26.5)
+    assert s.get_temp_alert() == ops.TempAlert(True, 26.5, 16.0)
+
+
+def test_notify_interval_fire_and_forget_then_reread(conn):
+    _, s, _, _ = conn
+    assert s.set_notify_interval(ops.NotifyInterval.MIN_10) is ops.NotifyInterval.MIN_10
+
+
+def test_quality_reread(conn):
+    _, s, _, _ = conn
+    assert s.set_quality(ops.Quality.HD_720P) is ops.Quality.HD_720P
+
+
+def test_unknown_enum_value_passes_through(conn):
+    mod, s, _, _ = conn
+    mod.camera.night_light = 200                            # the register stores invalid writes raw
+    assert s.get_night_light() == 200
+
+
+def test_concurrent_requests(conn):
+    _, s, _, _ = conn
+    results, errors = [], []
+
+    def worker(fn):
+        try:
+            for _ in range(20):
+                results.append(fn())
+        except Exception as e:                              # noqa: BLE001
+            errors.append(e)
+    fns = [s.get_params, s.get_night_light, s.get_motion, s.get_sound_detect, s.get_params]
+    threads = [threading.Thread(target=worker, args=(f,)) for f in fns]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors and len(results) == 100
+
+
+def test_remote_close_marks_lost_once_and_fails_pending(conn):
+    mod, s, _, lost = conn
+    mod.camera.silent.add(0x733)
+    box = {}
+
+    def pending():
+        try:
+            s.get_params()
+        except Exception as e:                              # noqa: BLE001
+            box["e"] = e
+    t = threading.Thread(target=pending)
+    t.start()
+    time.sleep(0.05)
+    mod.opened[0].kill()
+    t.join(2)
+    assert isinstance(box.get("e"), SessionGone)
+    assert wait_for(lambda: lost) and len(lost) == 1 and isinstance(lost[0], SessionGone)
+    assert not s.connected
+    with pytest.raises(SessionGone):
+        s.get_params()
+    s.close()
+    assert len(lost) == 1
+
+
+def test_close_from_on_lost_callback_does_not_deadlock(mod):
+    holder = {}
+    s = session(mod, on_lost=lambda _e: holder["s"].close())
+    holder["s"] = s
+    s.connect()
+    mod.opened[0].kill()
+    assert wait_for(lambda: mod.opened[0].close_calls)
+
+
+def test_keepalive_misses_mark_lost(mod):
+    lost = []
+    s = session(mod, on_lost=lost.append, keepalive_s=0.02, keepalive_misses=2, request_timeout_s=0.2)
+    s.connect()
+    mod.camera.silent.add(0x733)
+    assert wait_for(lambda: lost, timeout=5)
+    assert isinstance(lost[0], SessionGone) and "keepalive" in str(lost[0])
+    s.close()
 
 
 # ── Live view ────────────────────────────────────────────────────────────────
@@ -246,7 +395,7 @@ class Ended:
 
 def talk(s, media=None, **kw):
     from vtech_lan.talkback import TalkBack
-    return TalkBack(lambda: s, name="link", open_media=lambda _url: iter(media or FRAMES), frame_s=0.001, **kw)
+    return TalkBack(lambda: s, name="link", open_media=lambda _url: iter(media or FRAMES), **kw)
 
 
 def test_talkback_plays_and_drains(conn):
@@ -294,6 +443,7 @@ def test_talkback_never_accepted(conn, monkeypatch):
     mod.camera.handle = _drop(mod.camera.handle, 0x350)     # the camera never hears the announcement
     with pytest.raises(RequestTimeout):
         talk(s).start("http://media/x")
+    assert mod.opened[0].sent_codes()[-1] == 0x351          # the stop sequence still ran
 
 
 def _drop(handle, code):
@@ -302,44 +452,18 @@ def _drop(handle, code):
     return wrapped
 
 
-# ── The worker, both backends at once ────────────────────────────────────────
-def test_worker_runs_sdk_and_link_sessions_side_by_side(mod, socket_enabled):
-    sdk = FakeSdk()
-    loaded = []
-
-    def loader(path):
-        loaded.append(path)
-        return mod
-    client = thread_client(sdk, link_loader=loader)
+# ── The worker ───────────────────────────────────────────────────────────────
+def test_worker_loads_the_module_and_runs_sessions(mod, socket_enabled):
+    client = thread_client(mod)
     try:
-        client.ensure("/libdir", "fp", link_path="/x/_vtech_link.abi3.so")
-        info = client.sdk_info()
+        info = client.ensure("/x/_vtech_link.abi3.so", "fp")
         assert info["link"]["version"] == "0.1.0+fake" and info["link_path"] == "/x/_vtech_link.abi3.so"
-        assert loaded == ["/x/_vtech_link.abi3.so"]
-        a = client.session("SDKCAM", "k3yAuth8", "pw", name="a", keepalive_s=0)
-        b = client.session("LINKCAM", "k3yAuth8", "pw", name="b", keepalive_s=0, backend="link")
-        assert a.connect().model == "RM5754" and b.connect().model == "RM5754"
-        assert b.connection_mode() == "lan"
-        assert mod.opened[0].uid == "LINKCAM" and 0x330 in sdk.sent_codes()
-        assert b.get_params().volume == 5
-        a.close()
-        b.close()
-    finally:
-        client.stop()
-
-
-def test_link_only_worker(mod, socket_enabled):
-    client = thread_client(FakeSdk(), link_loader=lambda _p: mod)
-    try:
-        client.ensure(None, "fp", link_path="/x/_vtech_link.abi3.so")
-        assert client.sdk_info()["libdir"] is None
-        s = client.session("LINKCAM", "k3yAuth8", "pw", keepalive_s=0, backend="link")
-        s.connect()
+        s = client.session("LINKCAM", "k3yAuth8", "pw", name="b", keepalive_s=0)
+        assert s.connect().model == "RM5754"
+        assert s.connection_mode() == "lan"
+        assert mod.opened[0].uid == "LINKCAM"
+        assert s.get_params().volume == 5
         s.close()
-        from custom_components.vtech_baby.vtech_lan.errors import SessionGone as WorkerSessionGone
-        sdk_session = client.session("SDKCAM", "k3yAuth8", "pw", keepalive_s=0)
-        with pytest.raises(WorkerSessionGone):
-            sdk_session.connect()                           # no SDK in this worker
     finally:
         client.stop()
 
@@ -355,12 +479,12 @@ def test_load_the_real_module():
 import sys
 sys.path.append(sys.argv[1])
 from vtech_lan import link
-from vtech_lan.errors import SdkMismatch, from_link
+from vtech_lan.errors import ModuleMismatch, from_link
 m = link.load(sys.argv[2])
 assert link.load(sys.argv[2]) is m
 try:
     link.load(sys.argv[2] + ".other")
-except SdkMismatch:
+except ModuleMismatch:
     pass
 else:
     raise SystemExit("a second path loaded")

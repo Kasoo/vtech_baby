@@ -1,49 +1,34 @@
-"""Prepare the SDK for this host. The integration ships its own replacement libraries for each supported
-arch and libc (native/<arch>-<libc>/), used whenever this host has a set. Otherwise: extract the user's
-SDK from the app package they upload, then patch it with the vendored tooling and the prebuilt companion.
-
-Authority: docs/vtech-lan-kit/docs/85-ha-deployment.md ("Setup flow on the host", "Updates"). Blocking file
-I/O and hashing: run in an executor. No Home Assistant imports.
+"""Find the integration's `_vtech_link` module for this host: one build per arch and libc, in
+native/<arch>-<libc>/. Blocking file I/O and hashing: run in an executor. No Home Assistant imports.
 """
 from __future__ import annotations
 
 import glob
 import hashlib
-import json
 import os
 import platform
 from dataclasses import dataclass
 
-from .const import BACKEND
-from .tooling import extract_sdk as _extract
-from .tooling import patch_sdk as _patch
-from .vtech_lan import sdk as _sdk
 from .vtech_lan.errors import UnsupportedHost
 
 PKG = os.path.dirname(os.path.abspath(__file__))
-PatchError = _patch.PatchError
-ExtractError = _extract.ExtractError
-NotAPackage, WrongArch = _extract.NotAPackage, _extract.WrongArch
-MissingLibs, WrongVersion = _extract.MissingLibs, _extract.WrongVersion
-SDK_VERSION = _patch.SDK_VERSION
-ABI_OF = _extract.ABI_OF            # our arch name -> Android ABI directory name
-BUNDLED_VERSION = "4.3.8.100"       # the SDK version our libraries report
-
-
 LINK_MODULE = "_vtech_link.abi3.so"
+_HOST_ARCH = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}
 
 
 @dataclass(frozen=True)
 class Prepared:
-    libdir: str | None            # None in a vtech-link build
     arch: str
-    version: str                  # SDK version of the user's libraries (always SDK_VERSION once patched)
-    fingerprint: str              # identifies the patched set; a change restarts the SDK worker
-    link_path: str | None = None  # the _vtech_link module, in a vtech-link build
+    link_path: str                # the _vtech_link module
+    fingerprint: str              # the module's sha256; a change restarts the worker
 
 
-def companion_path(arch: str) -> str:
-    return os.path.join(PKG, "native", arch, "libtk.so")
+def host_arch() -> str:
+    arch = _HOST_ARCH.get(platform.machine().lower())
+    if arch is None:
+        raise UnsupportedHost(f"unsupported host architecture {platform.machine()!r}: only 64-bit x86_64 "
+                              "and aarch64 are supported (32-bit armv7 / i386 installs are not)")
+    return arch
 
 
 def host_libc() -> str | None:
@@ -53,23 +38,10 @@ def host_libc() -> str | None:
     return "musl" if glob.glob("/lib/ld-musl-*.so.1") else None
 
 
-def bundled_libdir() -> str | None:
-    """The directory of our own libraries for this host, if the integration ships a set for it."""
-    try:
-        arch = _sdk.host_arch()
-    except UnsupportedHost:
-        return None
-    libc = host_libc()
-    if libc is None:
-        return None
-    libdir = os.path.join(PKG, "native", f"{arch}-{libc}")
-    return libdir if all(os.path.isfile(os.path.join(libdir, lib)) for lib in _sdk.HOST_LIBS) else None
-
-
 def bundled_link() -> str | None:
     """The path of our `_vtech_link` module for this host, if the integration ships one for it."""
     try:
-        arch = _sdk.host_arch()
+        arch = host_arch()
     except UnsupportedHost:
         return None
     libc = host_libc()
@@ -80,80 +52,21 @@ def bundled_link() -> str | None:
 
 
 def host_supported() -> str | None:
-    """This host's architecture if this build of the integration can run on it, else None."""
+    """This host's architecture if the integration can run on it, else None."""
     try:
-        arch = _sdk.host_arch()
+        arch = host_arch()
     except UnsupportedHost:
         return None
-    if BACKEND == "link":
-        return arch if bundled_link() else None
-    return arch if bundled_libdir() or os.path.isfile(companion_path(arch)) else None
+    return arch if bundled_link() else None
 
 
-def prepare_link() -> Prepared:
+def prepare() -> Prepared:
     """Our `_vtech_link` module for this host; the worker loads it, never this process.
-    Raises UnsupportedHost if this build has none for this host."""
-    arch = _sdk.host_arch()
+    Raises UnsupportedHost if the integration has none for this host."""
+    arch = host_arch()
     path = bundled_link()
     if path is None:
-        raise UnsupportedHost(f"this integration build has no vtech-link module for {arch}-{host_libc()}")
+        raise UnsupportedHost(f"this integration has no vtech-link module for {arch}-{host_libc()}")
     with open(path, "rb") as f:
         digest = hashlib.sha256(f.read()).hexdigest()
-    return Prepared(None, arch, "vtech-link", json.dumps({"link": digest}), link_path=path)
-
-
-def install_sdk(package: str, sdk_dir: str) -> str:
-    """Extract this host's SDK libraries from a zip (the app's APK/XAPK, or the libraries zipped up) into
-    sdk_dir. Returns the version.
-
-    Raises ExtractError (or a subclass: NotAPackage, WrongArch, MissingLibs, WrongVersion). sdk_dir is
-    only replaced once the new libraries have passed every check.
-    """
-    return _extract.extract_sdk(package, sdk_dir, _sdk.host_arch())["version"]
-
-
-def sdk_present(sdk_dir: str) -> bool:
-    """Whether sdk_dir already holds a usable SDK for this host (all four libraries, right arch and version)."""
-    try:
-        if not all(os.path.isfile(os.path.join(sdk_dir, lib)) for lib in _patch.LIBS):
-            return False
-        return _patch.sdk_arch(sdk_dir) == _sdk.host_arch() and _patch.sdk_version(sdk_dir) == SDK_VERSION
-    except (PatchError, UnsupportedHost, OSError):
-        return False
-
-
-def prepare(sdk_dir: str, lib_root: str) -> Prepared:
-    """Our bundled set if this host has one; otherwise patch `sdk_dir` into `lib_root/<arch>/` (cached).
-    Either way, check the result can load on this host.
-
-    The SDK is loaded by the worker process, never here. Patching writes each file as a new inode, so a
-    running worker keeps the set it mapped; a changed fingerprint makes the client restart it.
-    Raises UnsupportedHost or PatchError with a user-presentable message.
-    """
-    arch = _sdk.host_arch()
-    bundled = bundled_libdir()
-    if bundled is not None:
-        _sdk.preflight(bundled)
-        digests = {}
-        for lib in _sdk.HOST_LIBS:
-            with open(os.path.join(bundled, lib), "rb") as f:
-                digests[lib] = hashlib.sha256(f.read()).hexdigest()
-        return Prepared(bundled, arch, BUNDLED_VERSION,
-                        json.dumps({"bundled": digests, "version": BUNDLED_VERSION}, sort_keys=True))
-    libdir = os.path.join(lib_root, arch)
-    companion = companion_path(arch)
-    if not os.path.isfile(companion):
-        raise UnsupportedHost(f"this integration build has no prebuilt companion for {arch}")
-    if not os.path.isdir(sdk_dir):
-        raise PatchError(f"SDK directory {sdk_dir} does not exist")
-    missing = [lib for lib in _patch.LIBS if not os.path.isfile(os.path.join(sdk_dir, lib))]
-    if missing:
-        raise PatchError(f"missing {', '.join(missing)} in {sdk_dir}")
-    sdk_arch = _patch.sdk_arch(sdk_dir)
-    if sdk_arch != arch:
-        raise UnsupportedHost(f"the SDK libraries in {sdk_dir} are {sdk_arch} but this host is {arch}")
-
-    info = _patch.patch_sdk(sdk_dir, libdir, companion=companion)
-    _sdk.preflight(libdir)
-    info.pop("cached", None)
-    return Prepared(libdir, arch, info["version"], json.dumps(info, sort_keys=True))
+    return Prepared(arch, path, digest)

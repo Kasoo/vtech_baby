@@ -10,7 +10,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from vtech_lan import crypto
+import camera_crypto as crypto
 from vtech_lan.errors import ProtocolError
 
 MASTER = bytes.fromhex("93d03230faf4c28a612638a0e345f862ec5c0598d7f1230e8db370b3beaadbdb")
