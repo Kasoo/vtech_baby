@@ -162,4 +162,8 @@ burn-in, the first since HA restarted at 07:38. Neither is explained yet.
 
 ## Features
 
+- Night-vision active (`binary_sensor`) is `unknown` after every reconnect until the camera's next
+  `0x785` push (day/night switch), which can be hours. Find a GET that reports it, or keep the last
+  value across reconnects.
+
 - Reading the pairing QR from a photo, not only pasted text (needs a QR decoder the HA image doesn't have).

@@ -57,9 +57,12 @@ dimpl's major versions (sha2/sha1 0.11, hmac 0.13, chacha20 0.10, chacha20poly13
       `link-only` (2026-10-27): the `tutk-host` sets, `libtk.so`, `tooling/`, `sdk.py`, `crypto.py`,
       `SdkSession` and the SDK-upload config flow are gone; entries migrate to version 2. Docs updated
       (`README.md`, `AGENTS.md`, `75-python-api.md`; the kit's `85` and `90` stay as SDK background).
-      Still to do: the test port, a deploy to the NAS (check the version 1 entry migrates and the
-      old `vtech_baby/sdk` and `lib` directories go), then merge to `main`. This settles the APKPure
-      x86_64 question, since users no longer download Kalay Mobile.
+      Tests ported (176 pass). **Deployed to the NAS 2026-10-27 21:35** (`a367292`): the version 1
+      entry migrated to 2 without `sdk_dir`, `vtech_baby/sdk` and `lib` were deleted, the camera
+      connected over the link in 1 s, 20 of 21 entities had state (night-vision active waits for a
+      push, as before), diagnostics show `module` and the link, a snapshot and three live views through HA's HLS were clean (0 bad frames), and the
+      log had no warnings or errors from the integration. Still to do: merge to `main`. This settles
+      the APKPure x86_64 question, since users no longer download Kalay Mobile.
 - [ ] **Retire the worker process with the SDK paths** (decided 2026-10-24). Once only Rust is left,
       the worker's main job, keeping C crashes out of HA, is gone. vtech-link builds with
       `panic = "unwind"`, and PyO3 turns a panic in a Python call into `PanicException`. Before
