@@ -66,7 +66,8 @@ the camera ignores), then the 1080p live runs; then Phase 3's integration side. 
   2026-10-23 19:59** (`1d37bd3`): connected over LAN with the SDK not loaded, and a live-view snapshot
   decoded. Debug logging for `custom_components.vtech_baby` was set with `logger.set_level`, which a
   restart undoes. Next: watch it against the `tutk-host` burn-in. Afterwards, the removals in that table (SDK upload, `tooling/`,
-  `libtk.so`, the `tutk-host` sets, the worker).
+  `libtk.so`, the `tutk-host` sets, the worker). **The SDK removals are on branch `link-only`
+  (2026-10-27)**; the worker stays until its prerequisites are done (`RELEASE_TODO.md`, section 2).
 - **Discuss: the reactor's wait** (`70-runtime.md`, "Status"). It blocks in `recv_from` with
   `SO_RCVTIMEO`, then drains in non-blocking mode, which costs an `ioctl` pair on every wake-up that
   receives data (143 in S4; idle wake-ups no longer make any). Swapping to `poll` plus `recvfrom` with

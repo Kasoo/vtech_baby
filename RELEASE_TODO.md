@@ -25,10 +25,11 @@ and integration tests pass at HEAD.
    - `live view stopped: Invalid argument: '<none>' returned 22`, seen 3 times in the soak, each time in
      the same millisecond as a go2rtc EOF: find what returns EINVAL when a viewer leaves;
    - the `media: NAK [...]` and `gave up waiting for N packet(s) [...]` lines for Open 2.
-3. **Re-sign the unsigned commits** (every one from `7f284ea`, including this session's `d22b8d8`,
-   `b1e244f`, `4711c7e`, `36168b4`, `140c15d`, `5797cea`): see section 4.
-4. **Then**: the 1080p live runs (check the parent handset first, restore the resolution after) and a
-   forced-drop run for Open 2; the section 2 blockers (Phase 3 removals, retiring the worker).
+3. **Done 2026-10-27:** history scrubbed of deployment details, every commit signed, `main` and tags
+   pushed; tag `dual-backend-v1` marks the last state with both backends.
+4. **The Phase 3 removals are on branch `link-only`** (section 2). Then: the 1080p live runs (check the
+   parent handset first, restore the resolution after), a forced-drop run for Open 2, and retiring the
+   worker.
 
 ## 1. Move dimpl to 0.9.0 (done 2026-10-26; the package's modules are rebuilt, from `140c15d`)
 
@@ -52,12 +53,13 @@ dimpl's major versions (sha2/sha1 0.11, hmac 0.13, chacha20 0.10, chacha20poly13
 
 ## 2. Blockers for a link-only release
 
-- [ ] **The Phase 3 removals** (`75-python-api.md`, "Changes in the integration"). The package still
-      ships the `tutk-host` sets, `libtk.so`, `tooling/` and the SDK-upload config flow beside
-      `_vtech_link`. Removing them:
-  - settles the APKPure x86_64 question, since users no longer download Kalay Mobile;
-  - shrinks the HACS download;
-  - means updating `README.md`, `AGENTS.md`, `85-ha-deployment.md` and `90-ha-runtime.md`.
+- [ ] **The Phase 3 removals** (`75-python-api.md`, "Changes in the integration"), on branch
+      `link-only` (2026-10-27): the `tutk-host` sets, `libtk.so`, `tooling/`, `sdk.py`, `crypto.py`,
+      `SdkSession` and the SDK-upload config flow are gone; entries migrate to version 2. Docs updated
+      (`README.md`, `AGENTS.md`, `75-python-api.md`; the kit's `85` and `90` stay as SDK background).
+      Still to do: the test port, a deploy to the NAS (check the version 1 entry migrates and the
+      old `vtech_baby/sdk` and `lib` directories go), then merge to `main`. This settles the APKPure
+      x86_64 question, since users no longer download Kalay Mobile.
 - [ ] **Retire the worker process with the SDK paths** (decided 2026-10-24). Once only Rust is left,
       the worker's main job, keeping C crashes out of HA, is gone. vtech-link builds with
       `panic = "unwind"`, and PyO3 turns a panic in a Python call into `PanicException`. Before
