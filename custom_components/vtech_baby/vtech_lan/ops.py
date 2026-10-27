@@ -7,7 +7,7 @@ Design rules:
 - Every op names its reply opcode explicitly. Never compute it as request + 1: `0x709 → 0x710` and
   `0x729 → 0x730` break that rule.
 - A SET's ack is checked with a per-op predicate, because ack encodings differ per opcode.
-- Pure data and pure functions: no SDK, no threads.
+- Pure data and pure functions: no transport, no threads.
 """
 from __future__ import annotations
 

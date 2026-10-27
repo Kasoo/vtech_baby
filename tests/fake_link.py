@@ -11,10 +11,11 @@ import threading
 import time
 from dataclasses import dataclass
 
-from vtech_lan.crypto import KeyExchange, decrypt_frame
+from camera_crypto import KeyExchange, decrypt_frame, encrypt_frame
 from vtech_lan.media import is_keyframe
 
-from fake_sdk import FakeCamera, FakeFrameReader
+import fake_camera
+from fake_camera import FakeCamera
 
 
 class LinkError(Exception):
@@ -46,9 +47,12 @@ class FakeExchange:
     def next(self, timeout):
         self._link._check()
         try:
-            return self.pages.get(timeout=timeout)
+            page = self.pages.get(timeout=timeout)
         except queue.Empty:
             return None
+        if page is None:                        # woken because the link ended
+            self._link._check()
+        return page
 
     def close(self):
         self.closed = True
@@ -58,7 +62,6 @@ class FakeExchange:
 class FakeMediaReceiver:
     def __init__(self, link):
         self._link = link
-        self._reader = FakeFrameReader(link)
         self.started = self.closed = False
         self.lost_next = 0                      # tests: lost_before for the next frame
         self._numbers = {"video": 0, "audio": 0}
@@ -78,9 +81,9 @@ class FakeMediaReceiver:
         deadline = time.monotonic() + timeout
         while True:
             link._check()
-            for kind, read in (("audio", self._reader.audio), ("video", self._reader.video)):
-                rc, frame = read()
-                if rc > 0:
+            for kind, read in (("audio", self._audio), ("video", self._video)):
+                frame = read()
+                if frame is not None:
                     data = decrypt_frame(frame, cam.master)
                     self._numbers[kind] += 1
                     lost, self.lost_next = self.lost_next, 0
@@ -90,12 +93,41 @@ class FakeMediaReceiver:
                 return None
             time.sleep(0.002)
 
+    def _video(self):
+        """The next encrypted clip frame while the camera streams, at `camera.fps`."""
+        cam = self._link.camera
+        now = time.monotonic()
+        if not cam.streaming or cam.master is None or now < cam.next_video:
+            return None
+        cam.next_video = now + 1 / cam.fps
+        frames = fake_camera.clip()
+        au = frames[cam.vidx % len(frames)]
+        cam.vidx += 1
+        return encrypt_frame(au, cam.master)
+
+    def _audio(self):
+        """An encrypted A-law frame, 2.5 per video frame."""
+        cam = self._link.camera
+        if not (cam.streaming and cam.audio_on and cam.master) or cam.aidx >= cam.vidx * 2.5:
+            return None
+        cam.aidx += 1
+        return encrypt_frame(b"\xD5" * 320, cam.master)
+
     def stats(self):
+        """The module's receive counters, with the flat `link.recv` names (as LiveStream reports them)
+        applied on top."""
         streams = {"frames": 0, "bytes": 0, "given_up": 0, "late": 0}
-        return {"video": dict(streams), "audio": dict(streams), "packets_requested": 0,
-                "packets_recovered": 0, "packets_duplicate": 0, "packets_stale": 0, "fragments_dropped": 0,
-                "gaps_skipped": 0, "fragments_behind": 0, "packets_dropped_test": 0, "video_overflow": 0,
-                "audio_overflow": 0, "decrypt_failed_video": 0, "decrypt_failed_audio": 0}
+        out = {"video": dict(streams), "audio": dict(streams), "packets_requested": 0,
+               "packets_recovered": 0, "packets_duplicate": 0, "packets_stale": 0, "fragments_dropped": 0,
+               "gaps_skipped": 0, "fragments_behind": 0, "packets_dropped_test": 0, "video_overflow": 0,
+               "audio_overflow": 0, "decrypt_failed_video": 0, "decrypt_failed_audio": 0}
+        for name, value in self._link.recv.items():
+            kind, _, field = name.partition("_")
+            if kind in ("video", "audio") and field in streams:
+                out[kind][field] = value
+            else:
+                out[name] = value
+        return out
 
     def close(self):
         self.closed = True
@@ -119,6 +151,7 @@ class FakeTalkBack:
         if self._link.talk_send_error is not None:
             raise self._link.talk_send_error
         self._link.uplink.append(bytes(alaw))
+        time.sleep(self._link.talk_pace_s)
 
     def close(self, drain=True, timeout=2.0):
         self.closed_with = (drain, timeout)
@@ -136,10 +169,12 @@ class FakeLink:
         self.uplink: list[bytes] = []
         self.talks: list[FakeTalkBack] = []
         self.resets = 0
-        self.dead_rc = None                     # FakeFrameReader reads this
+        self.recv: dict[str, int] = {}          # tests: receive counters to report
         self.talk_send_error = None
+        self.talk_pace_s = 0.02                 # the module sends one 20 ms frame per 20 ms
         self._error = None
-        self._exchanges: dict[int, FakeExchange] = {}
+        self._exchanges: dict[int, list[FakeExchange]] = {}   # per reply opcode, oldest first
+        self.close_calls = 0
         self._lock = threading.Lock()
 
     # The module's Link surface
@@ -164,7 +199,7 @@ class FakeLink:
         self._check()
         ex = FakeExchange(self, reply)
         with self._lock:
-            self._exchanges[reply] = ex
+            self._exchanges.setdefault(reply, []).append(ex)
         self.send(type, payload)
         return ex
 
@@ -194,9 +229,10 @@ class FakeLink:
         return {"datagrams_in": len(self.sent), "datagrams_out": len(self.sent)}
 
     def close(self):
+        self.close_calls += 1
         if self._error is None:
             self._error = LinkError(*CLOSED_LOCAL)
-        self.pushes.put(None)
+        self._wake()
 
     @property
     def closed(self):
@@ -213,7 +249,7 @@ class FakeLink:
     def kill(self, kind="closed", detail="remote_close", code=-22):
         """The link ends from the camera's side (or the network)."""
         self._error = LinkError(kind, detail, code)
-        self.pushes.put(None)
+        self._wake()
 
     def push(self, code, payload):
         self.pushes.put((code, payload))
@@ -222,18 +258,27 @@ class FakeLink:
         with self._lock:
             return [c for c, _ in self.sent]
 
+    def _wake(self):
+        """Wake the push reader and every waiting exchange so they see the error."""
+        self.pushes.put(None)
+        with self._lock:
+            waiting = [ex for exs in self._exchanges.values() for ex in exs]
+        for ex in waiting:
+            ex.pages.put(None)
+
     def _deliver(self, code, body):
         with self._lock:
-            ex = self._exchanges.get(code)
-        if ex is not None and not ex.closed:
+            ex = next((e for e in self._exchanges.get(code, ()) if not e.closed), None)
+        if ex is not None:
             ex.pages.put(body)
         else:
             self.pushes.put((code, body))
 
     def _end_exchange(self, ex):
         with self._lock:
-            if self._exchanges.get(ex.reply) is ex:
-                del self._exchanges[ex.reply]
+            exs = self._exchanges.get(ex.reply, [])
+            if ex in exs:
+                exs.remove(ex)
 
     def _check(self):
         if self._error is not None:
@@ -281,3 +326,37 @@ class FakeLinkModule:
 
     def links(self):
         return [link.info() for link in self.opened if link.closed is None]
+
+
+class ThreadWorker:
+    """Runs the worker (`vtech_lan/worker.py`) on a thread instead of a process, over the same socket
+    pair and messages, loading `link_loader(path)`. `worker` is the live Worker object."""
+
+    pid = None
+
+    def __init__(self, child, listen, link_loader):
+        from custom_components.vtech_baby.vtech_lan.ipc import Channel
+        from custom_components.vtech_baby.vtech_lan.worker import Worker
+        self._sock = child.dup()
+        self.worker = Worker(Channel(self._sock), listen, link_loader=link_loader)
+        self._thread = threading.Thread(target=self.worker.run, name="vtech-thread-worker", daemon=True)
+        self._thread.start()
+
+    def wait(self, timeout=None):
+        self._thread.join(timeout)
+        return None if self._thread.is_alive() else 0
+
+    def kill(self):
+        """Like the process dying: both directions of its socket end at once."""
+        import socket
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)       # wakes the worker's blocked recv (close alone doesn't)
+        except OSError:
+            pass
+        self._sock.close()
+
+
+def thread_client(link_mod, **kw):
+    """A WorkerClient whose worker runs on a thread and loads `link_mod` as the vtech-link module."""
+    from custom_components.vtech_baby.vtech_lan.worker_client import WorkerClient
+    return WorkerClient(spawn=lambda child, listen: ThreadWorker(child, listen, lambda _path: link_mod), **kw)

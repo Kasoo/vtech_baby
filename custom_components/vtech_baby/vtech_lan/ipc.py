@@ -1,4 +1,4 @@
-"""Message framing between Home Assistant and the SDK worker process (`worker.py`, `worker_client.py`).
+"""Message framing between Home Assistant and the worker process (`worker.py`, `worker_client.py`).
 
 Each message is a 4-byte big-endian length followed by a pickle. Both ends are this package's own code,
 so pickle is safe here, and `vtech_lan` classes (exceptions, `ops` dataclasses, `Push`) cross intact: the

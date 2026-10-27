@@ -5,13 +5,12 @@ Protocol: docs/vtech-lan-kit/docs/40, 50.
 - One dedicated thread per camera (`vtech-media-…`) owns the media path. It starts when the first
   subscriber arrives and stops `grace_s` after the last one leaves (go2rtc drops and reopens its
   connection; snapshots come and go), so short gaps don't restart the camera's stream.
-- Start: the session's media source runs the live-view key exchange (once per session) and resets
-  the receive buffers (so the first frame is a keyframe); then AUDIOSTART (unless `audio_held()`: a
+- Start: the session's media source resets the receive buffers (so the first frame is a keyframe);
+  `_vtech_link` runs the live-view key exchange once per session. Then AUDIOSTART (unless `audio_held()`: a
   talk-back has camera audio stopped and restarts it itself), full-rate, START. Stop: STOP, AUDIOSTOP.
   The control session is untouched; its reader thread keeps taking IOCtrls while this thread reads
   frames.
-- The source is the transport's (`SdkMediaSource` reads and decrypts through the SDK; `LinkMediaSource`
-  takes frames `_vtech_link` has already decrypted): both yield `MediaFrame`s.
+- The source (`LinkMediaSource`) yields `MediaFrame`s that `_vtech_link` has already decrypted.
 - Subscribers get MPEG-TS bytes (`avmux`) through a callback run on the media thread, which must not
   block. A new subscriber starts at the next keyframe. `None` means end of stream: the session went
   away or the stream is shut down; reconnecting is the subscriber's business.
@@ -27,15 +26,13 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from . import ops
-from .crypto import decrypt_frame
-from .errors import BAD_FRAME, NO_DATA, SessionGone, VtechError, error_for, from_link
+from .errors import SessionGone, VtechError, from_link
 
 _LOG = logging.getLogger(__name__)
 
 GRACE_S = 5.0                 # keep streaming this long after the last subscriber leaves
 FIRST_KEYFRAME_S = 10.0       # give up a start that produces no keyframe in this time
 SNAPSHOT_MAX_AGE_S = 60.0     # when idle, reuse a snapshot this recent instead of starting the stream
-IDLE_SLEEP_S = 0.005          # back-off when no frame is ready (avRecvFrameData2 never blocks)
 RECV_STATS_S = 30.0           # how often the receive counters are refreshed while streaming
 LINK_WAIT_S = 0.2             # how long one `LinkMediaSource.poll` waits for a frame
 
@@ -65,57 +62,6 @@ class MediaFrame(NamedTuple):
     lost_before: int = 0          # frames of this stream lost just before it
 
 
-class SdkMediaSource:
-    """Live-view frames through the SDK: avRecvFrameData2 / avRecvAudioData, decrypted here."""
-
-    def __init__(self, sdk: Any, session: Any):
-        self._sdk, self._session = sdk, session
-        self._av: int | None = None
-        self._master = b""
-        self._reader: Any = None
-
-    def start(self) -> None:
-        self._master = self._session.live_view_master()
-        self._av = self._session.av
-        self._sdk.clean_media_buffers(self._av)
-        self._reader = self._sdk.frame_reader(self._av)
-
-    def poll(self) -> list[MediaFrame]:
-        """One video read and up to 64 audio reads (~25 audio frames/s); sleeps briefly when no video
-        is ready, since the reads never block."""
-        out: list[MediaFrame] = []
-        rc, frame = self._reader.video()
-        if rc > 0:
-            out.append(MediaFrame(True, self._decrypt(frame), time.monotonic()))
-        elif rc in BAD_FRAME:
-            out.append(MediaFrame(True, None, time.monotonic()))
-        elif rc in NO_DATA or rc == 0:
-            time.sleep(IDLE_SLEEP_S)
-        else:
-            raise error_for(rc, "avRecvFrameData2")
-        for _ in range(64):
-            rc, frame = self._reader.audio()
-            if rc <= 0:
-                if rc < 0 and rc not in NO_DATA and rc not in BAD_FRAME:
-                    raise error_for(rc, "avRecvAudioData")
-                break
-            out.append(MediaFrame(False, self._decrypt(frame), time.monotonic()))
-        return out
-
-    def _decrypt(self, frame: bytes) -> bytes | None:
-        try:
-            return decrypt_frame(frame, self._master)
-        except Exception:                                       # noqa: BLE001 - bad tag / short frame
-            return None
-
-    def stats(self) -> dict[str, int] | None:
-        get = getattr(self._sdk, "recv_stats", None)
-        return get(self._av) if get and self._av is not None else None
-
-    def close(self) -> None:
-        pass
-
-
 class LinkMediaSource:
     """Live-view frames from `_vtech_link`, which decrypts them and keeps them in order."""
 
@@ -136,7 +82,7 @@ class LinkMediaSource:
         return [MediaFrame(f.kind == "video", f.data, f.arrived, f.lost_before)]
 
     def stats(self) -> dict[str, int] | None:
-        """The SDK's receive counters by name, plus the ones only the link has."""
+        """The module's receive counters by name."""
         try:
             m = self._rx.stats()
         except self._session._module.LinkError as e:                    # noqa: SLF001

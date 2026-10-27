@@ -1,4 +1,4 @@
-"""LiveStream over the fake SDK: on-demand start/stop, keyframe joins, grace, loss, snapshots."""
+"""LiveStream over the fake link: on-demand start/stop, keyframe joins, grace, loss, snapshots."""
 import io
 import threading
 import time
@@ -8,12 +8,13 @@ import pytest
 av = pytest.importorskip("av")
 
 from vtech_lan import media, ops  # noqa: E402
-from vtech_lan.errors import AV_ER_SESSION_CLOSE_BY_REMOTE, SessionGone  # noqa: E402
+from vtech_lan.errors import SessionGone  # noqa: E402
 from vtech_lan.media import LiveStream, has_nal, is_keyframe  # noqa: E402
-from vtech_lan.session import Session  # noqa: E402
+from vtech_lan.session import LinkSession  # noqa: E402
 
-import fake_sdk  # noqa: E402
-from fake_sdk import FakeSdk, clip, enable_live_view  # noqa: E402
+import fake_camera  # noqa: E402
+from fake_camera import clip, enable_live_view  # noqa: E402
+from fake_link import FakeLinkModule  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not clip(), reason="needs ffmpeg for the test clip")
 
@@ -44,13 +45,13 @@ class Sink:
 
 @pytest.fixture
 def cam():
-    sdk = FakeSdk()
-    enable_live_view(sdk.camera)
-    s = Session(sdk, "UID", "authkey", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
+    mod = FakeLinkModule()
+    enable_live_view(mod.camera)
+    s = LinkSession(mod, "UID", "k3yAuth8", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
     s.connect()
     holder = {"s": s}
     ls = LiveStream(lambda: holder["s"], name="test", grace_s=0.3)
-    yield sdk, s, ls, holder
+    yield mod.opened[0], s, ls, holder
     ls.close()
     s.close()
 
@@ -60,18 +61,18 @@ def streams_of(ts: bytes):
         return sorted((st.type, st.codec_context.name) for st in c.streams)
 
 
-def starts(sdk):
-    return sdk.sent_codes().count(ops.START.code)
+def starts(link):
+    return link.sent_codes().count(ops.START.code)
 
 
 def test_subscribe_starts_and_delivers_ts(cam):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     sink = Sink()
     sub = ls.subscribe(sink)
     assert wait_for(lambda: len(sink.data) > 50_000)
-    codes = sdk.sent_codes()
+    codes = link.sent_codes()
     assert codes.index(ops.AUDIO_START.code) < codes.index(ops.VIDEO_FULLRATE.code) < codes.index(ops.START.code)
-    assert "clean_media_buffers" in sdk.calls
+    assert link.resets == 1
     assert sink.data[0] == 0x47 and len(sink.data) % 188 == 0
     assert (sink.data[1] & 0x1F) << 8 | sink.data[2] == 0             # starts at a PAT
     assert streams_of(sink.data) == [("audio", "aac"), ("video", "h264")]
@@ -79,19 +80,19 @@ def test_subscribe_starts_and_delivers_ts(cam):
 
 
 def test_receive_counters_refresh_and_log_losses(cam, monkeypatch, caplog):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     monkeypatch.setattr(media, "RECV_STATS_S", 0.05)
     zero = dict.fromkeys(("packets_requested", "video_given_up", "video_late", "video_overflow",
                           "audio_given_up", "audio_late", "audio_overflow", "packets_recovered"), 0)
-    sdk.recv = dict(zero)
+    link.recv = dict(zero)
     caplog.set_level("DEBUG", logger=media.__name__)
     sink = Sink()
     sub = ls.subscribe(sink)
-    assert wait_for(lambda: ls.stats.get("receive") == zero)
-    sdk.recv = {**zero, "packets_requested": 4, "video_late": 1}
+    assert wait_for(lambda: (ls.stats.get("receive") or {}).items() >= zero.items())
+    link.recv = {**zero, "packets_requested": 4, "video_late": 1}
     assert wait_for(lambda: ls.stats["receive"]["packets_requested"] == 4)
     assert "frames lost" not in caplog.text
-    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 2}
+    link.recv = {**zero, "packets_requested": 9, "video_given_up": 2}
     assert wait_for(lambda: "frames lost: {'video_given_up': 2}" in caplog.text)
     sub.close()
     assert wait_for(lambda: not ls.running)
@@ -99,61 +100,51 @@ def test_receive_counters_refresh_and_log_losses(cam, monkeypatch, caplog):
 
 
 def test_losses_before_a_start_are_not_logged_again(cam, monkeypatch, caplog):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     monkeypatch.setattr(media, "RECV_STATS_S", 0.05)
     zero = dict.fromkeys(("packets_requested", "video_given_up", "video_late", "video_overflow",
                           "audio_given_up", "audio_late", "audio_overflow", "packets_recovered"), 0)
-    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 2}
+    link.recv = {**zero, "packets_requested": 9, "video_given_up": 2}
     caplog.set_level("DEBUG", logger=media.__name__)
     sink = Sink()
     sub = ls.subscribe(sink)
     assert wait_for(lambda: sink.chunks)
-    sdk.recv = {**zero, "packets_requested": 9, "video_given_up": 3}
+    link.recv = {**zero, "packets_requested": 9, "video_given_up": 3}
     assert wait_for(lambda: "frames lost: {'video_given_up': 1}" in caplog.text)
     assert "'video_given_up': 2}" not in caplog.text
     sub.close()
 
 
-def test_no_receive_counters_with_the_vendor_sdk(cam):
-    _, _, ls, _ = cam
-    sink = Sink()
-    sub = ls.subscribe(sink)
-    assert wait_for(lambda: sink.chunks)
-    sub.close()
-    assert wait_for(lambda: not ls.running)
-    assert ls.stats["receive"] is None
-
-
 def test_audio_start_left_to_a_talk_back(cam):
-    sdk, s, _, holder = cam
+    link, s, _, holder = cam
     ls = LiveStream(lambda: holder["s"], name="held", grace_s=0.3, audio_held=lambda: True)
     sink = Sink()
     sub = ls.subscribe(sink)
     assert wait_for(lambda: len(sink.data) > 20_000)                 # video flows without camera audio
-    assert ops.AUDIO_START.code not in sdk.sent_codes() and ops.START.code in sdk.sent_codes()
+    assert ops.AUDIO_START.code not in link.sent_codes() and ops.START.code in link.sent_codes()
     sub.close()
     ls.close()
 
 
 def test_stops_after_grace_and_restarts(cam):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     sink = Sink()
     sub = ls.subscribe(sink)
     assert wait_for(lambda: sink.chunks)
     sub.close()
-    assert wait_for(lambda: ops.STOP.code in sdk.sent_codes())
-    assert ops.AUDIO_STOP.code in sdk.sent_codes()
+    assert wait_for(lambda: ops.STOP.code in link.sent_codes())
+    assert ops.AUDIO_STOP.code in link.sent_codes()
     assert wait_for(lambda: ls._thread is None)
-    assert not sdk.camera.streaming
+    assert not link.camera.streaming
     sink2 = Sink()
     sub2 = ls.subscribe(sink2)
-    assert wait_for(lambda: sink2.chunks) and starts(sdk) == 2
+    assert wait_for(lambda: sink2.chunks) and starts(link) == 2
     assert (sink2.data[1] & 0x1F) << 8 | sink2.data[2] == 0           # the restart joins at a keyframe too
     sub2.close()
 
 
 def test_resubscribe_within_grace_keeps_stream(cam):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     a, b = Sink(), Sink()
     sa = ls.subscribe(a)
     assert wait_for(lambda: a.chunks)
@@ -161,7 +152,7 @@ def test_resubscribe_within_grace_keeps_stream(cam):
     time.sleep(0.1)                                                      # < grace
     sb = ls.subscribe(b)
     assert wait_for(lambda: b.chunks)
-    assert starts(sdk) == 1 and ops.STOP.code not in sdk.sent_codes()
+    assert starts(link) == 1 and ops.STOP.code not in link.sent_codes()
     sb.close()
 
 
@@ -181,9 +172,9 @@ def test_late_subscriber_joins_at_keyframe_and_decodes(cam):
 
 
 def test_on_running_reports_start_and_stop():
-    sdk = FakeSdk()
-    enable_live_view(sdk.camera)
-    s = Session(sdk, "UID", "authkey", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
+    mod = FakeLinkModule()
+    enable_live_view(mod.camera)
+    s = LinkSession(mod, "UID", "k3yAuth8", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
     s.connect()
     seen = []
     ls = LiveStream(lambda: s, name="t", grace_s=0.2, on_running=seen.append)
@@ -196,11 +187,11 @@ def test_on_running_reports_start_and_stop():
 
 
 def test_session_loss_ends_subscribers(cam):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     sink = Sink()
     ls.subscribe(sink)
     assert wait_for(lambda: sink.chunks)
-    sdk.dead_rc = AV_ER_SESSION_CLOSE_BY_REMOTE
+    link.kill()
     assert sink.ended.wait(3)
     assert wait_for(lambda: ls._thread is None)
     assert "SessionGone" in ls.stats["last_error"]
@@ -225,33 +216,33 @@ def test_close_ends_subscribers(cam):
 
 
 def test_snapshot_starts_briefly_and_caches(cam):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     jpeg = ls.snapshot()
     assert jpeg[:2] == b"\xff\xd8"
-    assert starts(sdk) == 1
+    assert starts(link) == 1
     assert wait_for(lambda: ls._thread is None)                       # stopped again after the grace
     assert ls.snapshot() is jpeg                                         # recent: no restart
-    assert starts(sdk) == 1
+    assert starts(link) == 1
     small = ls.snapshot(width=160)
     with av.open(io.BytesIO(small)) as c:
         assert (c.streams.video[0].width, c.streams.video[0].height) == (160, 120)
 
 
 def test_snapshot_while_streaming_uses_live_keyframe(cam):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     sink = Sink()
     sub = ls.subscribe(sink)
     assert wait_for(lambda: ls._keyframe is not None)
     assert ls.snapshot()[:2] == b"\xff\xd8"
-    assert starts(sdk) == 1
+    assert starts(link) == 1
     sub.close()
 
 
 def test_no_keyframe_gives_up(cam, monkeypatch):
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     ls._first_keyframe_s = 0.3
-    sdk.camera.master = None                     # frames never arrive
-    sdk.camera.key_reply = lambda hello: __import__("test_crypto").fake_camera_reply(hello)[0]
+    link.camera.master = None                     # frames never arrive
+    link.camera.key_reply = lambda hello: __import__("test_crypto").fake_camera_reply(hello)[0]
     sink = Sink()
     ls.subscribe(sink)
     assert sink.ended.wait(3)
@@ -272,31 +263,14 @@ def test_has_nal():
 def test_empty_video_frames_are_dropped(cam, monkeypatch):
     # PyAV takes an empty packet as a flush, and muxes a bare start code as a PES that go2rtc's
     # MPEG-TS reader turns into an empty packet (a panic in its H.264 repair).
-    sdk, _, ls, _ = cam
+    link, _, ls, _ = cam
     frames = clip()
-    monkeypatch.setattr(fake_sdk, "clip", lambda: [frames[0], b"", b"\x00\x00\x00\x01", *frames[1:]])
+    monkeypatch.setattr(fake_camera, "clip", lambda: [frames[0], b"", b"\x00\x00\x00\x01", *frames[1:]])
     sink = Sink()
     sub = ls.subscribe(sink)
     assert wait_for(lambda: ls.stats.get("bad", 0) >= 2 and len(sink.data) > 50_000)
     sub.close()
     assert streams_of(sink.data) == [("audio", "aac"), ("video", "h264")]
-
-
-def test_send_busy_is_retried():
-    sdk = FakeSdk()
-    s = Session(sdk, "UID", "k", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
-    s.connect()
-    real, n = sdk.send_ioctrl, {"busy": 2}
-
-    def flaky(av_, code, payload):
-        if code == ops.STOP.code and n["busy"]:
-            n["busy"] -= 1
-            return -20029
-        return real(av_, code, payload)
-    sdk.send_ioctrl = flaky
-    s.send(ops.STOP)
-    assert n["busy"] == 0 and ops.STOP.code in sdk.sent_codes()
-    s.close()
 
 
 def test_grace_default():

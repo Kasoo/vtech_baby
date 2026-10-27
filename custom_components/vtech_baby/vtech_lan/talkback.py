@@ -6,9 +6,9 @@ Protocol: docs/vtech-lan-kit/docs/40-media-streaming.md ("Two-way audio"), 90-ha
 - `start()` opens the media and decodes its first frame before touching the camera, so bad media fails
   with no side effects. A dedicated thread (`vtech-talk-…`) then sets up the uplink, and `start()`
   returns once the camera has connected to it, or raises why it didn't.
-- The uplink is the session's: `SdkUplink` runs an AV server through the SDK and encrypts and paces
-  frames here; `LinkUplink` hands frames to `_vtech_link`, which encrypts and paces them itself.
-- The thread sends a frame every 20 ms and always runs the stop sequence, including on error.
+- The uplink (`LinkUplink`) hands frames to `_vtech_link`, which encrypts and paces them itself.
+- The thread sends the frames as the module has room for them (it paces them at 20 ms) and always
+  runs the stop sequence, including on error.
   `on_end(err)` reports how a started talk-back ended: None when the media played out or it was stopped.
 - Half-duplex: camera audio is stopped while talking, and restarted afterwards if `audio_wanted()`
   (the live view is running), or if the live view started meanwhile and left its AUDIOSTART to us
@@ -18,81 +18,22 @@ from __future__ import annotations
 
 import itertools
 import logging
-import struct
 import threading
-import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
 from . import ops
 from .audio import alaw_frames
-from .crypto import encrypt_frame
-from .errors import AV_ER_EXCEED_MAX_SIZE, MediaError, ProtocolError, SessionGone, VtechError, check, error_for
+from .errors import MediaError, ProtocolError, SessionGone, VtechError
 
 _LOG = logging.getLogger(__name__)
 
-FRAME_S = 0.02                 # 160 bytes of 8 kHz A-law
 SERV_TIMEOUT_S = 10            # wait this long for the camera to connect to the uplink
-LINK_SEND_S = 1.0              # LinkUplink: the longest a frame waits for room in the module's queue
-MAX_LAG_S = 0.2                # further behind than this (the source stalled): restart the clock, don't burst
+LINK_SEND_S = 1.0              # the longest a frame waits for room in the module's queue
+CODEC_ALAW = 0x8A              # the only uplink format the camera takes
 STOP_JOIN_S = 15.0             # a stop waits out a blocked media read (READ_TIMEOUT_S) before giving up
-CODEC_ALAW = 0x8A
-FLAGS = 0x02                   # mono, 8 kHz, 16-bit capture
 
 OnEnd = Callable[[VtechError | None], None]
-
-
-def frame_info(timestamp_ms: int) -> bytes:
-    """The 16-byte uplink frameinfo: u16@0 codec, u8@2 flags, u32@12 timestamp in ms."""
-    return struct.pack("<HBBB7xI", CODEC_ALAW, FLAGS, 0, 0, timestamp_ms & 0xFFFFFFFF)
-
-
-class SdkUplink:
-    """The uplink through the SDK: avServStart3 on a free channel; frames encrypted and paced here."""
-
-    def __init__(self, sdk: Any, session: Any, frame_s: float):
-        self._sdk, self._session, self._frame_s = sdk, session, frame_s
-        self._sid: int = session.sid
-        self._master = b""
-        self.ch = self.idx = -1
-        self._t0, self._n = 0.0, 0
-
-    def prepare(self) -> None:
-        """The live-view key, before camera audio is stopped."""
-        self._master = self._session.live_view_master()
-
-    def open(self) -> int:
-        """A free channel to announce with SPEAKERSTART."""
-        self.ch = check(self._sdk.free_channel(self._sid), "IOTC_Session_Get_Free_Channel")
-        return self.ch
-
-    def accept(self, timeout_s: int) -> None:
-        """Wait for the camera to connect to the channel."""
-        self.idx = check(self._sdk.serv_start(self._sid, self.ch, timeout_s), "avServStart3")
-        self._t0, self._n = time.monotonic(), 0
-
-    def send(self, body: bytes, stop: threading.Event) -> bool:
-        """Send one frame, then wait out its 20 ms. Returns whether it went out."""
-        rc = self._sdk.send_audio(self.idx, encrypt_frame(body, self._master), frame_info(int(time.time() * 1000)))
-        if rc == AV_ER_EXCEED_MAX_SIZE:                         # send buffer full
-            self._sdk.serv_reset(self.idx)
-        elif rc < 0:
-            raise error_for(rc, "avSendAudioData")
-        self._n += 1
-        delay = self._t0 + self._n * self._frame_s - time.monotonic()
-        if delay < -MAX_LAG_S:
-            self._t0, self._n = time.monotonic(), 0
-        elif delay > 0:
-            stop.wait(delay)
-        return rc >= 0
-
-    def close(self, drain: bool) -> None:
-        """avServStop, IOTC_Session_Channel_OFF, avServExit. Frames already went out as they were sent."""
-        if self.idx >= 0:
-            self._sdk.serv_stop(self.idx)
-        if self.ch >= 0:
-            self._sdk.channel_off(self._sid, self.ch)
-            self._sdk.serv_exit(self._sid, self.ch)
 
 
 class LinkUplink:
@@ -102,9 +43,6 @@ class LinkUplink:
     def __init__(self, session: Any):
         self._session = session
         self._tb: Any = None
-
-    def prepare(self) -> None:
-        pass
 
     def open(self) -> int:
         self._tb = self._session._call("talk-back", self._session.link.talkback, float(SERV_TIMEOUT_S))  # noqa: SLF001
@@ -131,9 +69,9 @@ class TalkBack:
 
     def __init__(self, get_session: Callable[[], Any], name: str = "",
                  audio_wanted: Callable[[], bool] = lambda: False,
-                 open_media: Callable[[str], Iterator[bytes]] = alaw_frames, frame_s: float = FRAME_S):
+                 open_media: Callable[[str], Iterator[bytes]] = alaw_frames):
         self._get_session, self.name = get_session, name
-        self._audio_wanted, self._open_media, self._frame_s = audio_wanted, open_media, frame_s
+        self._audio_wanted, self._open_media = audio_wanted, open_media
         self._lock = threading.Lock()              # serialises start and stop
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -219,8 +157,7 @@ class TalkBack:
             if fmt.codec != CODEC_ALAW or (fmt.sample_rate_idx or 0) != 0:
                 raise ProtocolError(f"unsupported uplink format {fmt}: only G.711 A-law 8 kHz is sent",
                                     call="talk-back")
-            up = session.uplink(self._frame_s)
-            up.prepare()
+            up = session.uplink()
             with self._audio_lock:
                 self._holding_audio, self._resume_audio = True, False
             session.send(ops.AUDIO_STOP)

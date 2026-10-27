@@ -1,6 +1,4 @@
 """native: finding the `_vtech_link` module a vtech-link build ships, by arch and libc."""
-import json
-
 import pytest
 
 from custom_components.vtech_baby import native
@@ -10,7 +8,7 @@ from custom_components.vtech_baby import native
 def pkg(tmp_path, monkeypatch):
     """An empty package tree on an x86_64 glibc host."""
     monkeypatch.setattr(native, "PKG", str(tmp_path))
-    monkeypatch.setattr(native._sdk, "host_arch", lambda: "x86_64")
+    monkeypatch.setattr(native, "host_arch", lambda: "x86_64")
     monkeypatch.setattr(native, "host_libc", lambda: "glibc")
     return tmp_path
 
@@ -32,18 +30,17 @@ def test_bundled_link_matches_arch_and_libc(pkg, monkeypatch):
     assert native.bundled_link() is None
 
 
-def test_link_build_supports_only_hosts_with_a_module(pkg, monkeypatch):
-    monkeypatch.setattr(native, "BACKEND", "link")
+def test_host_supported_only_with_a_module(pkg):
     assert native.host_supported() is None
     ship(pkg)
     assert native.host_supported() == "x86_64"
 
 
-def test_prepare_link(pkg):
+def test_prepare(pkg):
     with pytest.raises(native.UnsupportedHost):
-        native.prepare_link()
+        native.prepare()
     path = ship(pkg)
-    p = native.prepare_link()
-    assert (p.libdir, p.link_path, p.arch) == (None, path, "x86_64")
+    p = native.prepare()
+    assert (p.link_path, p.arch) == (path, "x86_64")
     ship(pkg, b"rebuilt")
-    assert json.loads(native.prepare_link().fingerprint) != json.loads(p.fingerprint)
+    assert native.prepare().fingerprint != p.fingerprint

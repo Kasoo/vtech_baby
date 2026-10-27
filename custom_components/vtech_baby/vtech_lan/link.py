@@ -1,7 +1,7 @@
 """Load `_vtech_link`, the Rust protocol library (vtech-link), and forward its log records.
 
 The module is a Python extension built for this host's arch and libc (`_vtech_link.abi3.so`). It is
-loaded once per process from an explicit path, like the SDK (`sdk.load`), and never unloaded. Its
+loaded once per process from an explicit path, and never unloaded. Its
 Rust threads never take the GIL: a daemon thread here drains its log ring into Python logging under
 this module's logger.
 
@@ -16,7 +16,7 @@ import os
 import threading
 from typing import Any
 
-from .errors import SdkMismatch, UnsupportedHost
+from .errors import ModuleMismatch, UnsupportedHost
 
 _LOG = logging.getLogger(__name__)
 
@@ -28,14 +28,14 @@ _loaded: tuple[str, Any] | None = None          # (path, module)
 
 
 def load(path: str) -> Any:
-    """The module at `path`, loaded once per process. Raises SdkMismatch if a different path was loaded
+    """The module at `path`, loaded once per process. Raises ModuleMismatch if a different path was loaded
     first, and UnsupportedHost if it can't be loaded here."""
     global _loaded
     path = os.path.abspath(path)
     with _lock:
         if _loaded is not None:
             if _loaded[0] != path:
-                raise SdkMismatch(f"this process already loaded {MODULE_NAME} from {_loaded[0]}", call="load")
+                raise ModuleMismatch(f"this process already loaded {MODULE_NAME} from {_loaded[0]}", call="load")
             return _loaded[1]
         try:
             loader = importlib.machinery.ExtensionFileLoader(MODULE_NAME, path)

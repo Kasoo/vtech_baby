@@ -1,4 +1,5 @@
-"""Live-view key exchange and per-frame media crypto.
+"""Live-view key exchange and per-frame media crypto, for the fake camera (`fake_camera.FakeCamera`) and
+the fake module (`fake_link`). The real module does this in Rust.
 
 Authority: docs/vtech-lan-kit/docs/50-media-decryption.md. Scheme:
     S         = X25519(n, camera_pubkey)                  # n = our ephemeral scalar
@@ -21,7 +22,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from .errors import ProtocolError
+from vtech_lan.errors import ProtocolError
 
 HEADER_LEN = 60          # wrapped_key 32 + nonce 12 + tag 16
 

@@ -1,4 +1,4 @@
-"""Start the SDK worker process: `python -I _worker_main.py <package> --fd N [...]` (see worker.py).
+"""Start the worker process: `python -I _worker_main.py <package> --fd N [...]` (see worker.py).
 
 Run by path, never imported. `<package>` is the dotted name Home Assistant imported this integration
 under (e.g. `custom_components.vtech_baby`). Its parent packages are registered here as empty modules

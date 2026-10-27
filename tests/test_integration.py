@@ -1,10 +1,8 @@
-"""Config flow, setup/unload, pushes, reconnect and reauth, against the fake SDK.
+"""Config flow, setup/unload, pushes, reconnect and reauth, against the fake link.
 
-The real `Session` runs over `FakeSdk`; only SDK preparation (`_prepare_and_load`) is patched out.
+The real `LinkSession` runs over `FakeLinkModule`; only module preparation (`_prepare_and_load`) is patched out.
 """
 import asyncio
-import os
-import uuid
 from unittest.mock import patch
 
 import pytest
@@ -13,22 +11,17 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.vtech_baby import config_flow as cf
-from custom_components.vtech_baby import diagnostics as diag
 from custom_components.vtech_baby import manager as mgr
 from custom_components.vtech_baby import native
 from custom_components.vtech_baby.const import (
-    CONF_ACCOUNT, CONF_APP_FILE, CONF_AUTHKEY, CONF_AV_PASSWORD, CONF_MAC, CONF_QR, CONF_SDK_DIR, CONF_UID, DOMAIN,
+    CONF_ACCOUNT, CONF_AUTHKEY, CONF_AV_PASSWORD, CONF_MAC, CONF_QR, CONF_SDK_DIR, CONF_UID, DOMAIN,
 )
-from custom_components.vtech_baby.native import Prepared
 from custom_components.vtech_baby.vtech_lan import provision
 
-from fake_link import FakeLinkModule
-from fake_sdk import FakeSdk, i32, thread_client
-from test_extract import apk, bundle
+from fake_camera import i32
+from fake_link import FakeLinkModule, LinkError, thread_client
 from test_provision import make_qr
 
 UID = "TESTUID0000000000001"
@@ -40,89 +33,73 @@ TEMP = "sensor.vtech_5754_test_temperature"
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations, socket_enabled):
-    """Custom integrations on; sockets on (the SDK worker talks over a socket pair and a loopback port)."""
+    """Custom integrations on; sockets on (the worker talks over a socket pair and a loopback port)."""
     yield
+
+
+class Fake(FakeLinkModule):
+    """The fake module, with shortcuts to the camera's current link (the newest one opened)."""
+
+    @property
+    def link(self):
+        return self.opened[-1]
+
+    def push(self, code, payload):
+        self.link.push(code, payload)
+
+    def kill(self):
+        """The camera's link ends, as if it dropped off the network."""
+        self.link.kill()
+
+    def fail_connect(self, code):
+        """New connects fail the way the camera would: -68 is the wrong auth key, anything else unreachable."""
+        self.connect_error = (LinkError("iotc_rejected", "auth_key", code) if code == -68
+                              else LinkError("unreachable", "", code))
+
+    def heal(self):
+        self.connect_error = None
+
+    @property
+    def sent(self):
+        return self.link.sent
+
+    def sent_codes(self):
+        return self.link.sent_codes()
+
+    @property
+    def uplink(self):
+        return self.link.uplink
+
+    @property
+    def talks_closed(self):
+        return sum(t.closed_with is not None for t in self.link.talks)
 
 
 @pytest.fixture
 def fake():
-    return FakeSdk()
-
-
-@pytest.fixture
-def sdk():
-    """SDK state on the fake host: whether libraries are already there, which dirs fail to load, uploads."""
-    return {"present": False, "bad": set(), "installed": [], "bundled": None}
-
-
-REAL_INSTALL = cf._install
-
-
-def upload(name):
-    """The upload id HA's file selector would give the file `name`."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
-
-
-# Uploads by name: what installing each one does.
-UPLOADS = {
-    "kalay.xapk": None,
-    "arm-only.xapk": native.WrongArch("x86_64", ["arm64-v8a", "armeabi-v7a"]),
-    "newer.xapk": native.WrongVersion("4.4.0.0", "4.3.8.1"),
-    "photo.jpg": native.NotAPackage("not an APK or app bundle"),
-    "other.apk": native.MissingLibs(["libIOTCAPIs.so"]),
-    "expired": ValueError("Invalid file_id expired"),
-}
-
-
-@pytest.fixture
-def backend():
-    """The build-time BACKEND these tests run with; a test overrides it with a parametrize."""
-    return "sdk"
-
-
-@pytest.fixture
-def link_mod():
-    return FakeLinkModule()
+    return Fake()
 
 
 @pytest.fixture(autouse=True)
-def sdk_patch(fake, sdk, backend, link_mod):
-    def prep(client, sdk_dir, lib_root):
-        if backend == "link":
-            prepared = Prepared(None, "x86_64", "vtech-link", "fp", link_path="/pkg/_vtech_link.abi3.so")
-        elif sdk_dir in sdk["bad"]:
-            raise mgr.SdkSetupError(f"cannot load {sdk_dir}")
-        else:
-            prepared = Prepared(lib_root + "/x86_64", "x86_64", "4.3.8.1", "fp")
-        client.ensure(prepared.libdir, prepared.fingerprint, link_path=prepared.link_path)
-        return mgr.SdkHandle(client, prepared)
-
-    def install(hass, file_id, sdk_dir):
-        if (err := {upload(n): e for n, e in UPLOADS.items()}[file_id]) is not None:
-            raise err
-        sdk["installed"].append(sdk_dir)
-        sdk["present"] = True
-        return "4.3.8.1"
-    with patch.object(mgr, "_prepare_and_load", prep), patch.object(cf, "_install", install), \
-         patch.object(mgr, "make_client",
-                      lambda on_crash: thread_client(fake, link_loader=lambda _p: link_mod, on_crash=on_crash)), \
-         patch.object(mgr, "BACKEND", backend), patch.object(cf, "BACKEND", backend), \
-         patch.object(diag, "BACKEND", backend), \
+def module_patch(fake):
+    def prep(client):
+        client.ensure("/pkg/_vtech_link.abi3.so", "fp")
+        return client
+    with patch.object(mgr, "_prepare_and_load", prep), \
+         patch.object(mgr, "make_client", lambda on_crash: thread_client(fake, on_crash=on_crash)), \
          patch.object(native, "host_supported", lambda: "x86_64"), \
-         patch.object(native, "sdk_present", lambda d: sdk["present"]), \
-         patch.object(native, "bundled_libdir", lambda: sdk["bundled"]), \
          patch.object(mgr, "RECONNECT_MIN_S", 0.05), patch.object(mgr, "RECONNECT_MAX_S", 0.1):
         yield
 
 
 def entry_data(qr=QR):
     c = provision.provision(qr)
-    return {CONF_SDK_DIR: "/sdk", CONF_UID: c.uid, CONF_ACCOUNT: c.account, CONF_AV_PASSWORD: c.av_password,
+    return {CONF_UID: c.uid, CONF_ACCOUNT: c.account, CONF_AV_PASSWORD: c.av_password,
             CONF_AUTHKEY: c.authkey, CONF_MAC: c.mac}
 
 
 async def setup_entry(hass, **kw) -> MockConfigEntry:
-    entry = MockConfigEntry(domain=DOMAIN, title="VTECH_5754_test", unique_id=UID, data=entry_data(), **kw)
+    entry = MockConfigEntry(domain=DOMAIN, title="VTECH_5754_test", unique_id=UID, data=entry_data(), version=2, **kw)
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -156,101 +133,33 @@ async def wait_until(cond, timeout=5.0):
 
 
 # ── Config flow ──────────────────────────────────────────────────────────────
-async def test_user_flow_creates_entry(hass: HomeAssistant, sdk):
+async def test_user_flow_creates_entry(hass: HomeAssistant, fake):
     r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert r["type"] is FlowResultType.FORM and r["step_id"] == "user"
-    assert r["description_placeholders"]["abi"] == "x86_64"
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload("kalay.xapk")})
-    assert r["step_id"] == "camera"
-    sdk_dir = hass.config.path("vtech_baby", "sdk")
-    assert sdk["installed"] == [sdk_dir]
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"      # straight to the pairing QR
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: "garbage"})
     assert r["errors"] == {CONF_QR: "invalid_qr"}
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.CREATE_ENTRY
     assert r["title"] == "VTECH_5754_test"
-    assert r["data"] == {**entry_data(), CONF_SDK_DIR: sdk_dir}
-    assert r["result"].unique_id == UID
+    assert r["data"] == entry_data()
+    assert r["version"] == 2 and r["result"].unique_id == UID
     await hass.async_block_till_done()
     assert hass.states.get(TEMP).state == "21"
+    assert [link.uid for link in fake.opened] == [UID, UID]               # the probe, then the entry
     await unload(hass, r["result"])
 
 
-async def test_user_flow_with_bundled_sdk_skips_the_upload(hass: HomeAssistant, sdk):
-    sdk["bundled"] = "/pkg/native/x86_64-glibc"
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
-    assert r["type"] is FlowResultType.CREATE_ENTRY
-    assert sdk["installed"] == []
-    await hass.async_block_till_done()
-    assert hass.states.get(TEMP).state == "21"
-    await unload(hass, r["result"])
-
-
-@pytest.mark.parametrize(("name", "error", "placeholders"), [
-    ("arm-only.xapk", "wrong_arch", {"found": "arm64-v8a, armeabi-v7a", "arch": "x86_64"}),
-    ("newer.xapk", "wrong_version", {"version": "4.4.0.0", "required": "4.3.8.1"}),
-    ("photo.jpg", "not_a_package", {}),
-    ("other.apk", "missing_libraries", {"missing": "libIOTCAPIs.so"}),
-    ("expired", "sdk_error", {"error": "Invalid file_id expired"}),
-])
-async def test_upload_errors(hass: HomeAssistant, sdk, name, error, placeholders):
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload(name)})
-    assert r["step_id"] == "user" and r["errors"] == {"base": error}
-    assert placeholders.items() <= r["description_placeholders"].items()
-    assert sdk["installed"] == []
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload("kalay.xapk")})
-    assert r["step_id"] == "camera"
-
-
-async def test_real_upload(hass: HomeAssistant, hass_client, tmp_path):
-    """Through HA's upload API: the SDK is extracted into the config dir and the upload is deleted."""
-    hass.config.config_dir = str(tmp_path / "config")
-    assert await async_setup_component(hass, "file_upload", {})
-    pkg = bundle(tmp_path / "Kalay Mobile.xapk", {"config.x86_64.apk": apk(["x86_64"])})
-    client = await hass_client()
-    with open(pkg, "rb") as f:
-        resp = await client.post("/api/file_upload", data={"file": f})
-    assert resp.status == 200
-    file_id = (await resp.json())["file_id"]
-    with patch.object(cf, "_install", REAL_INSTALL), patch.object(native._sdk, "host_arch", lambda: "x86_64"):
-        r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-        r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: file_id})
-    assert r["step_id"] == "camera"
-    sdk_dir = str(tmp_path / "config" / "vtech_baby" / "sdk")
-    assert sorted(os.listdir(sdk_dir)) == sorted(native._patch.LIBS)
-    assert native._patch.sdk_version(sdk_dir) == "4.3.8.1"
-    with pytest.raises(ValueError):             # the upload is gone
-        await hass.async_add_executor_job(REAL_INSTALL, hass, file_id, sdk_dir)
-
-
-async def test_untested_model_warns_then_adds(hass: HomeAssistant, fake, sdk):
+async def test_untested_model_warns_then_adds(hass: HomeAssistant, fake):
     fake.camera.model = b"BM9999"
-    sdk["present"] = True
     r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "untested_model"
     assert r["description_placeholders"] == {"model": "BM9999", "tested": "VTech RM5754HD"}
     assert not hass.config_entries.async_entries(DOMAIN)
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {})
-    assert r["type"] is FlowResultType.CREATE_ENTRY and r["data"] == {**entry_data(), CONF_SDK_DIR: hass.config.path("vtech_baby", "sdk")}
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["data"] == entry_data()
     await hass.async_block_till_done()
     await unload(hass, r["result"])
-
-
-async def test_sdk_already_uploaded_skips_upload(hass: HomeAssistant, sdk):
-    sdk["present"] = True
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert r["step_id"] == "camera"
-
-
-async def test_unusable_sdk_asks_for_the_app_again(hass: HomeAssistant, sdk):
-    sdk["present"] = True
-    sdk["bad"].add(hass.config.path("vtech_baby", "sdk"))
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert r["step_id"] == "user"
 
 
 async def test_unsupported_host(hass: HomeAssistant):
@@ -260,29 +169,38 @@ async def test_unsupported_host(hass: HomeAssistant):
     assert r["description_placeholders"]["machine"]
 
 
-@pytest.mark.parametrize(("rc", "error"), [(-13, "cannot_connect"), (-68, "invalid_auth"), (-10, "invalid_license")])
+async def test_module_load_failure_is_reported(hass: HomeAssistant):
+    def broken(client):
+        raise mgr.SetupError("can't load the module")
+    with patch.object(mgr, "_prepare_and_load", broken):
+        r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+        r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"
+    assert r["errors"] == {"base": "module_unavailable"}
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+@pytest.mark.parametrize(("rc", "error"), [(-13, "cannot_connect"), (-68, "invalid_auth")])
 async def test_flow_connect_errors(hass: HomeAssistant, fake, rc, error):
-    fake.connect_rc = rc
+    fake.fail_connect(rc)
     r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_APP_FILE: upload("kalay.xapk")})
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["errors"] == {"base": error}
 
 
-async def test_second_camera_skips_sdk_step_and_dedupes(hass: HomeAssistant):
+async def test_second_camera_dedupes(hass: HomeAssistant):
     entry = await setup_entry(hass)
     r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert r["step_id"] == "camera"
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.ABORT and r["reason"] == "already_configured"
     await unload(hass, entry)
 
 
 async def test_reauth(hass: HomeAssistant, fake):
-    fake.connect_rc = -68              # rotated credentials: setup fails (the fake serves one session at a time)
+    fake.fail_connect(-68)             # rotated credentials: setup fails
     entry = await setup_entry(hass)
     assert entry.state is ConfigEntryState.SETUP_ERROR
-    fake.connect_rc = 0
+    fake.heal()
     r = await entry.start_reauth_flow(hass)
     assert r["step_id"] == "reauth_confirm"
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR_OTHER})
@@ -298,13 +216,13 @@ async def test_reauth(hass: HomeAssistant, fake):
 
 # ── Setup and runtime ────────────────────────────────────────────────────────
 async def test_setup_offline_retries(hass: HomeAssistant, fake):
-    fake.connect_rc = -90
+    fake.fail_connect(-90)
     entry = await setup_entry(hass)
     assert entry.state is ConfigEntryState.SETUP_RETRY
 
 
 async def test_setup_wrong_auth_starts_reauth(hass: HomeAssistant, fake):
-    fake.connect_rc = -68
+    fake.fail_connect(-68)
     entry = await setup_entry(hass)
     assert entry.state is ConfigEntryState.SETUP_ERROR
     assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
@@ -323,11 +241,11 @@ async def test_pushes_update_state(hass: HomeAssistant, fake):
 
 async def test_lost_session_goes_unavailable_then_reconnects(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
-    fake.connect_rc = -90
-    fake.dead_rc = -20015                                  # AV_ER_SESSION_CLOSE_BY_REMOTE
+    fake.fail_connect(-90)
+    fake.kill()
     await wait_until(lambda: hass.states.get(TEMP).state == STATE_UNAVAILABLE)
     await wait_until(lambda: entry.runtime_data.failures >= 1)
-    fake.dead_rc, fake.connect_rc = None, 0
+    fake.heal()
     await wait_until(lambda: hass.states.get(TEMP).state == "21")
     await unload(hass, entry)
 
@@ -335,36 +253,22 @@ async def test_lost_session_goes_unavailable_then_reconnects(hass: HomeAssistant
 async def test_minus13_trap_starts_reauth_when_camera_on_lan(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
     with patch.object(mgr, "STALE_CREDS_FAILURES", 2), patch.object(mgr, "mac_present", lambda mac: True):
-        fake.connect_rc = -13
-        fake.dead_rc = -20015
+        fake.fail_connect(-13)
+        fake.kill()
         await wait_until(lambda: any(f["context"]["source"] == "reauth"
                                      for f in hass.config_entries.flow.async_progress()))
     assert entry.runtime_data.failures >= 2
-    fake.dead_rc, fake.connect_rc = None, 0           # it was only an outage: the prompt is withdrawn
+    fake.heal()           # it was only an outage: the prompt is withdrawn
     await wait_until(lambda: hass.states.get(TEMP).state == "21")
     assert not any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
-    await unload(hass, entry)
-
-
-async def test_relay_session_refused_without_reauth(hass: HomeAssistant, fake):
-    entry = await setup_entry(hass)
-    with patch.object(mgr, "STALE_CREDS_FAILURES", 2), patch.object(mgr, "mac_present", lambda mac: True):
-        fake.mode = 1                                      # the SDK would connect via the relay
-        fake.dead_rc = -20015
-        await wait_until(lambda: entry.runtime_data.failures >= 3)
-        assert hass.states.get(TEMP).state == STATE_UNAVAILABLE
-        assert "LAN-direct" in entry.runtime_data.last_error
-        assert not any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
-        fake.dead_rc, fake.mode = None, 2
-        await wait_until(lambda: hass.states.get(TEMP).state == "21")
     await unload(hass, entry)
 
 
 async def test_minus13_without_camera_on_lan_just_retries(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
     with patch.object(mgr, "STALE_CREDS_FAILURES", 1), patch.object(mgr, "mac_present", lambda mac: False):
-        fake.connect_rc = -13
-        fake.dead_rc = -20015
+        fake.fail_connect(-13)
+        fake.kill()
         await wait_until(lambda: entry.runtime_data.failures >= 3)
     assert not any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
     await unload(hass, entry)
@@ -378,33 +282,49 @@ async def test_diagnostics_redacts(hass: HomeAssistant):
     for secret in (UID, "Pw0rdXyz", entry.data[CONF_AUTHKEY]):
         assert secret not in text
     assert d["connected"] and d["state"]["params"]["temp_c"] == 21
-    assert d["backend"] == "sdk" and d["link"] is None
+    assert d["module"]["link"]["version"] == "0.1.0+fake" and d["link"]["info"]["mode"] == "lan"
+    assert "stats" in d["link"] and "sdk" not in d and "backend" not in d
     await unload(hass, entry)
 
 
-# ── A vtech-link build ───────────────────────────────────────────────────────
-@pytest.mark.parametrize("backend", ["link"])
-async def test_link_build_skips_the_sdk_step(hass: HomeAssistant, sdk, link_mod):
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
-    assert r["type"] is FlowResultType.CREATE_ENTRY
-    assert sdk["installed"] == []
+# ── Migration ────────────────────────────────────────────────────────────────
+async def test_migrate_v1_entry_drops_the_sdk(hass: HomeAssistant, tmp_path):
+    hass.config.config_dir = str(tmp_path)
+    root = tmp_path / "vtech_baby"
+    for sub in ("sdk", "lib"):
+        (root / sub).mkdir(parents=True)
+        (root / sub / "libIOTCAPIs.so").write_bytes(b"x")
+    (root / "notes.txt").write_text("not ours to delete")
+    entry = MockConfigEntry(domain=DOMAIN, title="VTECH_5754_test", unique_id=UID, version=1,
+                            data={**entry_data(), CONF_SDK_DIR: str(root / "sdk")})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get(TEMP).state == "21"
-    assert [link.uid for link in link_mod.opened] == [UID, UID]        # the probe, then the entry
-    await unload(hass, r["result"])
-
-
-@pytest.mark.parametrize("backend", ["link"])
-async def test_link_build_diagnostics(hass: HomeAssistant, fake):
-    entry = await setup_entry(hass)
-    d = await diag.async_get_config_entry_diagnostics(hass, entry)
-    assert d["backend"] == "link"
-    assert d["sdk"]["libdir"] is None and d["sdk"]["link"]["version"] == "0.1.0+fake"
-    assert d["link"]["info"]["mode"] == "lan" and "stats" in d["link"]
-    assert fake.sent_codes() == []                                      # nothing went through the SDK
+    assert entry.version == 2 and entry.data == entry_data()
+    assert entry.state is ConfigEntryState.LOADED
+    assert not (root / "sdk").exists() and not (root / "lib").exists()
+    assert (root / "notes.txt").read_text() == "not ours to delete"       # the directory stays
     await unload(hass, entry)
+
+
+async def test_migrate_removes_the_empty_directory(hass: HomeAssistant, tmp_path):
+    hass.config.config_dir = str(tmp_path)
+    (tmp_path / "vtech_baby" / "sdk").mkdir(parents=True)
+    (tmp_path / "vtech_baby" / "sdk" / "libIOTCAPIs.so").write_bytes(b"x")
+    entry = MockConfigEntry(domain=DOMAIN, title="VTECH_5754_test", unique_id=UID, version=1,
+                            data={**entry_data(), CONF_SDK_DIR: "/sdk"})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.version == 2 and not (tmp_path / "vtech_baby").exists()
+    await unload(hass, entry)
+
+
+async def test_newer_entry_version_is_refused(hass: HomeAssistant):
+    entry = MockConfigEntry(domain=DOMAIN, title="VTECH_5754_test", unique_id=UID, version=3, data=entry_data())
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state is ConfigEntryState.MIGRATION_ERROR
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -596,7 +516,7 @@ async def test_reread_keeps_values_and_gives_up_on_stall(hass: HomeAssistant, fa
 
 
 async def test_worker_death_reconnects_on_a_new_worker(hass: HomeAssistant, fake):
-    """The SDK worker dying (here: its socket cut) loses the session, raises a Repairs issue, and the
+    """The worker dying (here: its socket cut) loses the session, raises a Repairs issue, and the
     camera reconnects on a fresh worker, with Home Assistant untouched."""
     from homeassistant.helpers import issue_registry as ir
     entry = await setup_entry(hass)
@@ -604,8 +524,10 @@ async def test_worker_death_reconnects_on_a_new_worker(hass: HomeAssistant, fake
     first = client._handle
     first.kill()
     await wait_until(lambda: hass.states.get(TEMP).state == STATE_UNAVAILABLE)
+    # The issue is raised by a separate loop callback, which can run after the state change.
+    await wait_until(lambda: ir.async_get(hass).async_get_issue(DOMAIN, "worker_crashed") is not None)
     issue = ir.async_get(hass).async_get_issue(DOMAIN, "worker_crashed")
-    assert issue is not None and issue.translation_placeholders == {"reason": "exit status 0", "count": "1"}
+    assert issue.translation_placeholders == {"reason": "exit status 0", "count": "1"}
     await wait_until(lambda: hass.states.get(TEMP).state == "21")
     assert client._handle is not first and client.gen == 2
     await unload(hass, entry)
@@ -621,7 +543,7 @@ def camera_entity(hass):
 
 async def test_camera_entity_and_snapshot(hass: HomeAssistant, fake):
     pytest.importorskip("av")
-    from fake_sdk import clip, enable_live_view
+    from fake_camera import clip, enable_live_view
     if not clip():
         pytest.skip("needs ffmpeg for the test clip")
     from homeassistant.components.camera import CameraEntityFeature, async_get_image
@@ -644,7 +566,7 @@ async def test_camera_stream_over_loopback(hass: HomeAssistant, fake, socket_ena
     import io
 
     import aiohttp
-    from fake_sdk import clip, enable_live_view
+    from fake_camera import clip, enable_live_view
     if not clip():
         pytest.skip("needs ffmpeg for the test clip")
 
@@ -682,10 +604,9 @@ async def test_camera_stream_over_loopback(hass: HomeAssistant, fake, socket_ena
 
 async def test_camera_without_session_has_no_source(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
-    fake.dead_rc = -20015
+    fake.kill()
     await wait_until(lambda: hass.states.get(CAM).state == STATE_UNAVAILABLE)
     assert await camera_entity(hass).stream_source() is None
-    fake.dead_rc = None
     await unload(hass, entry)
 
 
@@ -695,7 +616,7 @@ async def test_reload_while_streaming_is_prompt(hass: HomeAssistant, fake, socke
     import time
 
     import aiohttp
-    from fake_sdk import clip, enable_live_view
+    from fake_camera import clip, enable_live_view
     if not clip():
         pytest.skip("needs ffmpeg for the test clip")
     enable_live_view(fake.camera)
@@ -750,7 +671,7 @@ async def play(hass, url):
 
 async def test_speaker_plays_media_and_tags_its_own_sound(hass: HomeAssistant, fake):
     pytest.importorskip("av")
-    from fake_sdk import enable_live_view
+    from fake_camera import enable_live_view
     from test_talkback import serve, wav
 
     enable_live_view(fake.camera)
@@ -772,7 +693,7 @@ async def test_speaker_plays_media_and_tags_its_own_sound(hass: HomeAssistant, f
 
 async def test_speaker_stop_and_unload_while_playing(hass: HomeAssistant, fake):
     pytest.importorskip("av")
-    from fake_sdk import enable_live_view
+    from fake_camera import enable_live_view
     from test_talkback import serve, wav
 
     enable_live_view(fake.camera)
@@ -786,9 +707,9 @@ async def test_speaker_stop_and_unload_while_playing(hass: HomeAssistant, fake):
 
         hass.async_create_task(play(hass, f"{base}/long.wav"))
         await wait_until(lambda: hass.states.get(SPEAKER).state == "playing")
-        exits = fake.calls.count("serv_exit:1")
+        closed = fake.talks_closed
         await unload(hass, entry)
-    assert fake.calls.count("serv_exit:1") == exits + 1 and fake.camera.speaker_ch is None
+    assert fake.talks_closed == closed + 1 and fake.camera.speaker_ch is None
 
 
 async def test_speaker_bad_media(hass: HomeAssistant, fake):
@@ -808,7 +729,7 @@ async def test_speaker_bad_media(hass: HomeAssistant, fake):
 async def test_speaker_ends_when_the_worker_dies(hass: HomeAssistant, fake):
     pytest.importorskip("av")
     from homeassistant.exceptions import HomeAssistantError
-    from fake_sdk import enable_live_view
+    from fake_camera import enable_live_view
     from test_talkback import serve, wav
 
     enable_live_view(fake.camera)
@@ -868,7 +789,7 @@ async def test_speaker_volume(hass: HomeAssistant, fake):
 @pytest.mark.parametrize("announce", [False, True])
 async def test_media_stops_a_lullaby_and_an_announcement_resumes_it(hass: HomeAssistant, fake, announce):
     pytest.importorskip("av")
-    from fake_sdk import enable_live_view
+    from fake_camera import enable_live_view
     from test_talkback import serve, wav
 
     enable_live_view(fake.camera)
@@ -891,7 +812,7 @@ async def test_media_stops_a_lullaby_and_an_announcement_resumes_it(hass: HomeAs
 
 async def test_choosing_a_lullaby_stops_media(hass: HomeAssistant, fake):
     pytest.importorskip("av")
-    from fake_sdk import enable_live_view
+    from fake_camera import enable_live_view
     from test_talkback import serve, wav
 
     enable_live_view(fake.camera)

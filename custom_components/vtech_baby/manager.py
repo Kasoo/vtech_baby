@@ -1,8 +1,8 @@
 """CameraManager: owns one camera session, keeps its state cache, reconnects, and feeds entities.
 
 Runtime rules: docs/vtech-lan-kit/docs/90-ha-runtime.md.
-- The SDK runs in a worker process (`vtech_lan/worker.py`); the manager drives it through proxies with
-  `Session`'s blocking methods. If the worker dies, its sessions are lost and reconnect like any other.
+- The native module runs in a worker process (`vtech_lan/worker.py`); the manager drives it through
+  proxies with the session's blocking methods. If the worker dies, its sessions are lost and reconnect like any other.
 - Every session call runs in the executor; pushes arrive on the client's reader thread and are
   marshalled to the event loop with `call_soon_threadsafe`.
 - Pushes drive state (`local_push`); a full re-read happens on every (re)connect.
@@ -28,7 +28,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from . import native
 from .const import (
-    BACKEND,
     CONF_ACCOUNT,
     CONF_AUTHKEY,
     CONF_AV_PASSWORD,
@@ -37,7 +36,6 @@ from .const import (
     DOMAIN,
     ISSUE_WORKER_CRASHED,
     KEEPALIVE_S,
-    LIB_SUBDIR,
     NOTIFY_INTERVAL_S,
     QUALITY_REREAD_S,
     RECONNECT_MAX_S,
@@ -50,7 +48,6 @@ from .vtech_lan import ops
 from .vtech_lan.errors import (
     AuthFailed,
     MediaError,
-    NotLanDirect,
     ProtocolError,
     RequestTimeout,
     SessionGone,
@@ -66,22 +63,16 @@ if TYPE_CHECKING:
 _LOG = logging.getLogger(__name__)
 
 
-# ── SDK preparation (shared by setup and the config flow) ────────────────────
-class SdkSetupError(Exception):
-    """The SDK can't be prepared or loaded; the message is user-presentable."""
-
-
-@dataclass(frozen=True)
-class SdkHandle:
-    client: WorkerClient
-    prepared: native.Prepared
+# ── The worker (shared by setup and the config flow) ─────────────────────────
+class SetupError(Exception):
+    """The native module can't be found or loaded; the message is user-presentable."""
 
 
 DATA_CLIENT = f"{DOMAIN}_worker"
 
 
 def get_client(hass: HomeAssistant) -> WorkerClient:
-    """The process-wide SDK worker client, stopped with Home Assistant. The worker itself starts on the
+    """The process-wide worker client, stopped with Home Assistant. The worker itself starts on the
     first `ensure()`."""
     client: WorkerClient | None = hass.data.get(DATA_CLIENT)
     if client is None:
@@ -97,7 +88,7 @@ def get_client(hass: HomeAssistant) -> WorkerClient:
 
 
 def make_client(on_crash: Callable[[str, int], None]) -> WorkerClient:
-    """Separate so tests can run the worker on a thread with a fake SDK."""
+    """Separate so tests can run the worker on a thread with a fake module."""
     return WorkerClient(on_crash=on_crash)
 
 
@@ -108,26 +99,24 @@ def _crash_issue(hass: HomeAssistant, reason: str, count: int) -> None:
                           translation_placeholders={"reason": reason, "count": str(count)})
 
 
-def _prepare_and_load(client: WorkerClient, sdk_dir: str, lib_root: str) -> SdkHandle:
+def _prepare_and_load(client: WorkerClient) -> WorkerClient:
     try:
-        prepared = native.prepare_link() if BACKEND == "link" else native.prepare(sdk_dir, lib_root)
-        client.ensure(prepared.libdir, prepared.fingerprint, link_path=prepared.link_path)
-        return SdkHandle(client, prepared)
-    except (native.PatchError, VtechError, OSError) as err:
-        raise SdkSetupError(str(err)) from err
+        prepared = native.prepare()
+        client.ensure(prepared.link_path, prepared.fingerprint)
+        return client
+    except (VtechError, OSError) as err:
+        raise SetupError(str(err)) from err
 
 
-async def async_load_sdk(hass: HomeAssistant, sdk_dir: str) -> SdkHandle:
-    """Patch (cached) and make sure the worker runs with that SDK. Serialised: patching writes files."""
-    lock = hass.data.setdefault(f"{DOMAIN}_sdk_lock", asyncio.Lock())
+async def async_load(hass: HomeAssistant) -> WorkerClient:
+    """Make sure the worker runs with this host's module. Serialised, so one setup starts it."""
+    lock = hass.data.setdefault(f"{DOMAIN}_load_lock", asyncio.Lock())
     async with lock:
-        return await hass.async_add_executor_job(
-            _prepare_and_load, get_client(hass), sdk_dir, hass.config.path(*LIB_SUBDIR))
+        return await hass.async_add_executor_job(_prepare_and_load, get_client(hass))
 
 
 def _probe(client: WorkerClient, uid: str, authkey: str, password: str, account: str) -> ops.DevInfo:
-    s = client.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0,
-                       backend=BACKEND)
+    s = client.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0)
     try:
         return s.connect()
     finally:
@@ -296,7 +285,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         s: SessionProxy
         s = self.client.session(
             d[CONF_UID], d[CONF_AUTHKEY], d[CONF_AV_PASSWORD], d[CONF_ACCOUNT], media=True,
-            backend=BACKEND, name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
+            name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
             on_push=lambda p: self.hass.loop.call_soon_threadsafe(self._on_push, s, p),
             on_lost=lambda e: self.hass.loop.call_soon_threadsafe(self._on_lost, s, e))
         return s
@@ -459,11 +448,6 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
                 _LOG.warning("%s: credentials rejected (%s); starting re-authentication", self.name, err)
                 self.config_entry.async_start_reauth(self.hass)
                 return
-            except NotLanDirect as err:
-                # Not a credentials problem: the camera answered, just not LAN-direct. No reauth.
-                self.failures += 1
-                self.last_error = str(err)
-                _LOG.warning("%s: %s", self.name, err)
             except Unreachable as err:
                 self.failures += 1
                 self.last_error = str(err)

@@ -1,13 +1,6 @@
 {
   "config": {
     "step": {
-      "user": {
-        "title": "ThroughTek SDK",
-        "description": "This integration needs ThroughTek's SDK libraries (version {required}, {abi}), which it can't include. Upload ThroughTek's {app} app for Android, {abi} variant, as the XAPK file you downloaded, or the split APK for {abi}. If you got the libraries another way, upload a zip of them; the integration's README lists the four files. Only those four libraries are kept; the rest of the file is deleted.",
-        "data": {
-          "app_file": "App (.xapk or .apk) or zip of the SDK libraries"
-        }
-      },
       "camera": {
         "title": "Camera pairing QR",
         "description": "On the parent unit, open the camera's \"Connect Mobile Phone\" pairing QR code. Scan it with any phone QR-code reader and paste the text it shows (a long base64 string) here.",
@@ -28,17 +21,11 @@
       }
     },
     "error": {
-      "not_a_package": "This isn't a zip file. Upload the app's .xapk or .apk file as downloaded, or a zip of the SDK libraries.",
-      "wrong_arch": "This file has no SDK libraries for this Home Assistant host, which needs {abi}. It only has libraries for: {found}.",
-      "missing_libraries": "This file doesn't contain all of the SDK libraries for this host ({abi}). Missing: {missing}.",
-      "wrong_version": "The SDK libraries in this file are version {version}, but this integration needs version {required}. Download {app}.",
-      "sdk_error": "The SDK could not be prepared: {error}",
-      "sdk_unavailable": "The SDK could not be loaded; see the logs.",
       "invalid_qr": "This is not a VTech pairing QR code. Paste the full text the QR reader shows.",
       "wrong_camera": "This QR code belongs to a different camera.",
       "invalid_auth": "The camera rejected the credentials from this QR code. Scan the QR again; it changes after a Wi-Fi change.",
       "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant. If its Wi-Fi changed recently, scan a fresh QR code.",
-      "invalid_license": "The SDK rejected its license key.",
+      "module_unavailable": "The integration's protocol module could not be loaded; see the logs.",
       "unknown": "Unexpected error; see the logs."
     },
     "abort": {
@@ -191,8 +178,8 @@
   },
   "issues": {
     "worker_crashed": {
-      "title": "The VTech SDK crashed",
-      "description": "The process that runs ThroughTek's SDK for the VTech cameras stopped unexpectedly ({reason}; {count} time(s) since Home Assistant started). Home Assistant itself kept running, and the cameras reconnect with a new process. If this keeps happening, please report it with the integration's diagnostics and the Home Assistant container's log, which holds the crash details."
+      "title": "The VTech protocol module crashed",
+      "description": "The process that runs the protocol module for the VTech cameras stopped unexpectedly ({reason}; {count} time(s) since Home Assistant started). Home Assistant itself kept running, and the cameras reconnect with a new process. If this keeps happening, please report it with the integration's diagnostics and the Home Assistant container's log, which holds the crash details."
     }
   },
   "services": {
