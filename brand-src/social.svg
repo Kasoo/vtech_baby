@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GitHub social preview (Settings > General > Social preview), 1280x640. Text, icon and the 80px
+     safe area on the left; images/device.png runs off the right and bottom edges. Render with
+     brand-src/render.sh. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a1420"/>
+      <stop offset="1" stop-color="#121214"/>
+    </linearGradient>
+    <clipPath id="shot"><rect x="660" y="110" width="760" height="600" rx="18"/></clipPath>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18"/><feOffset dy="12"/><feComponentTransfer><feFuncA type="linear" slope="0.55"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- screenshot, bleeding off the right and bottom edges -->
+  <rect x="660" y="110" width="760" height="600" rx="18" fill="#111" filter="url(#shadow)"/>
+  <image x="660" y="110" width="760" height="576" clip-path="url(#shot)" preserveAspectRatio="xMinYMin slice"
+         xlink:href="../images/device.png"/>
+  <rect x="660" y="110" width="760" height="600" rx="18" fill="none" stroke="#e2407c" stroke-opacity="0.6" stroke-width="2"/>
+
+  <!-- icon and text, inside the 80px safe area -->
+  <image x="80" y="80" width="112" height="112"
+         xlink:href="../custom_components/vtech_baby/brand/icon@2x.png"/>
+  <g font-family="Open Sans" fill="#ffffff">
+    <text x="80" y="272" font-size="56" font-weight="700">VTech Baby</text>
+    <text x="80" y="338" font-size="56" font-weight="700">Monitor</text>
+    <text x="80" y="390" font-size="30" font-weight="600" fill="#18bcf2">Home Assistant integration</text>
+    <text x="80" y="450" font-size="25" fill="#d0d0d6">LAN-only control of the</text>
+    <text x="80" y="484" font-size="25" fill="#d0d0d6">RM5754HD baby monitor camera.</text>
+    <text x="80" y="540" font-size="22" fill="#a0a0aa">Unofficial · not affiliated with VTech</text>
+  </g>
+</svg>
