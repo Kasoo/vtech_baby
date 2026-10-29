@@ -22,6 +22,10 @@ zeroize.workspace = true
 log.workspace = true
 thiserror.workspace = true
 
+[features]
+# Test-only hooks (a command that panics the reactor thread). Never enabled by a release build.
+test-hooks = []
+
 [dev-dependencies]
 dimpl.workspace = true
 sha2.workspace = true

@@ -26,7 +26,7 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from . import ops
-from .errors import SessionGone, VtechError, from_link
+from .errors import SessionGone, VtechError
 
 _LOG = logging.getLogger(__name__)
 
@@ -70,8 +70,7 @@ class LinkMediaSource:
         self._rx: Any = None
 
     def start(self) -> None:
-        link = self._session.link
-        self._rx = link.media()
+        self._rx = self._session._call("media", self._session.link.media)   # noqa: SLF001
         self._session._call("media start", self._rx.start, 5.0)        # noqa: SLF001
         self._session._call("media reset", self._rx.reset, 2.0)        # noqa: SLF001
 
@@ -84,9 +83,9 @@ class LinkMediaSource:
     def stats(self) -> dict[str, int] | None:
         """The module's receive counters by name."""
         try:
-            m = self._rx.stats()
-        except self._session._module.LinkError as e:                    # noqa: SLF001
-            _LOG.debug("receive counters: %s", from_link(e, "media stats"))
+            m = self._session._call("media stats", self._rx.stats)     # noqa: SLF001
+        except VtechError as e:
+            _LOG.debug("receive counters: %s", e)
             return None
         out = {
             "packets_requested": m["packets_requested"], "packets_recovered": m["packets_recovered"],
@@ -101,7 +100,10 @@ class LinkMediaSource:
 
     def close(self) -> None:
         if self._rx is not None:
-            self._rx.close()
+            try:
+                self._session._call("media close", self._rx.close)       # noqa: SLF001
+            except VtechError:
+                pass
 
 
 class Subscription:

@@ -780,3 +780,116 @@ fn s9_links_to_several_cameras() {
         link.close();
     }
 }
+
+// ---- a panic on the reactor thread ----
+
+/// A camera that never answers requests in 0x5000..=0x50ff, so such a request stays in flight.
+fn silent_camera() -> CameraConfig {
+    CameraConfig {
+        responder: Arc::new(|typ, payload| match typ {
+            0x5000..=0x50ff => Vec::new(),
+            _ => default_replies(typ, payload),
+        }),
+        ..camera()
+    }
+}
+
+#[test]
+fn reactor_panic_ends_the_link_cleanly() {
+    let cam = Camera::start(silent_camera());
+    let other_cam = Camera::start(camera());
+    let link = connect(&cam);
+    let other = connect(&other_cam);
+    prep(&link);
+    let base = link_config(&cam);
+    // Listening for the camera to log in to the talk-back channel outlasts the test.
+    let talk_link = Link::connect(LinkConfig {
+        timing: Timing {
+            talk_listen: 30 * SEC,
+            ..base.timing.clone()
+        },
+        ..base
+    })
+    .unwrap();
+    let talk = talk_link.talkback(2 * SEC).unwrap();
+    let media = link.media();
+    media.start(2 * SEC).unwrap();
+    let exchange = link.exchange(0x5020, &[0; 4], 0x5021, 30 * SEC).unwrap();
+
+    let closed = LinkError::Closed(CloseReason::ThreadFailed);
+    let long = 20 * SEC;
+    let (took, results) = std::thread::scope(|s| {
+        let request = s.spawn(|| link.request(0x5010, &[0; 4], 0x5011, long).map(|_| ()));
+        let push = s.spawn(|| link.next_push(long).map(|_| ()));
+        let next = s.spawn(|| exchange.next(long).map(|_| ()));
+        let mut media_rx = link.media();
+        let frame = s.spawn(move || media_rx.next(long).map(|_| ()));
+        let accept = s.spawn(|| talk.accept(long));
+        let t0 = Instant::now();
+        std::thread::sleep(300 * MS);
+        link._panic_reactor();
+        talk_link._panic_reactor();
+        let results = [request, push, next, frame, accept]
+            .map(|h| h.join().unwrap());
+        (t0.elapsed(), results)
+    });
+    // The waiters were released by the failure, not by their timeouts.
+    assert!(took < 2 * SEC, "{took:?}");
+    for r in &results {
+        assert_eq!(r.as_ref().unwrap_err(), &closed, "{results:?}");
+    }
+    assert_eq!(link.closed(), Some(closed.clone()));
+    assert_eq!(talk_link.closed(), Some(closed.clone()));
+
+    // Later calls fail at once.
+    let t0 = Instant::now();
+    assert_eq!(link.send(0x5010, &[], long), Err(closed.clone()));
+    assert_eq!(link.request(OP_DEVINFO, &[0; 4], OP_DEVINFO_REPLY, long), Err(closed.clone()));
+    assert_eq!(link.next_push(long), Err(closed.clone()));
+    assert_eq!(link.stats(long).unwrap_err(), closed);
+    assert_eq!(media.start(long), Err(closed.clone()));
+    assert_eq!(link.talkback(long).err(), Some(closed.clone()));
+    assert!(t0.elapsed() < SEC, "{:?}", t0.elapsed());
+
+    // Closing the dead link returns promptly, and leaves the reason alone.
+    let t0 = Instant::now();
+    link.close();
+    link.close();
+    exchange.close();
+    drop(exchange);
+    talk_link.close();
+    assert!(t0.elapsed() < SEC, "{:?}", t0.elapsed());
+    assert_eq!(link.closed(), Some(closed));
+
+    // A link to another camera in the same process is untouched.
+    assert_eq!(other.closed(), None);
+    prep(&other);
+    other_cam.push(OP_PUSH, b"still here");
+    assert_eq!(other.next_push(SEC), Ok(Some((OP_PUSH, b"still here".to_vec()))));
+    // And a new link to the panicked link's camera connects.
+    let again = connect(&cam);
+    prep(&again);
+    again.close();
+    other.close();
+}
+
+#[test]
+fn commands_queued_behind_a_reactor_panic_fail_promptly() {
+    let cam = Camera::start(silent_camera());
+    let link = connect(&cam);
+    prep(&link);
+    // Hammer the link from several threads while it panics: every call returns an error long before
+    // its timeout, whether its command was queued before or after the panic.
+    let t0 = Instant::now();
+    std::thread::scope(|s| {
+        let callers: Vec<_> = (0..8)
+            .map(|_| s.spawn(|| link.request(0x5010, &[0; 4], 0x5011, 20 * SEC)))
+            .collect();
+        link._panic_reactor();
+        for c in callers {
+            let r = c.join().unwrap();
+            assert_eq!(r, Err(LinkError::Closed(CloseReason::ThreadFailed)));
+        }
+    });
+    assert!(t0.elapsed() < 2 * SEC, "{:?}", t0.elapsed());
+}

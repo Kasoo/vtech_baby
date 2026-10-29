@@ -59,9 +59,9 @@ class LinkUplink:
         if self._tb is None:
             return
         try:
-            self._tb.close(drain=drain, timeout=2.0)
-        except self._session._module.LinkError as e:                                         # noqa: SLF001
-            _LOG.debug("talk-back close: %s %s", e.kind, e.detail)
+            self._session._call("talk-back close", self._tb.close, drain=drain, timeout=2.0)  # noqa: SLF001
+        except VtechError as e:
+            _LOG.debug("talk-back close: %s", e)
 
 
 class TalkBack:

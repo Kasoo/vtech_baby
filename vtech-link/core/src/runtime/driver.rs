@@ -81,6 +81,9 @@ pub(crate) enum Command {
     Close {
         done: Option<Arc<Completion<()>>>,
     },
+    /// Panic on the reactor thread, to exercise the failure path.
+    #[cfg(feature = "test-hooks")]
+    Panic,
 }
 
 enum Waiter {
@@ -241,6 +244,7 @@ impl Reactor {
                 break;
             }
         }
+        self.fail_queued();
         self.shared.link_ended();
     }
 
@@ -719,6 +723,9 @@ impl Reactor {
                 self.fail(LinkError::Closed(CloseReason::Local));
             }
             Command::Stats { done } => done.complete(Ok(self.stats())),
+            #[cfg(feature = "test-hooks")]
+            #[allow(clippy::panic)]
+            Command::Panic => panic!("test-hooks: reactor panic"),
             _ if !ready => {
                 let e = LinkError::Protocol("link not up");
                 match cmd {
@@ -814,6 +821,41 @@ impl Reactor {
             send_errors: self.send_errors,
             refused_sends: self.refused_sends,
             ..LinkStats::default()
+        }
+    }
+
+    /// Complete the commands still queued when the thread ends, so their callers don't wait out
+    /// their timeouts.
+    fn fail_queued(&mut self) {
+        let e = {
+            let mut closed = self.shared.closed.lock().unwrap_or_else(PoisonError::into_inner);
+            closed
+                .get_or_insert(LinkError::Closed(CloseReason::ThreadFailed))
+                .clone()
+        };
+        while let Ok(cmd) = self.commands.try_recv() {
+            match cmd {
+                Command::Send { done, .. }
+                | Command::MediaStart { done }
+                | Command::MediaReset { done }
+                | Command::TalkAccept { done, .. }
+                | Command::TalkClose { done, .. } => done.complete(Err(e.clone())),
+                Command::Request { done, .. } => done.complete(Err(e.clone())),
+                Command::Exchange { started, inbox, .. } => {
+                    started.complete(Err(e.clone()));
+                    inbox.close(Err(e.clone()));
+                }
+                Command::TalkOpen { done } => done.complete(Err(e.clone())),
+                Command::Stats { done } => done.complete(Err(e.clone())),
+                Command::Close { done } => {
+                    if let Some(done) = done {
+                        done.complete(Ok(()));
+                    }
+                }
+                Command::EndExchange { .. } | Command::MediaStop => {}
+                #[cfg(feature = "test-hooks")]
+                Command::Panic => {}
+            }
         }
     }
 

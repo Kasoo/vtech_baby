@@ -177,9 +177,9 @@
     }
   },
   "issues": {
-    "worker_crashed": {
-      "title": "The VTech protocol module crashed",
-      "description": "The process that runs the protocol module for the VTech cameras stopped unexpectedly ({reason}; {count} time(s) since Home Assistant started). Home Assistant itself kept running, and the cameras reconnect with a new process. If this keeps happening, please report it with the integration's diagnostics and the Home Assistant container's log, which holds the crash details."
+    "restart_required": {
+      "title": "Restart Home Assistant to finish updating VTech Baby Monitor",
+      "description": "A new version of the integration's protocol module is installed, but the one loaded when Home Assistant started keeps running until Home Assistant restarts."
     }
   },
   "services": {

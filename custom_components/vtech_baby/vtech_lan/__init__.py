@@ -19,12 +19,11 @@ from .errors import (
     Unreachable,
     UnsupportedHost,
     VtechError,
-    WorkerDied,
 )
 from .session import PARAMS_UPDATE, LinkSession, Push, SessionBase
 
 __all__ = [
     "AuthFailed", "CapacityExceeded", "LinkSession", "MediaError", "ModuleMismatch", "PARAMS_UPDATE",
     "ProtocolError", "Push", "RequestTimeout", "SessionBase", "SessionGone", "Unreachable", "UnsupportedHost",
-    "VtechError", "WorkerDied", "ops", "provision",
+    "VtechError", "ops", "provision",
 ]

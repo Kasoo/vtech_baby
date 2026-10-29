@@ -7,15 +7,14 @@ Notes for working on this repo. User-facing docs are in `README.md`; keep that s
 A Home Assistant integration (domain `vtech_baby`) that controls and monitors the **VTech RM5754HD**
 baby-monitor camera **LAN-direct, with no cloud**. The camera speaks only ThroughTek's Kalay P2P
 protocol (TUTK). The integration ships its own implementation of the transport, vtech-link
-(`vtech-link/`, Rust), as a Python extension module per arch and libc, and runs it in a worker process
-of its own so a crash in it can't take Home Assistant down. The opcode layer above the transport is
-Python. Not affiliated with VTech or ThroughTek.
+(`vtech-link/`, Rust), as a Python extension module per arch and libc, loaded into Home Assistant's
+process. The opcode layer above the transport is Python. Not affiliated with VTech or ThroughTek.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (opcode layer, sessions, worker), `native/<arch>-<libc>/_vtech_link.abi3.so` (vtech-link, built by `sync_link.sh`), `brand/`. |
+| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (opcode layer, sessions, the hub), `native/<arch>-<libc>/_vtech_link.abi3.so` (vtech-link, built by `sync_link.sh`), `brand/`. |
 | `vtech-link/` | The transport: protocol core, CLI, simulator, Python module (`_vtech_link`). Status and next steps: `TODO.md` ("vtech-link"). |
 | `tutk-host/` | Not shipped. Our earlier implementation of the three TUTK SDK libraries, which the package used before vtech-link (tag `dual-backend-v1`); kept for A/B runs against vtech-link. See `tutk-host/NOTES.md`. |
 | `tutk-sdk/` | Archived (tag `tutk-sdk-dropin-v1`): the drop-in build of the same libraries for the patched path. |
@@ -58,19 +57,22 @@ Python. Not affiliated with VTech or ThroughTek.
 
 ### Code
 - `vtech_lan/` has **no `homeassistant` imports**, so it can be unit-tested and run standalone.
-- **Native code only ever runs in the worker process** (`vtech_lan/worker.py`, started by
-  `vtech_lan/worker_client.py` through `_worker_main.py`): vtech-link's `_vtech_link` module. Home
-  Assistant's process finds the module (`native.py`) but never loads it. The worker imports no Home
-  Assistant code; keep it that way (`tests/test_worker.py` checks).
+- **The hub** (`vtech_lan/hub.py`, one per HA process) loads `_vtech_link` once (`native.py` finds it,
+  `vtech_lan/link.py` loads it), hands out sessions, and owns each camera's live view, talk-back and the
+  loopback HTTP server.
+- **The only native code is Rust**, built with `panic = "unwind"`: keep that in every release profile.
+  PyO3 raises a panic in a module call as `PanicException`, which derives from `BaseException`, so
+  `except Exception` misses it. Every module call goes through `LinkSession._call` (or `_open`), which
+  turns a panic into a lost session (`SessionGone`); the link is never used again. A panic on the
+  link's own thread ends that link with `closed (thread_failed)`.
 - **Sessions:** `SessionBase` holds everything above the transport (the opcode helpers, push decoding,
   the keepalive); `LinkSession` drives `_vtech_link` (`vtech_lan/link.py`), which matches replies,
   decrypts and paces media itself. It hands out the live view's media source (`media.py`) and the
   talk-back uplink (`talkback.py`).
-- **Messages between HA and the worker** are pickles over a socket pair (`vtech_lan/ipc.py`). The
-  session proxy forwards any public session method by name, so a new session method needs no IPC
-  change. Live-view video never crosses the socket: the worker serves it over loopback HTTP.
-- **Runtime model** (`docs/vtech-lan-kit/docs/90-ha-runtime.md`), inside the worker:
-  - Load the module once per worker, and never unload it; a new module means a new worker.
+- **Runtime model** (`docs/vtech-lan-kit/docs/90-ha-runtime.md`):
+  - Load the module once per process, and never unload it; a new module takes a Home Assistant
+    restart (the `restart_required` Repairs issue says so).
+  - Every blocking module call releases the GIL (vtech-link's `py/src` uses `detached`); keep it so.
   - Never make a blocking module call on the event loop.
   - One reader thread per session takes the link's pushes.
   - Long-lived loops run on dedicated threads, not the shared executor.
@@ -101,8 +103,7 @@ Python. Not affiliated with VTech or ThroughTek.
   from the repo root. The test that loads the real module needs `sync_link.sh`'s build for this host;
   it skips without one. Run tests from the root. Platform modules are named by Home Assistant (`select.py`, `sensor.py`, ...)
   and shadow other modules of the same name, so never put `custom_components/vtech_baby` (or
-  `vtech_lan/`) on `sys.path` ahead of the standard library; the worker refuses to start if it is there
-  at all.
+  `vtech_lan/`) on `sys.path` ahead of the standard library.
 - **Live tests:** `tests/live/run.sh` runs a probe inside the real HA image on a host on the camera's
   LAN, through a runner script you supply as `$VTECH_LIVE_RUNNER` (see the script header).
   `probe_phase1.py` is read-only and safe headless; check what any other probe does first.
@@ -121,22 +122,25 @@ Python. Not affiliated with VTech or ThroughTek.
 
 - Keep `README.md` short: what it does, what you need, how to install it and add a camera.
 - Outstanding work goes in `TODO.md`; open protocol questions and known issues go in "Design notes" below.
+- **GitLab is the primary repo** (remote `gitlab`). It push-mirrors to GitHub (remote `github`), which
+  exists only for HACS. Push to GitLab only; a direct push to GitHub diverges from the mirror.
 - Releases are GitHub releases (HACS ignores bare tags). The tag matches `version` in `manifest.json`.
 - Nothing about any particular network or deployment belongs here.
 
 ## Design notes
 
 ### Decisions
-- **The module runs in a worker process** (`90-ha-runtime.md` §6). One worker per HA process serves every
-  camera. It is started with `subprocess` and `python -I`, and imports the package's `vtech_lan` without
-  running the integration's `__init__` (`_worker_main.py` registers the parent packages as empty
-  modules), so it holds no Home Assistant code and `vtech_lan` classes cross the IPC under their own
-  names. If it dies, every session is lost with `WorkerDied`, a Repairs issue (`worker_crashed`, not
-  persistent) records why, and the next reconnect starts a new worker. A different module (a new
-  fingerprint) restarts it too.
-- **The live view is served by the worker** (MPEG-TS over HTTP on 127.0.0.1). HA binds the listening
-  socket once and passes it to every worker, so the URL (port and token) HA's go2rtc has registered
-  survives worker restarts and entry reloads.
+- **The module runs in Home Assistant's process** (decided 2026-10-24, done 2026-10-29). The worker
+  process existed to keep the vendor's C libraries' crashes out of HA; with only Rust left, a panic
+  unwinds into an exception instead. What could still take HA down is a stack overflow, an abort (an
+  allocation failure, a panic during unwind) or a bug in a dependency's `unsafe` code (dimpl,
+  RustCrypto SIMD); `vtech-link-core` itself is `forbid(unsafe_code)`. Tag `worker-process-v1` is
+  the last state with the worker.
+- **One hub per HA process** serves every camera. A config entry's manager gets its live view and
+  talk-back from the hub; they run on whichever session the manager last connected with `media=True`.
+- **The live view is served by the hub** (MPEG-TS over HTTP on 127.0.0.1, its own threads, off the
+  event loop). The server lives as long as the hub, so the URL (port and token) HA's go2rtc has
+  registered survives entry reloads.
 - **`vtech_lan/` is a rewrite, not a wrapper, of the reference client.** The client reads replies inline
   and initialises the SDK per session; HA needs one reader thread per channel and one init per process.
 - **Pushes drive state** (`local_push`). GETs run on connect, after a reconnect, on the keepalive, and to
@@ -171,7 +175,7 @@ Python. Not affiliated with VTech or ThroughTek.
 | Lullaby timer | `select` 15 / 30 / 60 min / Non-stop | `0x731` word1 | `0x734 @12`; push `0x7ac` sub 0x15 |
 | Alerts | `event` motion / sound / too_hot / too_cold | — | push `0x1fff` |
 | Motion, Sound | 2 × `binary_sensor`, auto-off after the notification interval + 15 s (min 30 s) | — | push `0x1fff` |
-| Speaker | `media_player`. Sources = the 10 lullabies; stop; volume 0–5 (5 = 1.0; the range is unconfirmed). Play / announce media (TTS, media sources, http(s) URLs) as talk-back, decoded in the worker as it plays (PyAV); `play_media` returns when the media has played, new media replaces old. Media stops a lullaby; an announcement restarts it afterwards. Sound alerts from either are tagged self-triggered. | Lullaby `0x735` (ack `0x736`); volume `0x731` word2; talk-back `0x32a`, `0x820`, `0x301`, `0x350`, AV server channel, stop `0x351` (`0x300` if the live view runs) | `0x734 @4`, `@20`; push `0x7ac` sub 1, `0x14` |
+| Speaker | `media_player`. Sources = the 10 lullabies; stop; volume 0–5 (5 = 1.0; the range is unconfirmed). Play / announce media (TTS, media sources, http(s) URLs) as talk-back, decoded as it plays (PyAV); `play_media` returns when the media has played, new media replaces old. Media stops a lullaby; an announcement restarts it afterwards. Sound alerts from either are tagged self-triggered. | Lullaby `0x735` (ack `0x736`); volume `0x731` word2; talk-back `0x32a`, `0x820`, `0x301`, `0x350`, AV server channel, stop `0x351` (`0x300` if the live view runs) | `0x734 @4`, `@20`; push `0x7ac` sub 1, `0x14` |
 | Live view | `camera` (`STREAM`): loopback MPEG-TS (H.264 + AAC); snapshots from keyframes | — | media path |
 | Device | device registry | — | `0x330 → 0x331` model / vendor / firmware |
 
@@ -196,6 +200,5 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   followed by ~35–40 s with no replies. The session isn't lost and recovers by itself; the cause is
   unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. Re-reads keep their
   previous values and stop after two timeouts, and a write during the stall fails cleanly.
-- **A native crash in the module kills the worker**, and with it every camera's session
-  until the reconnect (10 s backoff). Home Assistant keeps running. The worker's stderr (the
-  container log) has the faulthandler dump of its Python threads.
+- **A native crash in the module kills Home Assistant** (see "Decisions" for what can still cause
+  one). A Rust panic doesn't: it loses that camera's session, which reconnects.

@@ -7,7 +7,7 @@ Authority: docs/vtech-lan-kit/docs/90-ha-runtime.md §2–5 (sessions, threading
 library (`link.py`), which owns sockets, request matching, crypto and pacing itself.
 
 Threading model:
-- `connect()`, `request()`, `send()` and `close()` block; call them from worker threads, never an
+- `connect()`, `request()`, `send()` and `close()` block; call them from executor threads, never an
   event loop. `request()`/`send()` may be called from any thread concurrently.
 - A dedicated reader thread takes the camera's pushes and hands them to `on_push`.
 - A keepalive thread GETs 0x733 every `keepalive_s`; `keepalive_misses` missed replies in a row mark
@@ -26,7 +26,7 @@ import time
 from typing import Any, Callable, NamedTuple
 
 from . import ops
-from .errors import ProtocolError, RequestTimeout, SessionGone, VtechError, from_link
+from .errors import ProtocolError, RequestTimeout, SessionGone, VtechError, from_link, is_panic
 
 _LOG = logging.getLogger(__name__)
 
@@ -365,7 +365,8 @@ class LinkSession(SessionBase):
         self.link: Any = None
 
     def _call(self, name: str, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """Call into the module, raising its LinkError as the matching VtechError. A lost link is lost."""
+        """Call into the module, raising its LinkError as the matching VtechError. A lost link is lost,
+        and so is one that panicked: it is never used again."""
         try:
             return fn(*args, **kwargs)
         except self._module.LinkError as e:
@@ -373,6 +374,13 @@ class LinkSession(SessionBase):
             if isinstance(err, SessionGone):
                 self._lose(err)
             raise err from None
+        except BaseException as e:
+            if not is_panic(e):
+                raise
+            _LOG.error("%s: vtech-link panicked in %s: %s", self.name, name, e)
+            err = SessionGone(f"{name} failed (vtech-link panicked)", call=name)
+            self._lose(err)
+            raise err from e
 
     def _open(self) -> None:
         try:
@@ -382,17 +390,25 @@ class LinkSession(SessionBase):
                 peer_hint=self._peer_hint)
         except self._module.LinkError as e:
             raise from_link(e, "connect") from None
+        except BaseException as e:
+            if not is_panic(e):
+                raise
+            _LOG.error("%s: vtech-link panicked in connect: %s", self.name, e)
+            raise VtechError("connect failed (vtech-link panicked)", call="connect") from e
 
     def _close_transport(self) -> None:
         if self.link is not None:
-            self.link.close()
+            try:
+                self._call("close", self.link.close)
+            except VtechError:
+                pass
 
     def connection_mode(self) -> str | None:
         return "lan" if self.link is not None else None
 
     def info(self) -> dict[str, Any]:
         """The link's peer, ports, versions and DTLS suite, for diagnostics."""
-        return self.link.info() if self.link is not None else {}
+        return self._call("info", self.link.info) if self.link is not None else {}
 
     def stats(self) -> dict[str, Any]:
         """The link's transport counters, for diagnostics."""
@@ -425,10 +441,10 @@ class LinkSession(SessionBase):
     def _read_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                push = self.link.next_push(self.recv_timeout_ms / 1000)
-            except self._module.LinkError as e:
+                push = self._call("next_push", self.link.next_push, self.recv_timeout_ms / 1000)
+            except VtechError as e:
                 if not self._stop.is_set():
-                    self._lose(from_link(e, "next_push"))
+                    self._lose(e)
                 return
             if push is not None:
                 self._dispatch(*push)

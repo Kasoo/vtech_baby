@@ -1,9 +1,9 @@
 """CameraManager: owns one camera session, keeps its state cache, reconnects, and feeds entities.
 
 Runtime rules: docs/vtech-lan-kit/docs/90-ha-runtime.md.
-- The native module runs in a worker process (`vtech_lan/worker.py`); the manager drives it through
-  proxies with the session's blocking methods. If the worker dies, its sessions are lost and reconnect like any other.
-- Every session call runs in the executor; pushes arrive on the client's reader thread and are
+- The native module is loaded once per process by the hub (`vtech_lan/hub.py`), which hands out the
+  sessions and runs each camera's live view and talk-back.
+- Every session call runs in the executor; pushes arrive on the session's reader thread and are
   marshalled to the event loop with `call_soon_threadsafe`.
 - Pushes drive state (`local_push`); a full re-read happens on every (re)connect.
 - After a lost session or a failed connect, reconnect with backoff 10 s → 5 min.
@@ -34,7 +34,7 @@ from .const import (
     CONF_MAC,
     CONF_UID,
     DOMAIN,
-    ISSUE_WORKER_CRASHED,
+    ISSUE_RESTART_REQUIRED,
     KEEPALIVE_S,
     NOTIFY_INTERVAL_S,
     QUALITY_REREAD_S,
@@ -54,8 +54,8 @@ from .vtech_lan.errors import (
     Unreachable,
     VtechError,
 )
-from .vtech_lan.session import PARAMS_UPDATE, Push
-from .vtech_lan.worker_client import SessionProxy, WorkerClient
+from .vtech_lan.hub import Hub
+from .vtech_lan.session import PARAMS_UPDATE, LinkSession, Push
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -63,70 +63,65 @@ if TYPE_CHECKING:
 _LOG = logging.getLogger(__name__)
 
 
-# ── The worker (shared by setup and the config flow) ─────────────────────────
+# ── The hub (shared by setup and the config flow) ────────────────────────────
 class SetupError(Exception):
     """The native module can't be found or loaded; the message is user-presentable."""
 
 
-DATA_CLIENT = f"{DOMAIN}_worker"
+DATA_HUB = f"{DOMAIN}_hub"
 
 
-def get_client(hass: HomeAssistant) -> WorkerClient:
-    """The process-wide worker client, stopped with Home Assistant. The worker itself starts on the
-    first `ensure()`."""
-    client: WorkerClient | None = hass.data.get(DATA_CLIENT)
-    if client is None:
-        def on_crash(reason: str, count: int) -> None:          # reader thread
-            hass.loop.call_soon_threadsafe(_crash_issue, hass, reason, count)
-
-        client = hass.data[DATA_CLIENT] = make_client(on_crash)
+def get_hub(hass: HomeAssistant) -> Hub:
+    """The process-wide hub, stopped with Home Assistant."""
+    hub: Hub | None = hass.data.get(DATA_HUB)
+    if hub is None:
+        hub = hass.data[DATA_HUB] = make_hub()
 
         async def _stop(_event: Event) -> None:
-            await hass.async_add_executor_job(client.stop)
+            await hass.async_add_executor_job(hub.stop)
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _stop)
-    return client
+    return hub
 
 
-def make_client(on_crash: Callable[[str, int], None]) -> WorkerClient:
-    """Separate so tests can run the worker on a thread with a fake module."""
-    return WorkerClient(on_crash=on_crash)
+def make_hub() -> Hub:
+    """Separate so tests can load a fake module."""
+    return Hub()
 
 
-@callback
-def _crash_issue(hass: HomeAssistant, reason: str, count: int) -> None:
-    ir.async_create_issue(hass, DOMAIN, ISSUE_WORKER_CRASHED, is_fixable=False, is_persistent=False,
-                          severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_WORKER_CRASHED,
-                          translation_placeholders={"reason": reason, "count": str(count)})
-
-
-def _prepare_and_load(client: WorkerClient) -> WorkerClient:
+def _prepare_and_load(hub: Hub) -> bool:
+    """Load this host's module. False if the loaded one differs from the file now installed."""
     try:
         prepared = native.prepare()
-        client.ensure(prepared.link_path, prepared.fingerprint)
-        return client
+        return hub.load(prepared.link_path, prepared.fingerprint)
     except (VtechError, OSError) as err:
         raise SetupError(str(err)) from err
 
 
-async def async_load(hass: HomeAssistant) -> WorkerClient:
-    """Make sure the worker runs with this host's module. Serialised, so one setup starts it."""
+async def async_load(hass: HomeAssistant) -> Hub:
+    """Make sure the hub has this host's module loaded. Serialised, so one setup loads it. An update
+    installed since it was loaded raises a Repairs issue: it takes effect after a restart."""
     lock = hass.data.setdefault(f"{DOMAIN}_load_lock", asyncio.Lock())
+    hub = get_hub(hass)
     async with lock:
-        return await hass.async_add_executor_job(_prepare_and_load, get_client(hass))
+        current = await hass.async_add_executor_job(_prepare_and_load, hub)
+    if not current:
+        ir.async_create_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED, is_fixable=False, is_persistent=False,
+                              severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_RESTART_REQUIRED)
+    return hub
 
 
-def _probe(client: WorkerClient, uid: str, authkey: str, password: str, account: str) -> ops.DevInfo:
-    s = client.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0)
+def _probe(hub: Hub, uid: str, authkey: str, password: str, account: str) -> ops.DevInfo:
+    s = hub.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0)
     try:
         return s.connect()
     finally:
         s.close()
 
 
-async def async_probe(hass: HomeAssistant, client: WorkerClient, creds: dict[str, str]) -> ops.DevInfo:
+async def async_probe(hass: HomeAssistant, hub: Hub, creds: dict[str, str]) -> ops.DevInfo:
     """Connect once and disconnect: the config flow's credential test. Raises VtechError subclasses."""
     return await hass.async_add_executor_job(
-        _probe, client, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT])
+        _probe, hub, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT])
 
 
 def mac_present(mac: str, arp_path: str = "/proc/net/arp") -> bool:
@@ -187,7 +182,7 @@ _READS: tuple[tuple[str, str], ...] = (
 )
 
 
-def read_state(session: SessionProxy, previous: CameraState | None = None) -> CameraState:
+def read_state(session: LinkSession, previous: CameraState | None = None) -> CameraState:
     """All GETs. A failed read keeps the previous value (None on a first read); a lost session raises.
 
     After two timeouts in a row the rest is skipped: the camera has stopped answering for now (seen live
@@ -213,7 +208,7 @@ def read_state(session: SessionProxy, previous: CameraState | None = None) -> Ca
     return st
 
 
-def _connect_and_read(session: SessionProxy) -> CameraState:
+def _connect_and_read(session: LinkSession) -> CameraState:
     session.connect()
     return read_state(session)
 
@@ -260,12 +255,12 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
 
     config_entry: ConfigEntry
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: WorkerClient) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, hub: Hub) -> None:
         super().__init__(hass, _LOG, config_entry=entry, name=f"{DOMAIN} {entry.title}",
                          update_interval=None, always_update=True)
-        self.client = client
+        self.hub = hub
         self.uid: str = entry.data[CONF_UID]
-        self.session: SessionProxy | None = None
+        self.session: LinkSession | None = None
         self.failures = 0                       # consecutive failed connects
         self.last_error: str | None = None
         self._reconnect: asyncio.Task | None = None
@@ -274,16 +269,16 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         self._lullaby_stopped = float("-inf")
         self.talking = False
         self._talk_stopped = float("-inf")
-        # The live view and talk-back run in the worker on this camera's current session; they end when it goes.
-        self.media = client.media(self.uid, on_running=lambda _r: hass.loop.call_soon_threadsafe(
+        # The live view and talk-back run on this camera's current session; they end when it goes.
+        self.media = hub.media(self.uid, on_running=lambda _r: hass.loop.call_soon_threadsafe(
             self.async_update_listeners))
-        self.talk = client.talk(self.uid)
+        self.talk = hub.talk(self.uid)
 
     # Connection lifecycle
-    def _new_session(self) -> SessionProxy:
+    def _new_session(self) -> LinkSession:
         d = self.config_entry.data
-        s: SessionProxy
-        s = self.client.session(
+        s: LinkSession
+        s = self.hub.session(
             d[CONF_UID], d[CONF_AUTHKEY], d[CONF_AV_PASSWORD], d[CONF_ACCOUNT], media=True,
             name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
             on_push=lambda p: self.hass.loop.call_soon_threadsafe(self._on_push, s, p),
@@ -327,7 +322,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             raise HomeAssistantError(str(err)) from err
 
     @callback
-    def _on_push(self, session: SessionProxy, push: Push) -> None:
+    def _on_push(self, session: LinkSession, push: Push) -> None:
         if session is not self.session or self.data is None:
             return                              # a stale session, or before the first full read
         if push.code == ops.EVENT_REPORT:
@@ -419,7 +414,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         return max(30.0, NOTIFY_INTERVAL_S.get(idx, 60.0) + 15.0)
 
     @callback
-    def _on_lost(self, session: SessionProxy, err: VtechError) -> None:
+    def _on_lost(self, session: LinkSession, err: VtechError) -> None:
         if session is not self.session:
             return
         _LOG.warning("%s: session lost: %s", self.name, err)
@@ -465,15 +460,14 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             delay = min(delay * 2, RECONNECT_MAX_S)
 
     async def async_close(self) -> None:
-        """Unload: close this entry's session and live view. The worker keeps running for other entries."""
+        """Unload: close this entry's talk-back, live view and session. The hub stays for other entries."""
         self._closing = True
         for task in (self._reconnect, self._quality_reread):
             if task is not None:
                 task.cancel()
         session, self.session = self.session, None
         # Before the session: they use its channels.
-        await self.hass.async_add_executor_job(self.talk.close)
-        await self.hass.async_add_executor_job(self.media.close)
+        await self.hass.async_add_executor_job(self.hub.release, self.uid)
         if session is not None:
             await self.hass.async_add_executor_job(session.close)
 
@@ -497,7 +491,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         loop = self.hass.loop
         ended: asyncio.Future[VtechError | None] = loop.create_future()
 
-        def on_end(err: VtechError | None) -> None:               # client reader thread
+        def on_end(err: VtechError | None) -> None:               # the talk-back thread
             loop.call_soon_threadsafe(lambda: ended.done() or ended.set_result(err))
 
         try:

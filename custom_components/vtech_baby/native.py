@@ -20,7 +20,7 @@ _HOST_ARCH = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm6
 class Prepared:
     arch: str
     link_path: str                # the _vtech_link module
-    fingerprint: str              # the module's sha256; a change restarts the worker
+    fingerprint: str              # the module's sha256; a change takes effect after a restart
 
 
 def host_arch() -> str:
@@ -61,7 +61,7 @@ def host_supported() -> str | None:
 
 
 def prepare() -> Prepared:
-    """Our `_vtech_link` module for this host; the worker loads it, never this process.
+    """Our `_vtech_link` module for this host.
     Raises UnsupportedHost if the integration has none for this host."""
     arch = host_arch()
     path = bundled_link()

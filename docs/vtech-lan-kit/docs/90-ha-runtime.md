@@ -116,7 +116,7 @@ blast radius small:
 kills only the child, which the integration restarts like a reconnect. The cost is IPC for every IOCtrl
 and for the media stream. The in-process design is simpler; the out-of-process one is safer.
 
-The `vtech_baby` integration runs out of process. What made it straightforward:
+The `vtech_baby` integration ran out of process while it used the SDK. What made it straightforward:
 - Start the child with `subprocess` and `python -I`, never by forking Home Assistant (a forked copy of a
   multi-threaded process can inherit locks held by threads that don't exist in the child).
 - Run the media path in the child too, and serve the MPEG-TS from there (section 7). Only control

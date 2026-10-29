@@ -1,5 +1,5 @@
 """LinkSession, LinkMediaSource and LinkUplink over the fake `_vtech_link` (`fake_link.py`), the error
-mapping, a worker loading the module, and loading the real module when it is built."""
+mapping, panics, the hub loading the module, and loading the real module when it is built."""
 import datetime as dt
 import os
 import struct
@@ -24,7 +24,7 @@ from vtech_lan.errors import (
 from vtech_lan.session import PARAMS_UPDATE, LinkSession, Push
 
 from fake_camera import clip, enable_live_view, i32
-from fake_link import FakeLinkModule, LinkError, thread_client
+from fake_link import FakeLinkModule, LinkError, PanicException
 
 FRAMES = [bytes([i]) * 160 for i in range(5)]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -452,20 +452,87 @@ def _drop(handle, code):
     return wrapped
 
 
-# ── The worker ───────────────────────────────────────────────────────────────
-def test_worker_loads_the_module_and_runs_sessions(mod, socket_enabled):
-    client = thread_client(mod)
+# ── Panics ───────────────────────────────────────────────────────────────────
+def _panic(*_a, **_k):
+    raise PanicException("test panic")
+
+
+def test_a_panic_loses_the_session(conn):
+    """A Rust panic in a call fails it with SessionGone and loses the session: the link is never reused."""
+    mod, s, _, lost = conn
+    s.link.exchange = _panic
+    with pytest.raises(SessionGone, match="panicked"):
+        s.get_params()
+    assert len(lost) == 1 and isinstance(lost[0], SessionGone) and not s.connected
+    with pytest.raises(SessionGone):
+        s.get_params()
+    s.close()
+
+
+def test_a_panic_in_the_reader_loses_the_session(conn):
+    mod, s, _, lost = conn
+    s.link.next_push = _panic
+    assert wait_for(lambda: lost)
+    assert isinstance(lost[0], SessionGone) and "panicked" in str(lost[0])
+    s.close()
+
+
+def test_a_panic_in_connect_is_a_failed_connect(mod):
+    mod.connect = _panic
+    with pytest.raises(VtechError, match="panicked") as ctx:
+        session(mod).connect()
+    assert not isinstance(ctx.value, SessionGone)
+
+
+# ── The hub ──────────────────────────────────────────────────────────────────
+def fake_hub(mod):
+    from vtech_lan.hub import Hub
+    return Hub(link_loader=lambda _path: mod)
+
+
+def test_hub_loads_the_module_once_and_runs_sessions(mod, socket_enabled):
+    from vtech_lan.errors import ModuleMismatch
+    hub = fake_hub(mod)
     try:
-        info = client.ensure("/x/_vtech_link.abi3.so", "fp")
+        assert hub.module_info() is None
+        assert hub.load("/x/_vtech_link.abi3.so", "fp") is True
+        assert hub.load("/x/_vtech_link.abi3.so", "fp") is True
+        assert hub.load("/x/_vtech_link.abi3.so", "new") is False        # updated on disk: needs a restart
+        with pytest.raises(ModuleMismatch):
+            hub.load("/y/_vtech_link.abi3.so", "fp")
+        info = hub.module_info()
         assert info["link"]["version"] == "0.1.0+fake" and info["link_path"] == "/x/_vtech_link.abi3.so"
-        s = client.session("LINKCAM", "k3yAuth8", "pw", name="b", keepalive_s=0)
+        s = hub.session("LINKCAM", "k3yAuth8", "pw", name="b", keepalive_s=0)
         assert s.connect().model == "RM5754"
-        assert s.connection_mode() == "lan"
-        assert mod.opened[0].uid == "LINKCAM"
+        assert s.connection_mode() == "lan" and mod.opened[0].uid == "LINKCAM"
         assert s.get_params().volume == 5
+        assert "LINKCAM" not in hub.current                              # only a media session is current
         s.close()
     finally:
-        client.stop()
+        hub.stop()
+
+
+def test_hub_media_session_is_current_until_lost_or_closed(mod, socket_enabled):
+    hub = fake_hub(mod)
+    hub.load("/x/_vtech_link.abi3.so")
+    try:
+        lost = []
+        s = hub.session("LINKCAM", "k3yAuth8", "pw", media=True, keepalive_s=0, recv_timeout_ms=20,
+                        on_lost=lost.append)
+        assert hub.current == {}
+        s.connect()
+        assert hub.current["LINKCAM"] is s
+        mod.opened[0].kill()
+        assert wait_for(lambda: lost)
+        assert hub.current == {}                                        # dropped before on_lost ran
+        s.close()
+        s2 = hub.session("LINKCAM", "k3yAuth8", "pw", media=True, keepalive_s=0)
+        s2.connect()
+        assert hub.current["LINKCAM"] is s2
+        s2.close()
+        assert hub.current == {}
+    finally:
+        hub.stop()
 
 
 # ── Loading the real module ──────────────────────────────────────────────────

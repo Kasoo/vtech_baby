@@ -522,6 +522,13 @@ impl Link {
         }
     }
 
+    /// Panic the reactor thread, to test that the link ends cleanly. Not for production builds.
+    #[cfg(feature = "test-hooks")]
+    #[doc(hidden)]
+    pub fn _panic_reactor(&self) {
+        let _ = self.shared().command(Command::Panic);
+    }
+
     /// Why the link ended, once it has.
     pub fn closed(&self) -> Option<LinkError> {
         lock(&self.shared().closed).clone()

@@ -328,35 +328,11 @@ class FakeLinkModule:
         return [link.info() for link in self.opened if link.closed is None]
 
 
-class ThreadWorker:
-    """Runs the worker (`vtech_lan/worker.py`) on a thread instead of a process, over the same socket
-    pair and messages, loading `link_loader(path)`. `worker` is the live Worker object."""
-
-    pid = None
-
-    def __init__(self, child, listen, link_loader):
-        from custom_components.vtech_baby.vtech_lan.ipc import Channel
-        from custom_components.vtech_baby.vtech_lan.worker import Worker
-        self._sock = child.dup()
-        self.worker = Worker(Channel(self._sock), listen, link_loader=link_loader)
-        self._thread = threading.Thread(target=self.worker.run, name="vtech-thread-worker", daemon=True)
-        self._thread.start()
-
-    def wait(self, timeout=None):
-        self._thread.join(timeout)
-        return None if self._thread.is_alive() else 0
-
-    def kill(self):
-        """Like the process dying: both directions of its socket end at once."""
-        import socket
-        try:
-            self._sock.shutdown(socket.SHUT_RDWR)       # wakes the worker's blocked recv (close alone doesn't)
-        except OSError:
-            pass
-        self._sock.close()
+class PanicException(BaseException):
+    """Stands in for PyO3's PanicException: a Rust panic during a module call."""
 
 
-def thread_client(link_mod, **kw):
-    """A WorkerClient whose worker runs on a thread and loads `link_mod` as the vtech-link module."""
-    from custom_components.vtech_baby.vtech_lan.worker_client import WorkerClient
-    return WorkerClient(spawn=lambda child, listen: ThreadWorker(child, listen, lambda _path: link_mod), **kw)
+def fake_hub(link_mod):
+    """A Hub that loads `link_mod` as the vtech-link module."""
+    from custom_components.vtech_baby.vtech_lan.hub import Hub
+    return Hub(link_loader=lambda _path: link_mod)

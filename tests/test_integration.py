@@ -21,7 +21,7 @@ from custom_components.vtech_baby.const import (
 from custom_components.vtech_baby.vtech_lan import provision
 
 from fake_camera import i32
-from fake_link import FakeLinkModule, LinkError, thread_client
+from fake_link import FakeLinkModule, LinkError, PanicException, fake_hub
 from test_provision import make_qr
 
 UID = "TESTUID0000000000001"
@@ -33,7 +33,7 @@ TEMP = "sensor.vtech_5754_test_temperature"
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations, socket_enabled):
-    """Custom integrations on; sockets on (the worker talks over a socket pair and a loopback port)."""
+    """Custom integrations on; sockets on (the live view is served on a loopback port)."""
     yield
 
 
@@ -82,11 +82,11 @@ def fake():
 
 @pytest.fixture(autouse=True)
 def module_patch(fake):
-    def prep(client):
-        client.ensure("/pkg/_vtech_link.abi3.so", "fp")
-        return client
+    def prep(hub):
+        return hub.load("/pkg/_vtech_link.abi3.so", fake.fingerprint)
+    fake.fingerprint = "fp"
     with patch.object(mgr, "_prepare_and_load", prep), \
-         patch.object(mgr, "make_client", lambda on_crash: thread_client(fake, on_crash=on_crash)), \
+         patch.object(mgr, "make_hub", lambda: fake_hub(fake)), \
          patch.object(native, "host_supported", lambda: "x86_64"), \
          patch.object(mgr, "RECONNECT_MIN_S", 0.05), patch.object(mgr, "RECONNECT_MAX_S", 0.1):
         yield
@@ -111,19 +111,13 @@ async def unload(hass, entry):
     await hass.async_block_till_done()
 
 
-def worker(hass):
-    """The worker object behind the client (running on a thread in these tests)."""
-    return hass.data[mgr.DATA_CLIENT]._handle.worker
-
-
-def worker_session(hass, m):
-    """The real Session in the worker behind the manager's proxy."""
-    return worker(hass).sessions[m.session._key]
+def hub(hass):
+    return hass.data[mgr.DATA_HUB]
 
 
 def live(hass):
-    """The camera's LiveStream in the worker."""
-    return worker(hass).streams[UID]
+    """The camera's LiveStream."""
+    return hub(hass).streams[UID]
 
 
 async def wait_until(cond, timeout=5.0):
@@ -505,7 +499,7 @@ async def test_get_motion_events_service(hass: HomeAssistant, fake):
 async def test_reread_keeps_values_and_gives_up_on_stall(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
     m = entry.runtime_data
-    worker_session(hass, m).request_timeout_s = 0.2
+    m.session.request_timeout_s = 0.2
     fake.camera.silent |= {0x733, 0x7A0, 0x709, 0x713, 0x322}        # camera stops answering
     await m.async_refresh()
     assert hass.states.get(TEMP).state == "21"                        # kept, not unknown
@@ -515,21 +509,36 @@ async def test_reread_keeps_values_and_gives_up_on_stall(hass: HomeAssistant, fa
     await unload(hass, entry)
 
 
-async def test_worker_death_reconnects_on_a_new_worker(hass: HomeAssistant, fake):
-    """The worker dying (here: its socket cut) loses the session, raises a Repairs issue, and the
-    camera reconnects on a fresh worker, with Home Assistant untouched."""
+async def test_module_panic_loses_the_session_and_reconnects(hass: HomeAssistant, fake):
+    """A Rust panic in a module call fails that command, loses the session (its link is never used
+    again) and reconnects on a new link."""
+    from homeassistant.exceptions import HomeAssistantError
+    entry = await setup_entry(hass)
+    first = fake.link
+
+    def panic(*_a, **_k):
+        raise PanicException("test panic")
+    first.exchange = panic
+    with pytest.raises(HomeAssistantError, match="panicked"):
+        await call(hass, "switch", "turn_off", f"switch.{P}_status_led")
+    await wait_until(lambda: hass.states.get(TEMP).state == STATE_UNAVAILABLE)
+    await wait_until(lambda: hass.states.get(TEMP).state == "21")
+    assert fake.link is not first
+    await wait_until(lambda: first.closed is not None)               # closed, never reused
+    await unload(hass, entry)
+
+
+async def test_a_new_module_asks_for_a_restart(hass: HomeAssistant, fake):
+    """A module file changed since it was loaded (an update without a restart) keeps the loaded one
+    running and raises a Repairs issue."""
     from homeassistant.helpers import issue_registry as ir
     entry = await setup_entry(hass)
-    client = hass.data[mgr.DATA_CLIENT]
-    first = client._handle
-    first.kill()
-    await wait_until(lambda: hass.states.get(TEMP).state == STATE_UNAVAILABLE)
-    # The issue is raised by a separate loop callback, which can run after the state change.
-    await wait_until(lambda: ir.async_get(hass).async_get_issue(DOMAIN, "worker_crashed") is not None)
-    issue = ir.async_get(hass).async_get_issue(DOMAIN, "worker_crashed")
-    assert issue.translation_placeholders == {"reason": "exit status 0", "count": "1"}
-    await wait_until(lambda: hass.states.get(TEMP).state == "21")
-    assert client._handle is not first and client.gen == 2
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "restart_required") is None
+    fake.fingerprint = "updated"
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "restart_required") is not None
+    assert hass.states.get(TEMP).state == "21"
     await unload(hass, entry)
 
 
@@ -575,10 +584,10 @@ async def test_camera_stream_over_loopback(hass: HomeAssistant, fake, socket_ena
     media = live(hass)
     media._grace_s = 0.2
     url = await camera_entity(hass).stream_source()
-    client = hass.data[mgr.DATA_CLIENT]
-    assert url == f"http://127.0.0.1:{client.port}/{client.token}/{UID}.ts"
+    h = hub(hass)
+    assert url == f"http://127.0.0.1:{h.port}/{h.token}/{UID}.ts"
     async with aiohttp.ClientSession() as http:
-        async with http.get(url.replace(client.token, "wrong")) as r:
+        async with http.get(url.replace(h.token, "wrong")) as r:
             assert r.status == 404
         data = b""
         async with http.get(url) as r:
@@ -726,7 +735,7 @@ async def test_speaker_bad_media(hass: HomeAssistant, fake):
     await unload(hass, entry)
 
 
-async def test_speaker_ends_when_the_worker_dies(hass: HomeAssistant, fake):
+async def test_speaker_ends_when_the_link_dies(hass: HomeAssistant, fake):
     pytest.importorskip("av")
     from homeassistant.exceptions import HomeAssistantError
     from fake_camera import enable_live_view
@@ -737,11 +746,10 @@ async def test_speaker_ends_when_the_worker_dies(hass: HomeAssistant, fake):
     with serve({"/long.wav": wav(30.0, rate=8000, channels=1)}) as base:
         task = hass.async_create_task(play(hass, f"{base}/long.wav"))
         await wait_until(lambda: hass.states.get(SPEAKER).state == "playing")
-        hass.data[mgr.DATA_CLIENT]._handle.kill()
+        fake.kill()
         with pytest.raises(HomeAssistantError, match="talk-back stopped"):
             await asyncio.wait_for(task, 10)
     assert hass.states.get(SPEAKER).state in ("idle", STATE_UNAVAILABLE)
-    await wait_until(lambda: fake.camera.speaker_ch is None)       # the worker's shutdown stopped it
     await unload(hass, entry)
 
 

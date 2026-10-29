@@ -1,7 +1,7 @@
 """The VTech RM5754HD baby-monitor integration: LAN-direct over ThroughTek's Kalay protocol.
 
-Design notes: AGENTS.md. The protocol module (vtech-link) runs in one worker process shared by all
-entries (`vtech_lan/worker.py`); each config entry owns one CameraManager (one camera session).
+Design notes: AGENTS.md. The protocol module (vtech-link) is loaded once per process by a hub shared by
+all entries (`vtech_lan/hub.py`); each config entry owns one CameraManager (one camera session).
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_RESTART_REQUIRED, SDK_DIRS
+from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_WORKER_CRASHED, SDK_DIRS
 from .manager import CameraManager, SetupError, async_load
 
 _LOG = logging.getLogger(__name__)
@@ -60,18 +60,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> bool:
     try:
-        client = await async_load(hass)
+        hub = await async_load(hass)
     except SetupError as err:
         raise ConfigEntryError(f"cannot load the VTech protocol module: {err}") from err
-    # Restarts are no longer needed to switch SDKs (the worker restarts instead): drop the old issue.
-    ir.async_delete_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED)
+    # The worker process is gone, and with it the issue that reported its crashes.
+    ir.async_delete_issue(hass, DOMAIN, ISSUE_WORKER_CRASHED)
 
     # The night-light moved from a select to a light (2026-10-06); drop the stale select entry.
     reg = er.async_get(hass)
     if old := reg.async_get_entity_id("select", DOMAIN, f"{entry.data[CONF_UID]}_night_light"):
         reg.async_remove(old)
 
-    manager = CameraManager(hass, entry, client)
+    manager = CameraManager(hass, entry, hub)
     await manager.async_first_connect()
     entry.runtime_data = manager
     entry.async_on_unload(manager.async_close)

@@ -40,10 +40,6 @@ class SessionGone(VtechError):
     """An established session is gone. Tear down and reconnect."""
 
 
-class WorkerDied(SessionGone):
-    """The worker process ended (a crash, or a restart), taking its sessions with it."""
-
-
 class RequestTimeout(VtechError):
     """No reply to a request within its timeout."""
 
@@ -54,6 +50,12 @@ class ProtocolError(VtechError):
 
 class MediaError(VtechError):
     """Media for talk-back can't be played: an unsupported URL, unreadable, or no audio in it."""
+
+
+def is_panic(err: BaseException) -> bool:
+    """True for PyO3's PanicException: a Rust panic during a module call. It derives from BaseException,
+    so `except Exception` doesn't catch it."""
+    return type(err).__name__ == "PanicException"
 
 
 def from_link(err: Exception, call: str) -> VtechError:

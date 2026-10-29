@@ -31,8 +31,8 @@ TESTED_MODELS = frozenset({"RM5754"})
 TESTED_PRODUCT = "VTech RM5754HD"
 
 # Repair issue ids
-ISSUE_RESTART_REQUIRED = "restart_required"   # no longer raised; deleted at setup
-ISSUE_WORKER_CRASHED = "worker_crashed"
+ISSUE_RESTART_REQUIRED = "restart_required"   # a new module is installed; the loaded one runs until a restart
+ISSUE_WORKER_CRASHED = "worker_crashed"       # no longer raised; deleted at setup
 
 SIGNAL_EVENT = "vtech_baby_event_{}"   # .format(entry_id); payload: (ops.EventReport, self_triggered)
 

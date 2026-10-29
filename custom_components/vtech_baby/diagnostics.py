@@ -1,4 +1,4 @@
-"""Diagnostics: redacted credentials, the worker and its module, session state, cached camera state, media stats."""
+"""Diagnostics: redacted credentials, the module, session state, cached camera state, media stats."""
 from __future__ import annotations
 
 import dataclasses
@@ -25,17 +25,16 @@ def _link_diagnostics(session) -> dict[str, Any] | None:
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry) -> dict[str, Any]:
     manager = entry.runtime_data
-    client = manager.client
     session = manager.session
+    media, talk = manager.media, manager.talk
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
-        "module": await hass.async_add_executor_job(client.module_info),
-        "worker": client.stats(),
+        "module": await hass.async_add_executor_job(manager.hub.module_info),
         "connected": session is not None,
         "link": await hass.async_add_executor_job(_link_diagnostics, session),
         "consecutive_failures": manager.failures,
         "last_error": manager.last_error,
         "state": dataclasses.asdict(manager.data) if manager.data else None,
-        "live_view": await hass.async_add_executor_job(manager.media.stats),
-        "talk_back": await hass.async_add_executor_job(manager.talk.stats),
+        "live_view": {**media.stats, "subscribers": media.subscribers},
+        "talk_back": {**talk.stats, "running": talk.running},
     }

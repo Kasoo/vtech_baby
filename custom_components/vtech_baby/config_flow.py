@@ -30,7 +30,7 @@ from .const import (
 from .manager import SetupError, async_load, async_probe
 from .vtech_lan import provision
 from .vtech_lan.errors import AuthFailed, Unreachable, VtechError
-from .vtech_lan.worker_client import WorkerClient
+from .vtech_lan.hub import Hub
 
 _LOG = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 2
 
     def __init__(self) -> None:
-        self._client: WorkerClient | None = None
+        self._hub: Hub | None = None
         self._model: str | None = None                    # from the connection test
         self._pending: tuple[str, dict[str, str]] | None = None   # entry awaiting the model warning
 
@@ -109,14 +109,14 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_test(self, creds: provision.Credentials) -> dict[str, str]:
         """Connect once with the decoded credentials. Returns form errors (empty = OK)."""
-        if self._client is None:
+        if self._hub is None:
             try:
-                self._client = await async_load(self.hass)
+                self._hub = await async_load(self.hass)
             except SetupError as err:
                 _LOG.warning("the protocol module is not usable: %s", err)
                 return {"base": "module_unavailable"}
         try:
-            dev = await async_probe(self.hass, self._client, _entry_creds(creds))
+            dev = await async_probe(self.hass, self._hub, _entry_creds(creds))
         except AuthFailed:
             return {"base": "invalid_auth"}
         except Unreachable:
