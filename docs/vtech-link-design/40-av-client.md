@@ -186,7 +186,7 @@ frames by `+0x12` (the packet number) and drops anything with a fragment count o
 camera sends only single-fragment messages, its packet number equals its frame number and this works.
 After one multi-fragment message, the two counters diverge. Every later frame then fails the
 `ctrl_in + 1` check, the ACK stops advancing, and the control channel stalls until the link is
-dropped. No multi-fragment inbound message has been seen yet. The fix is listed in `TODO.md`.
+dropped. No multi-fragment inbound message has been seen yet.
 - User class `0x70`: emit `Event::Control { type: u32 at f+0x14, payload: f[0x18 .. 0x18 + body − 4] }`.
 - Internal class `0x10`, type `0x25` (reset ack), with a u16 payload equal to our last reset sequence:
   complete the pending reset (`45-media-receive.md`).

@@ -123,7 +123,8 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 ## Conventions
 
 - Keep `README.md` short: what it does, what you need, how to install it and add a camera.
-- Outstanding work goes in `TODO.md`; open protocol questions and known issues go in "Design notes" below.
+- Outstanding work goes in `TODO.md` and `RELEASE_TODO.md`, local files that are gitignored and never
+  committed; open protocol questions and known issues go in "Design notes" below.
 - **GitLab is the primary repo** (remote `gitlab`). It push-mirrors to GitHub (remote `github`), which
   exists only for HACS. Push to GitLab only; a direct push to GitHub diverges from the mirror.
 - Releases are GitHub releases (HACS ignores bare tags). The tag matches `version` in `manifest.json`.

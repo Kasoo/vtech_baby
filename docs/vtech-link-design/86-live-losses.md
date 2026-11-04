@@ -99,6 +99,6 @@ under drops while delivering fewer audio frames than vtech-link in the same 120 
    - try a longer gap skip (600 ms) to rule out slow resends;
    - compare with the stock SDK (the patched vendor libraries) to see whether it also loses these.
 3. **Count whole-frame losses in `tutk-host`** (or retire it): its `RECV_STATS` understate loss under
-   packet drops. Recorded in `TODO.md` ("tutk-host").
+   packet drops.
 4. **The Phase 2 runs at 1080p** haven't been done: the camera was at 720p. Check the parent handset (it
    caps the stream at 720p while on) before setting anything, and restore the setting afterwards.

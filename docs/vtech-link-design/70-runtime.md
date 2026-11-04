@@ -166,7 +166,7 @@ The reactor blocks on `recv_from` with `SO_RCVTIMEO` set to the next deadline, a
 a 1-byte datagram over loopback to the link's own socket. That keeps the libc imports to the socket
 calls the SDK already made (no epoll or eventfd). Sends are blocking UDP `send_to` calls, which on
 Linux block only on a full send buffer of 1 MB. Not built yet: the packet trace below, and the limit
-of 64 partial frames per stream (`TODO.md`).
+of 64 partial frames per stream.
 
 The socket starts blocking. A wake-up that times out leaves it blocking. Only one that received a
 datagram switches it to non-blocking, to drain the rest, and the next wait switches it back. So idle

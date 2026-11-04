@@ -160,7 +160,7 @@ The eight that exist (`sdk.py` `RECV_STATS`): `packets_requested`, `video_given_
 Overflow of the output queues belongs to the runtime (`70-runtime.md`), so `MediaRx` emits every frame
 and counts `given_up` and `late`.
 
-Two deliberate differences from `tutk-host` (`TODO.md`, "tutk-host"):
+Two deliberate differences from `tutk-host`:
 - kind 4 is audio, following the kit;
 - a gap skip that lands on `pn_high` clears that packet's seen bit.
 

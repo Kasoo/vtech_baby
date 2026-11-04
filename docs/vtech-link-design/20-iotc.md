@@ -104,7 +104,7 @@ All built in a fixed `[u8; N]` on the stack, then scrambled.
 
 **Connect ack** `0x0402`, 52 bytes (`iotc/handshake.c:54`): header with length `0x24`, opcode
 `0x0402`, field_a `0x0033`; UID at `+0x10`; token at `+0x24`; u32 `SDK_VERSION` at `+0x30`. Every other byte
-is zero; `tutk-host` leaves `+0x2c..0x2f` uninitialised (`TODO.md`), and the fixture test masks them.
+is zero; `tutk-host` leaves `+0x2c..0x2f` uninitialised, and the fixture test masks them.
 
 **Data** `0x0407`, 28 + n bytes (`iotc/data.c` `IOTC_Session_Write_Data_And_Datatype`): header with
 flags `0x08 | (pe ? 0x01 : 0)`, length `12 + n`, seq = the channel's send counter (post-increment,
