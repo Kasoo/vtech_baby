@@ -42,6 +42,20 @@ class _HttpOnly(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_HttpOnly)
 
 
+class _Arrived:
+    """A response for PyAV to read as a file. A read returns what has arrived, where the response's own
+    read waits for the whole buffer PyAV asks for, which holds back the start of a slow stream."""
+
+    def __init__(self, resp):
+        self._resp = resp
+
+    def read(self, size: int = -1) -> bytes:
+        return self._resp.read1(size)
+
+    def close(self):
+        self._resp.close()
+
+
 def _fetch(url: str):
     """The response for `url` to hand to PyAV, or None for a playlist (FFmpeg opens it by URL)."""
     try:
@@ -51,7 +65,7 @@ def _fetch(url: str):
     if resp.headers.get_content_type() in PLAYLIST_TYPES or urlsplit(resp.url).path.endswith((".m3u8", ".m3u", ".pls")):
         resp.close()
         return None
-    return resp
+    return _Arrived(resp)
 
 
 def alaw_frames(url: str) -> Iterator[bytes]:

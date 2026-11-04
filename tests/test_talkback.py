@@ -209,6 +209,42 @@ def test_decodes_a_chunked_response(socket_enabled):
     assert 49 <= len(frames) <= 51
 
 
+def test_a_read_returns_what_has_arrived(socket_enabled):
+    from vtech_lan.audio import _fetch
+
+    release = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"                               # chunked needs 1.1
+
+        def do_GET(self):                                           # noqa: N802
+            self.send_response(200)
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            self.wfile.write(b"3e8\r\n" + b"x" * 1000 + b"\r\n")
+            self.wfile.flush()
+            release.wait(5)
+            self.wfile.write(b"0\r\n\r\n")
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        resp = _fetch(f"http://127.0.0.1:{server.server_address[1]}/live")
+        start = time.monotonic()
+        assert resp.read(32768) == b"x" * 1000
+        assert time.monotonic() - start < 2                         # didn't wait for the stream to end
+        release.set()
+        assert resp.read(32768) == b""
+        resp.close()
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+
+
 def test_a_redirect_off_http_is_refused(socket_enabled):
     _av()
     from vtech_lan.audio import alaw_frames
