@@ -109,3 +109,55 @@ def test_bursty_audio_and_gaps_stay_monotonic(clip, tmp_path):
     a = [float(x.strip(",")) for x in probe(f, "-select_streams", "a", "-show_entries", "packet=pts_time").split()]
     assert a == sorted(a) and len(set(a)) == len(a)
     assert a[-1] - a[0] > 3.5                           # bursts at 0, 1 s and 4 s: the gap was caught up
+
+
+def test_video_arriving_out_of_order_stays_monotonic(clip, tmp_path):
+    """A frame whose first fragment came late (recovered by a NAK) is stamped after the next frame's
+    arrival: the muxer gets strictly increasing DTS instead of failing with EINVAL."""
+    aus, _ = clip
+    m, out = AvTsMuxer(aus[0]), bytearray()
+    for i, au in enumerate(aus[:20]):
+        t = 1_000_000 + i * 9000 + (9500 if i == 5 else 0)   # frame 5 stamped after frame 6
+        out += m.video(au, t, is_key(au))
+    out += m.close()
+    f = tmp_path / "v.ts"
+    f.write_bytes(bytes(out))
+    v = [float(x.strip(",")) for x in probe(f, "-select_streams", "v", "-show_entries", "packet=dts_time").split()]
+    assert len(v) == 20 and v == sorted(v) and len(set(v)) == len(v)
+
+
+def test_alaw_table_matches_ffmpeg():
+    from vtech_lan import avmux
+    dec = av.CodecContext.create("pcm_alaw", "r")
+    dec.sample_rate, dec.layout = RATE, "mono"
+    (f,) = dec.decode(av.Packet(bytes(range(256))))
+    want = struct.unpack("<256h", bytes(f.planes[0])[:512])
+    assert [avmux._alaw_to_linear(a) for a in range(256)] == list(want)
+
+
+def test_encoders_are_reused_and_never_shared(clip):
+    """A stream borrows an AAC encoder and returns it on close; two streams at once get two."""
+    from vtech_lan import avmux
+    aus, _alaw = clip
+    a = AvTsMuxer(aus[0])
+    b = AvTsMuxer(aus[0])
+    assert a._enc is not b._enc
+    ea, eb = a._enc, b._enc
+    a.close()
+    b.close()
+    c = AvTsMuxer(aus[0])
+    assert c._enc in (ea, eb)
+    c.close()
+    assert ea in avmux._pool and eb in avmux._pool
+
+
+def test_a_reused_encoder_starts_like_a_fresh_one(clip, tmp_path):
+    """A stream on a borrowed encoder decodes cleanly, and its audio starts with the video."""
+    mux(*clip)                                          # leaves an encoder in the pool
+    f = tmp_path / "again.ts"
+    f.write_bytes(b"".join(c for _, c in mux(*clip)))
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", str(f), "-f", "null", "-"], capture_output=True, text=True)
+    assert r.returncode == 0 and r.stderr == ""
+    v = [float(x.strip(",")) for x in probe(f, "-select_streams", "v", "-show_entries", "packet=pts_time").split()]
+    a = [float(x.strip(",")) for x in probe(f, "-select_streams", "a", "-show_entries", "packet=pts_time").split()]
+    assert abs(a[0] - v[0]) < 0.2 and abs(a[-1] - v[-1]) < 0.3

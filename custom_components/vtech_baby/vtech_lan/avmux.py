@@ -10,10 +10,19 @@ arrival-stamped video however long the stream runs.
 
 The video stream's parameters come from the first keyframe: it is parsed by PyAV's raw-H.264 demuxer and
 used as a template (no H.264 encoder is opened).
+
+A-law is expanded to float samples by table and encoded by an AAC encoder borrowed from a pool for the
+life of the process. PyAV gives every audio encoder a filter graph (to cut 1024-sample frames) whose
+threads, one per core, end only at a full garbage collection, so a new encoder per stream left them
+piling up in Home Assistant's process. The encoder is only ever given whole 1024-sample frames, so it
+holds no partial frame between streams, and it is fed silence on its return, so the next stream doesn't
+start with the last one's audio.
 """
 from __future__ import annotations
 
 import io
+import struct
+import threading
 from collections import deque
 from fractions import Fraction
 
@@ -23,6 +32,72 @@ RATE = 8000
 TB = Fraction(1, 90_000)
 REBASE = 90_000 // 2       # 0.5 s, in 90 kHz
 VIDEO_PID = 0x100        # ffmpeg's mpegts numbers streams from 0x100; video is added first
+AAC_FRAME = 1024         # samples per AAC frame
+
+
+def _alaw_to_linear(a: int) -> int:
+    """One G.711 A-law code as a 16-bit sample."""
+    a ^= 0x55
+    t = (a & 0x0F) << 4
+    seg = (a & 0x70) >> 4
+    if seg == 0:
+        t += 8
+    elif seg == 1:
+        t += 0x108
+    else:
+        t = (t + 0x108) << (seg - 1)
+    return t if a & 0x80 else -t
+
+
+_ALAW_F32 = [struct.pack("=f", _alaw_to_linear(a) / 32768) for a in range(256)]
+_SILENCE = bytes(4 * AAC_FRAME)
+
+
+class _AacEncoder:
+    """An AAC encoder for one stream at a time, fed whole frames of float samples. `pts` counts the
+    samples it has been given."""
+
+    def __init__(self, bit_rate: int) -> None:
+        self.bit_rate = bit_rate
+        self._ctx = av.CodecContext.create("aac", "w")
+        self._ctx.sample_rate, self._ctx.layout, self._ctx.format = RATE, "mono", "fltp"
+        self._ctx.bit_rate = bit_rate
+        self._ctx.time_base = Fraction(1, RATE)
+        self._ctx.open()
+        self.pts = 0
+
+    def encode(self, samples: bytes) -> list[av.Packet]:
+        """Encode one frame (AAC_FRAME float samples). Packet PTS count samples."""
+        f = av.AudioFrame(format="fltp", layout="mono", samples=AAC_FRAME)
+        plane = f.planes[0]
+        plane.update(samples + bytes(plane.buffer_size - len(samples)))
+        f.sample_rate, f.time_base, f.pts = RATE, Fraction(1, RATE), self.pts
+        self.pts += AAC_FRAME
+        return self._ctx.encode(f)
+
+
+_pool: list[_AacEncoder] = []
+_pool_lock = threading.Lock()
+
+
+def _borrow(bit_rate: int) -> _AacEncoder:
+    with _pool_lock:
+        for i, enc in enumerate(_pool):
+            if enc.bit_rate == bit_rate:
+                return _pool.pop(i)
+    return _AacEncoder(bit_rate)
+
+
+def _give_back(enc: _AacEncoder) -> None:
+    """Return an encoder once its stream has ended: two frames of silence push the stream's last audio
+    out of its delay (and are dropped). One that fails is not reused."""
+    try:
+        for _ in range(2):
+            enc.encode(_SILENCE)
+    except av.FFmpegError:
+        return
+    with _pool_lock:
+        _pool.append(enc)
 
 
 class _Sink(io.RawIOBase):
@@ -55,22 +130,28 @@ class AvTsMuxer:
         with av.open(io.BytesIO(first_keyframe), format="h264") as probe:
             self._v = self._out.add_stream_from_template(probe.streams.video[0], opaque=True)
         self._v.time_base = TB
+        # The stream's own encoder is opened with the container but never fed: it sets the stream's
+        # parameters, which match the borrowed encoder's.
         self._a = self._out.add_stream("aac", rate=RATE)
         self._a.layout = "mono"
         self._a.bit_rate = audio_bit_rate
-        self._alaw = av.CodecContext.create("pcm_alaw", "r")
-        self._alaw.sample_rate = RATE
-        self._alaw.layout = "mono"
-        self._resample = av.AudioResampler(format="fltp", layout="mono", rate=RATE)
+        self._enc: _AacEncoder | None = _borrow(audio_bit_rate)
+        self._enc_base = self._enc.pts                      # its PTS at this stream's sample 0
+        self._pending = bytearray()                         # float samples short of a whole frame
         self._samples = 0                                   # A-law samples fed so far
         self._blocks: deque[tuple[int, int]] = deque()      # (first sample index, arrival PTS)
         self._base: int | None = None                       # 90 kHz time of sample 0
         self._last = -1                                     # last audio PTS muxed
+        self._last_v = -1                                   # last video PTS muxed
 
     def video(self, access_unit: bytes, pts: int, keyframe: bool) -> bytes:
         p = av.Packet(access_unit)
         p.stream = self._v
         p.time_base = TB
+        # A frame's arrival time is its first fragment's, and a first fragment recovered by a NAK
+        # arrives after the next frame's. The muxer refuses a DTS that doesn't increase, so clamp it.
+        pts = max(pts, self._last_v + 1)
+        self._last_v = pts
         p.pts = p.dts = pts
         p.is_keyframe = keyframe
         self._out.mux(p)
@@ -79,17 +160,26 @@ class AvTsMuxer:
     def audio(self, alaw: bytes, pts: int) -> bytes:
         if not alaw:
             return b""
+        if self._enc is None:
+            return b""
         self._blocks.append((self._samples, pts))
-        for frame in self._alaw.decode(av.Packet(alaw)):
-            for f in self._resample.resample(frame):
-                f.pts = self._samples
-                f.time_base = Fraction(1, RATE)
-                self._samples += f.samples
-                for p in self._a.encode(f):                  # p.pts counts samples (1/8000)
-                    p.pts = p.dts = self._arrival(p.pts or 0)
-                    p.time_base = TB
-                    self._out.mux(p)
+        self._samples += len(alaw)
+        self._pending += b"".join(_ALAW_F32[a] for a in alaw)
+        size = 4 * AAC_FRAME
+        while len(self._pending) >= size:
+            frame, self._pending = bytes(self._pending[:size]), self._pending[size:]
+            self._mux_audio(self._enc.encode(frame))
         return self._sink.take()
+
+    def _mux_audio(self, packets: list[av.Packet]) -> None:
+        for p in packets:
+            sample = (p.pts or 0) - self._enc_base
+            if sample < -AAC_FRAME:
+                continue                    # a borrowed encoder's silence from before this stream
+            p.stream = self._a
+            p.pts = p.dts = self._arrival(sample)
+            p.time_base = TB
+            self._out.mux(p)
 
     def _arrival(self, sample: int) -> int:
         while len(self._blocks) > 1 and self._blocks[1][0] <= sample:
@@ -107,14 +197,18 @@ class AvTsMuxer:
         return pts
 
     def close(self) -> bytes:
+        """End the stream: the last partial frame, padded with silence, and a frame of silence push the
+        stream's last audio out of the encoder's delay without flushing it, so it can go back to the pool."""
+        enc, self._enc = self._enc, None
         try:
-            for p in self._a.encode(None):
-                p.pts = p.dts = self._arrival(p.pts or 0)
-                p.time_base = TB
-                self._out.mux(p)
+            if enc is not None and self._blocks:
+                self._mux_audio(enc.encode(bytes(self._pending)))
+                self._mux_audio(enc.encode(_SILENCE))
             self._out.close()
         except av.FFmpegError:
             pass
+        if enc is not None:
+            _give_back(enc)
         return self._sink.take()
 
 
