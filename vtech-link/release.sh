@@ -62,6 +62,10 @@ else
 fi
 export PATH=/tmp/venv/bin:/tmp/venv/local/bin:$PATH
 echo "$(rustc -V), $(maturin -V), $(python3 -V)"
+# Every crate in the module at one version, except syn (a build-time macro dependency).
+(cd /src && cargo tree -q -d -e normal --locked --depth 0 --prefix none -p vtech-link-py ${TARGET:+--target "$TARGET"}) > /tmp/dups
+dup=$(sed -n "s/^\([A-Za-z0-9_-]*\) v.*/\1/p" /tmp/dups | sort -u | grep -vx syn || true)
+[ -z "$dup" ] || { echo "duplicated crates: $dup" >&2; exit 1; }
 build() {
   rm -rf /src/target
   (cd /src && maturin build --release --strip --locked --compatibility $compat $targetarg -m py/Cargo.toml -o /src/target/wheels) >&2
