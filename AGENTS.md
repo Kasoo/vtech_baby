@@ -114,7 +114,9 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
   the NAS, and A/B runs against `tutk-host`: `docs/vtech-link-design/86-live-losses.md`, "Method" (one
   tarball over one SSH session, so the key is touched once).
 - **hassfest:** `podman run --rm -v "$PWD:/github/workspace:ro,Z" ghcr.io/home-assistant/hassfest` from
-  the root. CI (`.github/workflows/validate.yml`) runs it and the HACS check.
+  the root. The GitHub mirror's CI (`.github/workflows/validate.yml`) runs it and the HACS check.
+- **GitLab CI** (`.gitlab-ci.yml`, hosted runners): the Rust and Python tests when their part of the
+  tree changes; `release.sh` per arch on tags or by hand, aarch64 natively on the arm64 runner.
 - **Try a change in HA:** copy `custom_components/vtech_baby` (only that) into a test instance's
   `custom_components/` and restart HA.
 

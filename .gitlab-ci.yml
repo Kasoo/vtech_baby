@@ -1,0 +1,104 @@
+# CI on GitLab.com's hosted runners. Free namespaces get 400 compute minutes a month, so each test job
+# runs only when its part of the tree changes, and the module builds run on tags or by hand.
+#
+# hassfest and the HACS check stay on the GitHub mirror (.github/workflows/validate.yml): hacs/action
+# runs only as a GitHub Action and reads the repository from GitHub's API.
+
+stages: [test, build]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+variables:
+  GIT_DEPTH: "50"
+  CARGO_HOME: $CI_PROJECT_DIR/.cache/cargo
+  PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+
+# Workspace tests (simulator scenarios, OpenSSL interop), clippy, the fuzz targets' check and the
+# Python module's tests.
+vtech-link:
+  stage: test
+  image: docker.io/library/rust:1.99.1
+  tags: [saas-linux-small-amd64]
+  rules:
+    - if: $CI_COMMIT_TAG
+    - changes: [vtech-link/**/*, .gitlab-ci.yml]
+  cache:
+    key: vtech-link-test
+    paths: [.cache/cargo, vtech-link/target]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends openssl python3 >/dev/null
+    - export PATH=$CARGO_HOME/bin:$PATH
+    - cd vtech-link && rustup toolchain install   # rust-toolchain.toml's toolchain, components and targets
+  script:
+    - cargo test --workspace --locked
+    - cargo clippy --workspace --all-targets --locked -- -D warnings
+    - cargo check --locked --manifest-path fuzz/Cargo.toml
+    - py/tests/run.sh
+    # Every crate but syn at one version.
+    - dup=$(cargo tree -d -e normal --workspace --locked --depth 0 --prefix none | sed -n 's/^\([A-Za-z0-9_-]*\) v.*/\1/p' | sort -u | grep -vx syn || true)
+    - '[ -z "$dup" ] || { echo "duplicated crates: $dup"; exit 1; }'
+
+# The integration's offline tests, against the committed x86_64-glibc module.
+pytest:
+  stage: test
+  image: docker.io/library/python:3.14
+  tags: [saas-linux-small-amd64]
+  rules:
+    - if: $CI_COMMIT_TAG
+    - changes: [custom_components/**/*, tests/**/*, requirements_test.txt, pytest.ini, .gitlab-ci.yml]
+  cache:
+    key: pytest
+    paths: [.cache/pip]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null
+    - python3 -m venv .venv && .venv/bin/pip install -q -r requirements_test.txt
+  script:
+    - .venv/bin/pytest
+
+# release.sh builds in podman containers, so each build job runs podman inside its job container (the
+# saas-linux runners are privileged). Bind mounts then see the job's checkout, which Docker-in-Docker's
+# would not. --network=host keeps the build containers off a bridge, which avoids the MTU mismatch the
+# docs report for container networking on the arm64 runners. Each arch builds natively on its own runner.
+.build:
+  stage: build
+  image: quay.io/podman/stable:v5.6
+  rules:
+    - if: $CI_COMMIT_TAG
+    - when: manual
+      allow_failure: true
+  variables:
+    RUN_OPTS: --network=host
+  before_script:
+    - dnf -y -q install git-core diffutils >/dev/null
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+  script:
+    - vtech-link/release.sh $SETS
+    - vtech-link/tools/ha_import_check.sh $SETS
+    - (cd vtech-link/dist && sha256sum */_vtech_link.abi3.so > SHA256SUMS-$ARCH && echo "$CI_COMMIT_SHA" > REVISION-$ARCH)
+  artifacts:
+    paths: [vtech-link/dist/]
+    expire_in: 90 days
+
+build-x86_64:
+  extends: .build
+  tags: [saas-linux-small-amd64]
+  variables:
+    ARCH: x86_64
+    SETS: x86_64-glibc x86_64-musl
+  cache:
+    key: build-x86_64
+    paths: [vtech-link/build/cache/]
+
+build-aarch64:
+  extends: .build
+  tags: [saas-linux-small-arm64]
+  variables:
+    ARCH: aarch64
+    SETS: aarch64-glibc aarch64-musl
+  cache:
+    key: build-aarch64
+    paths: [vtech-link/build/cache/]

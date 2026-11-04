@@ -93,7 +93,13 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
 - **Reproducible**: `--locked`, `SOURCE_DATE_EPOCH` from the commit, `--remap-path-prefix` for the
   source and cargo-home paths. `release.sh` builds twice and compares hashes; all four sets matched on 2026-10-22. It builds a `git archive`
   of one revision, not the working tree.
-- **Cross-compiled aarch64** (since 2026-10-26): every build runs on the host's arch, and the aarch64
+- **Native aarch64 on an aarch64 host** (since 2026-11-04): a set for the host's arch builds natively,
+  so on an arm64 host (GitLab's `saas-linux-small-arm64` runner) the aarch64 sets use
+  `quay.io/pypa/manylinux2014_aarch64` and `alpine:3.24` like the x86_64 ones, with no target; an
+  aarch64 host can't build the x86_64 sets. The cache is `build/cache/SET-on-aarch64` there, since its
+  tools are aarch64 binaries. Natively built modules differ from the cross-built ones, but each is
+  reproducible on its own.
+- **Cross-compiled aarch64 on an x86_64 host** (since 2026-10-26): every build runs on the host's arch, and the aarch64
   sets link with the rust-cross images' target gcc (`release.sh` sets `CARGO_TARGET_<T>_LINKER`, since
   its own `CARGO_HOME` hides the image's config). Both aarch64 sets take about 108 s together, against
   about 39 min under qemu. The cross musl names libc `libc.so` in `DT_NEEDED`, not Alpine's
