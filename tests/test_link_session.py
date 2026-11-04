@@ -536,7 +536,8 @@ def test_hub_media_session_is_current_until_lost_or_closed(mod, socket_enabled):
 
 
 # ── Loading the real module ──────────────────────────────────────────────────
-REAL = os.path.join(ROOT, "vtech-link", "target", "debug", "lib_vtech_link.so")
+REAL = os.environ.get("VTECH_LINK_MODULE",
+                      os.path.join(ROOT, "vtech-link", "target", "debug", "lib_vtech_link.so"))
 
 
 @pytest.mark.skipif(not os.path.isfile(REAL), reason="vtech-link's Python module isn't built (py/tests/run.sh)")

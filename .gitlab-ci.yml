@@ -4,7 +4,7 @@
 # hassfest and the HACS check stay on the GitHub mirror (.github/workflows/validate.yml): hacs/action
 # runs only as a GitHub Action and reads the repository from GitHub's API.
 
-stages: [test, build]
+stages: [test, build, verify]
 
 workflow:
   rules:
@@ -37,8 +37,11 @@ vtech-link:
     # Every crate but syn at one version.
     - dup=$(cargo tree -d -e normal --workspace --locked --depth 0 --prefix none | sed -n 's/^\([A-Za-z0-9_-]*\) v.*/\1/p' | sort -u | grep -vx syn || true)
     - '[ -z "$dup" ] || { echo "duplicated crates: $dup"; exit 1; }'
+  artifacts:
+    paths: [vtech-link/target/debug/sim-camera]
+    expire_in: 1 day
 
-# The integration's offline tests, against the committed x86_64-glibc module.
+# The integration's offline tests, against a stand-in for the module.
 pytest:
   stage: test
   image: docker.io/library/python:3.14
@@ -95,3 +98,18 @@ build-aarch64:
   cache:
     key: build-aarch64
     paths: [vtech-link/build/cache/]
+
+# The module tests against the release build of x86_64-glibc, which has the profile that ships. The
+# needs make it wait for build-x86_64, which is manual outside tags; a later stage alone wouldn't.
+module-release:
+  stage: verify
+  image: docker.io/library/python:3.14
+  tags: [saas-linux-small-amd64]
+  needs: [vtech-link, build-x86_64]
+  variables:
+    VTECH_LINK_MODULE: $CI_PROJECT_DIR/vtech-link/dist/x86_64-glibc/_vtech_link.abi3.so
+    VTECH_SIM: $CI_PROJECT_DIR/vtech-link/target/debug/sim-camera
+  script:
+    - python3 -m venv .venv && .venv/bin/pip install -q pytest cryptography
+    - .venv/bin/python -m unittest discover -s vtech-link/py/tests -t vtech-link/py/tests
+    - .venv/bin/pytest tests/test_link_session.py -k test_load_the_real_module

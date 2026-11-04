@@ -118,6 +118,7 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 - **GitLab CI** (`.gitlab-ci.yml`, hosted runners): runs on tags and from the Run pipeline button, not on
   pushes, to save compute minutes, so run it by hand before tagging. The Rust and Python tests always
   run; `release.sh` per arch runs on tags and is manual otherwise, aarch64 natively on the arm64 runner.
+  `module-release` then runs the module tests against the release x86_64-glibc build.
 - **Try a change in HA:** copy `custom_components/vtech_baby` (only that) into a test instance's
   `custom_components/` and restart HA.
 
