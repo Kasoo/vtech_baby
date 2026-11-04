@@ -148,7 +148,20 @@ def serve(files: dict[str, bytes]):
             if body is None:
                 self.send_error(404)
                 return
+            if isinstance(body, tuple):                             # ("redirect", location)
+                self.send_response(302)
+                self.send_header("Location", body[1])
+                self.end_headers()
+                return
             self.send_response(200)
+            if self.path.startswith("/chunked/"):                   # as HA serves TTS being generated
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                for i in range(0, len(body), 4096):
+                    c = body[i:i + 4096]
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(c), c))
+                self.wfile.write(b"0\r\n\r\n")
+                return
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -179,6 +192,31 @@ def test_decodes_a_url_to_alaw_frames(socket_enabled):
     assert all(len(f) == 160 for f in frames)
     assert 49 <= len(frames) <= 51                                  # 1 s of 20 ms frames
     assert len(set(b"".join(frames))) > 20                          # a tone, not silence
+
+
+def test_decodes_a_chunked_response(socket_enabled):
+    _av()
+    from vtech_lan.audio import alaw_frames
+
+    with serve({"/chunked/tone.wav": wav(1.0)}) as base:
+        server_protocol = http.server.BaseHTTPRequestHandler.protocol_version
+        http.server.BaseHTTPRequestHandler.protocol_version = "HTTP/1.1"   # chunked needs 1.1
+        try:
+            frames = list(alaw_frames(f"{base}/chunked/tone.wav"))
+        finally:
+            http.server.BaseHTTPRequestHandler.protocol_version = server_protocol
+    assert all(len(f) == 160 for f in frames)
+    assert 49 <= len(frames) <= 51
+
+
+def test_a_redirect_off_http_is_refused(socket_enabled):
+    _av()
+    from vtech_lan.audio import alaw_frames
+
+    with serve({"/r": ("redirect", "file:///etc/passwd"), "/f": ("redirect", "ftp://host/x.wav")}) as base:
+        for p in ("/r", "/f"):
+            with pytest.raises(MediaError):
+                next(alaw_frames(base + p))
 
 
 def test_bad_media_urls(socket_enabled):

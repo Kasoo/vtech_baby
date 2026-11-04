@@ -200,7 +200,9 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   the LAN (`STALE_CREDS_FAILURES`) and then starts reauth, which asks for a fresh pairing QR.
 - **Post-connect IOCtrl stall.** Occasionally, a `0x731` write within about a minute of (re)connecting is
   followed by ~35–40 s with no replies. The session isn't lost and recovers by itself; the cause is
-  unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. Re-reads keep their
+  unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. It happened in HA
+  with a speaker volume write (`0x731` word2) about 25 s after the connect: for the next ~30 s,
+  `0x32b` (talk-back's audio format) and `0x736` (lullaby) got no reply. Re-reads keep their
   previous values and stop after two timeouts, and a write during the stall fails cleanly.
 - **A native crash in the module kills Home Assistant** (see "Decisions" for what can still cause
   one). A Rust panic doesn't: it loses that camera's session, which reconnects.
