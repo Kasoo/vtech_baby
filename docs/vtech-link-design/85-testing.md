@@ -107,7 +107,9 @@ exists only in debug builds, behind a cargo feature.
     adds frames, keyframes and the longest gap each second, and each keyframe whose SPS/PPS changed,
     with the size the SPS declares.
   - `restart` (read-only): reset/START/STOP cycles.
-  - `talk --silent`: A-law silence; still opens the speaker path, so it needs the owner's OK.
+  - `talk`: A-law silence (`--tone`: a quiet 440 Hz tone); still opens the speaker path, so it needs
+    the owner's OK. Built; it runs against `sim-camera` with `VTECH_SEARCH_PORT` and `VTECH_INTERFACE=lo`,
+    whose default script answers `GET_AUDIO_OUT_FORMAT`.
   - `--drop N` (debug builds only): drop every Nth inbound media or parity packet, like `TK_DROP`.
 - **The live probes** (`tests/live/probe_*.py`) test the integration's Python layers on a real camera:
   `phase1` (every GET, the event list, reconnects), `control`, `stall`, `stream` (`LiveStream` and

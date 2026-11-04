@@ -40,6 +40,8 @@ pub const OP_DEVINFO: u32 = 0x330;
 pub const OP_DEVINFO_REPLY: u32 = 0x331;
 pub const OP_GET_PARAMS: u32 = 0x733;
 pub const OP_GET_PARAMS_REPLY: u32 = 0x734;
+pub const OP_GET_AUDIO_OUT_FORMAT: u32 = 0x32a;
+pub const OP_GET_AUDIO_OUT_FORMAT_REPLY: u32 = 0x32b;
 pub const MODEL: &str = "RM5754";
 pub const VENDOR: &str = "vtech";
 /// The firmware version in `DEVINFO`, as its bytes read most significant first (`ops.py`).
@@ -78,11 +80,17 @@ pub fn devinfo() -> Vec<u8> {
     r
 }
 
-/// The default script: `DEVINFO` and `GET_PARAMS`; anything else gets no reply.
+/// The default script: `DEVINFO`, `GET_PARAMS` and `GET_AUDIO_OUT_FORMAT` (G.711 A-law, 8 kHz, as the
+/// camera answers it); anything else gets no reply.
 pub fn default_replies(typ: u32, _payload: &[u8]) -> Vec<(u32, Vec<u8>)> {
     match typ {
         OP_DEVINFO => vec![(OP_DEVINFO_REPLY, devinfo())],
         OP_GET_PARAMS => vec![(OP_GET_PARAMS_REPLY, (0..64).collect())],
+        // channel 0, codec 0x8a, sample-rate index 0, 16 data bits (1), mono (0), server channel 0
+        OP_GET_AUDIO_OUT_FORMAT => vec![(
+            OP_GET_AUDIO_OUT_FORMAT_REPLY,
+            vec![0, 0, 0, 0, 0x8a, 0, 0, 0, 0, 1, 0, 0],
+        )],
         _ => Vec::new(),
     }
 }

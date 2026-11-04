@@ -9,10 +9,14 @@
 //!                                               differ from the last, with the SPS's size)
 //!   vtech-link restart [camera-ip] [cycles]     live-view reset/START/STOP cycles on one link: each
 //!                                               must start on a keyframe with SPS
+//!   vtech-link talk    [camera-ip] [seconds]    talk-back: open the speaker and send A-law silence
+//!                                               (`--tone`: a quiet 440 Hz tone, which the camera plays)
 //!
-//! `--drop N` and `--per-second` may come in any position. `--drop N` drops every Nth inbound media or parity packet, to exercise parity
+//! `VTECH_SEARCH_PORT` and `VTECH_INTERFACE` point it at the simulated camera (`sim-camera`, with `lo`).
+//!
+//! `--drop N`, `--per-second` and `--tone` may come in any position. `--drop N` drops every Nth inbound media or parity packet, to exercise parity
 //! rebuilding and resends on a clean network. `VTECH_LOG=debug` for more. Nothing here changes a camera
-//! setting or makes light or sound.
+//! setting or makes light; only `talk --tone` makes sound (`talk` alone still opens the speaker path).
 
 use std::net::Ipv4Addr;
 use std::process::ExitCode;
@@ -32,6 +36,13 @@ const AUDIO_STOP: u32 = 0x301;
 const VIDEO_FULLRATE: u32 = 0x719;
 const GET_STREAM_CTRL: u32 = 0x322;
 const GET_STREAM_CTRL_REPLY: u32 = 0x323;
+const GET_AUDIO_OUT_FORMAT: u32 = 0x32a;
+const GET_AUDIO_OUT_FORMAT_REPLY: u32 = 0x32b;
+const SPEAKER_START: u32 = 0x350;
+const SPEAKER_STOP: u32 = 0x351;
+const CODEC_ALAW: i32 = 0x8a;
+const ALAW_SILENCE: u8 = 0xd5;
+const TALK_FRAME: usize = 160; // 20 ms of 8 kHz A-law
 const CHANNEL_0: [u8; 8] = [0; 8];
 
 struct StderrLog(log::LevelFilter, Instant);
@@ -64,6 +75,11 @@ fn config(peer: Option<Ipv4Addr>, drop: u32) -> Result<LinkConfig, String> {
     let mut c = LinkConfig::new(&env("VTECH_UID")?, &env("VTECH_AUTHKEY")?, &env("VTECH_PWD")?);
     c.peer_hint = peer;
     c.drop_media_every = drop;
+    // For the simulated camera: its search port, and loopback.
+    if let Ok(port) = std::env::var("VTECH_SEARCH_PORT") {
+        c.search_port = port.parse().map_err(|e| format!("VTECH_SEARCH_PORT: {e}"))?;
+    }
+    c.interface = std::env::var("VTECH_INTERFACE").ok();
     Ok(c)
 }
 
@@ -558,6 +574,104 @@ fn restart(link: &Link, cycles: u64) -> Result<(), String> {
     }
 }
 
+/// G.711 A-law of one 16-bit sample.
+fn alaw(sample: i16) -> u8 {
+    let sign: u32 = if sample >= 0 { 0x80 } else { 0 };
+    let mag = i32::from(sample).unsigned_abs().min(32635) >> 3; // 13-bit magnitude
+    let byte = if mag < 32 {
+        mag >> 1
+    } else {
+        let exp = 31 - mag.leading_zeros() - 4; // 1..=7
+        (exp << 4) | ((mag >> exp) & 0x0f)
+    };
+    u8::try_from(((byte | sign) ^ 0x55) & 0xff).unwrap_or(ALAW_SILENCE)
+}
+
+/// `seconds` of 20 ms A-law frames: silence, or a 440 Hz tone at about -20 dBFS.
+#[allow(clippy::cast_possible_truncation)] // the tone's samples are within ±3300
+fn talk_frames(seconds: u64, tone: bool) -> Vec<Vec<u8>> {
+    let n = usize::try_from(seconds * 50).unwrap_or(0);
+    (0..n)
+        .map(|f| {
+            (0..TALK_FRAME)
+                .map(|i| {
+                    if !tone {
+                        return ALAW_SILENCE;
+                    }
+                    let t = (f * TALK_FRAME + i) as f64 / 8000.0;
+                    alaw((3300.0 * (2.0 * std::f64::consts::PI * 440.0 * t).sin()) as i16)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Talk-back as the integration does it: check the uplink format, open the channel, stop the camera's
+/// audio, announce the channel (SPEAKERSTART), wait for the camera to log in, send, drain, SPEAKERSTOP.
+fn talk(link: &Link, seconds: u64, tone: bool) -> Result<(), String> {
+    let r = link
+        .request(
+            GET_AUDIO_OUT_FORMAT,
+            &CHANNEL_0,
+            GET_AUDIO_OUT_FORMAT_REPLY,
+            Duration::from_secs(5),
+        )
+        .map_err(|e| format!("GET_AUDIO_OUT_FORMAT: {e}"))?;
+    let codec = r
+        .get(4..8)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(i32::from_le_bytes);
+    let rate_idx = r.get(8).copied().unwrap_or(0);
+    let shown = codec.map_or_else(|| "missing".to_owned(), |c| format!("{c:#x}"));
+    println!("audio out format: codec {shown}, sample rate index {rate_idx}");
+    if codec != Some(CODEC_ALAW) || rate_idx != 0 {
+        return Err("uplink format is not G.711 A-law 8 kHz".into());
+    }
+    let t0 = Instant::now();
+    let tb = link
+        .talkback(Duration::from_secs(5))
+        .map_err(|e| format!("talk-back open: {e}"))?;
+    let send = |typ, p: &[u8]| {
+        link.send(typ, p, Duration::from_secs(5))
+            .map_err(|e| format!("send 0x{typ:x}: {e}"))
+    };
+    let mut channel = [0u8; 8];
+    channel[..4].copy_from_slice(&u32::from(tb.channel).to_le_bytes());
+    send(AUDIO_STOP, &CHANNEL_0)?;
+    send(SPEAKER_START, &channel)?;
+    let result = (|| {
+        tb.accept(Duration::from_secs(10))
+            .map_err(|e| format!("talk-back accept: {e}"))?;
+        println!(
+            "talk-back on channel {} accepted in {} ms",
+            tb.channel,
+            t0.elapsed().as_millis()
+        );
+        let frames = talk_frames(seconds, tone);
+        let sending = Instant::now();
+        for f in &frames {
+            tb.send(f, Duration::from_secs(5))
+                .map_err(|e| format!("talk-back send: {e}"))?;
+        }
+        tb.close(true, Duration::from_secs(10))
+            .map_err(|e| format!("talk-back close: {e}"))?;
+        println!(
+            "sent {} frames ({} s of {}) in {} ms",
+            frames.len(),
+            seconds,
+            if tone { "tone" } else { "silence" },
+            sending.elapsed().as_millis()
+        );
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = tb.close(false, Duration::from_secs(2));
+    }
+    send(SPEAKER_STOP, &channel)?;
+    print_stats(link);
+    result
+}
+
 fn print_stats(link: &Link) {
     match link.stats(Duration::from_secs(2)) {
         Ok(s) => println!("stats: {s:#?}"),
@@ -569,6 +683,7 @@ fn run(args: &[String]) -> Result<(), String> {
     // `--drop N` and `--per-second` may come anywhere; the rest are positional.
     let mut drop = 0;
     let mut per_second = false;
+    let mut tone = false;
     let mut positional = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -577,6 +692,8 @@ fn run(args: &[String]) -> Result<(), String> {
             drop = n.parse::<u32>().map_err(|e| format!("--drop: {e}"))?;
         } else if a == "--per-second" {
             per_second = true;
+        } else if a == "--tone" {
+            tone = true;
         } else {
             positional.push(a.clone());
         }
@@ -602,6 +719,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "watch" => devinfo(&link).and_then(|()| watch(&link, seconds.unwrap_or(60))),
         "stream" => devinfo(&link).and_then(|()| stream(&link, seconds.unwrap_or(30), per_second)),
         "restart" => devinfo(&link).and_then(|()| restart(&link, seconds.unwrap_or(25))),
+        "talk" => devinfo(&link).and_then(|()| talk(&link, seconds.unwrap_or(3), tone)),
         other => Err(format!("unknown command {other}")),
     };
     let t0 = Instant::now();
@@ -636,6 +754,54 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// G.711 A-law decoding (the reference `alaw2linear`).
+    fn alaw_decode(a: u8) -> i32 {
+        let a = a ^ 0x55;
+        let seg = i32::from((a & 0x70) >> 4);
+        let mut t = i32::from(a & 0x0f) << 4;
+        t += if seg == 0 { 8 } else { 0x108 };
+        if seg > 1 {
+            t <<= seg - 1;
+        }
+        if a & 0x80 != 0 { t } else { -t }
+    }
+
+    #[test]
+    fn alaw_matches_g711() {
+        // Codes from ffmpeg's pcm_alaw where it and the truncating reference encoder agree.
+        for (s, a) in [
+            (0i16, 0xd5u8),
+            (-1, 0x55),
+            (8, 0xd5),
+            (32, 0xd7),
+            (256, 0xc5),
+            (-256, 0x45),
+            (1000, 0xfa),
+            (-1000, 0x7a),
+            (32767, 0xaa),
+            (-32768, 0x2a),
+        ] {
+            assert_eq!(alaw(s), a, "sample {s}");
+        }
+        // Every sample decodes back within its segment's step.
+        for s in (i32::from(i16::MIN)..=i32::from(i16::MAX)).step_by(3) {
+            let x = i16::try_from(s).unwrap();
+            let err = (alaw_decode(alaw(x)) - s).abs();
+            let step = (s.abs() / 16).max(16);
+            assert!(
+                err <= step,
+                "sample {s}: decoded {} (error {err})",
+                alaw_decode(alaw(x))
+            );
+        }
+        assert!(
+            talk_frames(1, false)
+                .iter()
+                .all(|f| f.len() == TALK_FRAME && f.iter().all(|&b| b == ALAW_SILENCE))
+        );
+        assert_eq!(talk_frames(2, true).len(), 100);
+    }
 
     fn unhex(s: &str) -> Vec<u8> {
         (0..s.len())
