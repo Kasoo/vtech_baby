@@ -115,8 +115,9 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
   tarball over one SSH session, so the key is touched once).
 - **hassfest:** `podman run --rm -v "$PWD:/github/workspace:ro,Z" ghcr.io/home-assistant/hassfest` from
   the root. The GitHub mirror's CI (`.github/workflows/validate.yml`) runs it and the HACS check.
-- **GitLab CI** (`.gitlab-ci.yml`, hosted runners): the Rust and Python tests when their part of the
-  tree changes; `release.sh` per arch on tags or by hand, aarch64 natively on the arm64 runner.
+- **GitLab CI** (`.gitlab-ci.yml`, hosted runners): runs on tags and from the Run pipeline button, not on
+  pushes, to save compute minutes, so run it by hand before tagging. The Rust and Python tests always
+  run; `release.sh` per arch runs on tags and is manual otherwise, aarch64 natively on the arm64 runner.
 - **Try a change in HA:** copy `custom_components/vtech_baby` (only that) into a test instance's
   `custom_components/` and restart HA.
 

@@ -1,5 +1,5 @@
-# CI on GitLab.com's hosted runners. Free namespaces get 400 compute minutes a month, so each test job
-# runs only when its part of the tree changes, and the module builds run on tags or by hand.
+# CI on GitLab.com's hosted runners. Free namespaces get 400 compute minutes a month, so pipelines run
+# only on tags and from the Run pipeline button. In a button pipeline the module builds are manual.
 #
 # hassfest and the HACS check stay on the GitHub mirror (.github/workflows/validate.yml): hacs/action
 # runs only as a GitHub Action and reads the repository from GitHub's API.
@@ -8,9 +8,8 @@ stages: [test, build]
 
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "web"
 
 variables:
   GIT_DEPTH: "50"
@@ -23,9 +22,6 @@ vtech-link:
   stage: test
   image: docker.io/library/rust:1.99.1
   tags: [saas-linux-small-amd64]
-  rules:
-    - if: $CI_COMMIT_TAG
-    - changes: [vtech-link/**/*, .gitlab-ci.yml]
   cache:
     key: vtech-link-test
     paths: [.cache/cargo, vtech-link/target]
@@ -47,9 +43,6 @@ pytest:
   stage: test
   image: docker.io/library/python:3.14
   tags: [saas-linux-small-amd64]
-  rules:
-    - if: $CI_COMMIT_TAG
-    - changes: [custom_components/**/*, tests/**/*, requirements_test.txt, pytest.ini, .gitlab-ci.yml]
   cache:
     key: pytest
     paths: [.cache/pip]
