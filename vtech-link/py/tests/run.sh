@@ -5,5 +5,5 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$HERE/../.."
-PATH=$HOME/.cargo/bin:$PATH cargo build -q -p vtech-link-py -p vtech-link-sim --bin sim-camera
+PATH=$HOME/.cargo/bin:$PATH cargo build -q -p vtech-link-py -p vtech-link-sim --lib --bin sim-camera
 exec python3 -m unittest discover -s "$HERE" -t "$HERE" "$@"
