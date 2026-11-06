@@ -118,9 +118,10 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
   `module-release` then runs the module tests against the release x86_64-glibc build.
 - **Try a change in HA:** copy `custom_components/vtech_baby` (only that) into a test instance's
   `custom_components/` and restart HA.
-- **Try an unpublished `vtech-link` in HA:** with HA running, `uv pip install --target` the wheel into the
-  container's user site (`python3 -m site --user-site`), then restart HA from inside (`homeassistant.restart`).
-  It is lost when the container is recreated; HA then installs the pinned version from PyPI.
+- **Try an unpublished `vtech-link` in HA:** with HA running, `python3 -m uv pip install` the wheel inside the
+  container (the image sets `UV_SYSTEM_PYTHON`, so it lands in `/usr/local`, where HA's own installs go), then
+  restart HA from inside (`homeassistant.restart`). It is lost when the container is recreated; HA then
+  installs the pinned version from PyPI.
 
 ## Conventions
 
