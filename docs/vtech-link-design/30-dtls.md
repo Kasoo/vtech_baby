@@ -133,7 +133,7 @@ It adds `TLS_PSK_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1
 
 **The prototype**, `vtech-link/prototypes/dtls-camera/`, is about 500 lines. It is a minimal IOTC session
 (the scramble checked against the kit's worked example; probe, record, connect ack, data), dimpl's PSK
-client on channel 0, the AV login, and a DEVINFO request. It was run from the NAS against the camera,
+client on channel 0, the AV login, and a DEVINFO request. It was run from a host on the camera's LAN,
 read-only:
 
 | Run | Result |

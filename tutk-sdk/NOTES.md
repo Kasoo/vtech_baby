@@ -80,7 +80,7 @@ Offline tests: `../.venv/bin/pytest` from this directory (its `pytest.ini` turns
 plugins, which block sockets). They load all three of ours in-process (fixtures `g`, `iotc`, `av`,
 `tk`), and check that every mix of ours and stock loads, each mix in its own process.
 
-Live (on the NAS, in the HA image; read-only probes only):
+Live (in the HA image on the camera's LAN; read-only probes only):
 
 ```sh
 cd ../tests/live && . $CAMERA_DIR/.camera.env && TK_TRACE=1 \
@@ -145,7 +145,7 @@ In IOTC, where the kit leaves a choice open (to revisit when it is pinned):
 ## AV status (2026-10-20, uncommitted)
 
 All 14 exports are written, including the talk-back server. All three of our libraries pass, in the
-HA image on the NAS (musl), against the camera:
+HA image (musl) on the camera's LAN, against the camera:
 - `probe_phase1`;
 - `probe_stream`: snapshots, H.264/AAC, go2rtc RTSP and Opus, no bad frames;
 - `probe_sps`: 10 fps, a keyframe every 2 s;

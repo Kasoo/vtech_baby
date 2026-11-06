@@ -112,7 +112,7 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
   comes first by default, ignores `rust-toolchain.toml` (1.99.1) and mixes compilers in one `target/`
   (stale builds, or "compiled by an incompatible version of rustc" from clippy). Tests: `cargo test
   --workspace`; the Python module's tests: `vtech-link/py/tests/run.sh`. Live probes with the CLI from
-  the NAS, and A/B runs against `tutk-host`: `docs/vtech-link-design/86-live-losses.md`, "Method" (one
+  a host on the camera's LAN, and A/B runs against `tutk-host`: `docs/vtech-link-design/86-live-losses.md`, "Method" (one
   tarball over one SSH session, so the key is touched once).
 - **hassfest:** `podman run --rm -v "$PWD:/github/workspace:ro,Z" ghcr.io/home-assistant/hassfest` from
   the root. The GitHub mirror's CI (`.github/workflows/validate.yml`) runs it and the HACS check.

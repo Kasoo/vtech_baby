@@ -44,7 +44,7 @@ podman run --rm -v "$PWD":/src:z -w /src docker.io/library/alpine:3.24 \
 ../.venv/bin/pytest        # offline, against the glibc build
 ```
 
-Live, in the HA image on the NAS (the loader takes a directory without `libtk.so` as a host-built set):
+Live, in the HA image on the camera's LAN (the loader takes a directory without `libtk.so` as a host-built set):
 
 ```sh
 cd ../tests/live && . $CAMERA_DIR/.camera.env && \

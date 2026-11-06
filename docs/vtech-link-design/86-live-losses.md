@@ -8,7 +8,7 @@ them (below, "Open").
 
 ## Method
 
-Everything ran from the NAS (on the camera's LAN segment, 192.0.2.10), read-only, at **720p**: the
+Everything ran from a host on the camera's LAN segment (the camera at 192.0.2.10), read-only, at **720p**: the
 camera reported quality 1 throughout, and the resolution wasn't changed. None of these runs is the
 Phase 2 1080p run.
 
@@ -21,7 +21,7 @@ Phase 2 1080p run.
   receive counters, and logs any gap of 500 ms or more between video frames. The shipped release set
   (`native/x86_64-musl`, `tutk-host` `e280503`) ran B; the debug build (`tutk-host/build/x86_64-musl-debug`,
   2026-10-21, with `TK_DROP` and `TK_TRACE`) ran D, E and F.
-- Each batch went to the NAS as one tarball over one SSH session (`tar | ssh nas 'mktemp; tar -x; sh run.sh'`),
+- Each batch went to that host as one tarball over one SSH session (`tar | ssh $HOST 'mktemp; tar -x; sh run.sh'`),
   so it needed one key touch. The credentials travelled in a file the script deletes as soon as it has
   read it. The bundles and full logs were in the session's scratchpad and aren't kept.
 - In runs B and D the probe printed "connected in 0 ms", a bug in the f-string's order (fixed in

@@ -121,7 +121,7 @@ exists only in debug builds, behind a cargo feature.
 
 ### First live runs (2026-10-22, read-only)
 
-The whole Rust stack, static musl `vtech-link` built on the workstation, run on the NAS against the
+The whole Rust stack, static musl `vtech-link` built on the workstation, run on a host on the camera's LAN against the
 camera while HA's own session and the parent unit were up:
 
 ```sh
