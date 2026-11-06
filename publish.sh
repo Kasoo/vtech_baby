@@ -8,7 +8,9 @@
 # skips what is already done.
 #
 # Needs curl, jq and uv. Credentials stay on this machine: twine reads the PyPI token (TWINE_PASSWORD or
-# ~/.pypirc), and the GitHub token is GITHUB_TOKEN or else gh's.
+# ~/.pypirc), and the GitHub token is GITHUB_TOKEN or else gh's. GitLab needs no token, but anonymous API
+# traffic has an hourly limit: GITLAB_TOKEN, or the keyring's https://gitlab.com / __token__ slot, avoids it
+# (a token with read_api).
 set -eu
 export LC_ALL=C
 
@@ -27,6 +29,15 @@ confirm() {
   [ "$answer" = y ] || die "stopped"
 }
 github() { curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
+# The token goes in over stdin to stay out of the process list, and as Authorization because curl drops that
+# header when a download redirects to another host.
+gitlab() {
+  if [ -n "$GITLAB_TOKEN" ]; then
+    printf 'Authorization: Bearer %s\n' "$GITLAB_TOKEN" | curl -H @- "$@"
+  else
+    curl "$@"
+  fi
+}
 
 dry_run=
 if [ "${1:-}" = --dry-run ]; then dry_run=1; shift; fi
@@ -38,7 +49,8 @@ rm -rf "$work"
 mkdir -p "$work"
 
 # The release and its assets.
-status=$(curl -sS -o "$work/release.json" -w '%{http_code}' "$GITLAB_API/releases/$tag")
+GITLAB_TOKEN=${GITLAB_TOKEN:-$(uvx keyring get https://gitlab.com __token__ 2>/dev/null || true)}
+status=$(gitlab -sS -o "$work/release.json" -w '%{http_code}' "$GITLAB_API/releases/$tag")
 case $status in
   200) ;;
   404) die "no GitLab release for $tag; has the tag's pipeline finished?" ;;
@@ -47,7 +59,7 @@ esac
 jq -r '.assets.links[] | [.name, (.direct_asset_url // .url)] | @tsv' "$work/release.json" > "$work/assets.tsv"
 [ -s "$work/assets.tsv" ] || die "the GitLab release has no assets"
 while IFS="$(printf '\t')" read -r name url; do
-  curl -fsSL "$url" -o "$work/$name"
+  gitlab -fsSL "$url" -o "$work/$name"
 done < "$work/assets.tsv"
 
 # The assets match their checksums and the tag's revision.
