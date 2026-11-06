@@ -38,7 +38,12 @@ rm -rf "$work"
 mkdir -p "$work"
 
 # The release and its assets.
-curl -fsS "$GITLAB_API/releases/$tag" -o "$work/release.json" || die "no GitLab release for $tag; has the tag's pipeline finished?"
+status=$(curl -sS -o "$work/release.json" -w '%{http_code}' "$GITLAB_API/releases/$tag")
+case $status in
+  200) ;;
+  404) die "no GitLab release for $tag; has the tag's pipeline finished?" ;;
+  *) die "GitLab answered $status" ;;
+esac
 jq -r '.assets.links[] | [.name, (.direct_asset_url // .url)] | @tsv' "$work/release.json" > "$work/assets.tsv"
 [ -s "$work/assets.tsv" ] || die "the GitLab release has no assets"
 while IFS="$(printf '\t')" read -r name url; do
