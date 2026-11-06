@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "vtech-link-cli"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "log",
  "vtech-link-core",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "vtech-link-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chacha20",
  "chacha20poly1305",
@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "vtech-link-py"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "log",
  "pyo3",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "vtech-link-sim"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "dimpl",
  "sha2",

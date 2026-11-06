@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "vtech-link-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chacha20",
  "chacha20poly1305",

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Load dist/SET/_vtech_link.abi3.so the way the integration will, in a throwaway container per set:
+# Load dist/SET/_vtech_link.abi3.so the way the integration will, then install dist/SET/*.whl with pip and
+# import it, in a throwaway container per set:
 #
 #   tools/ha_import_check.sh [SET...]      SET as for release.sh (default: all)
 #
@@ -36,6 +37,11 @@ else:
     raise SystemExit("_panic() did not raise")
 print("OK")'
 
+WHEEL_CHECK='
+import _vtech_link as m
+assert m.lan_only_stats() == {"refused_sends": 0, "refused_lookups": 0}
+print("wheel OK", m.__file__)'
+
 for set in "$@"; do
   arch=${set%-*}
   libc=${set#*-}
@@ -46,5 +52,8 @@ for set in "$@"; do
     uname -m
     python3 -V
     (ldd --version 2>&1 || true) | head -1
-    python3 -c '$CHECK'"
+    python3 -c '$CHECK'
+    python3 -m venv /tmp/wheel
+    /tmp/wheel/bin/pip install -q --no-index --no-deps /dist/*.whl
+    cd /tmp && /tmp/wheel/bin/python -c '$WHEEL_CHECK'"
 done

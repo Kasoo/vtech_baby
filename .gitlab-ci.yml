@@ -4,7 +4,7 @@
 # hassfest and the HACS check stay on the GitHub mirror (.github/workflows/validate.yml): hacs/action
 # runs only as a GitHub Action and reads the repository from GitHub's API.
 
-stages: [test, build, verify]
+stages: [test, build, verify, release]
 
 workflow:
   rules:
@@ -15,6 +15,16 @@ variables:
   GIT_DEPTH: "50"
   CARGO_HOME: $CI_PROJECT_DIR/.cache/cargo
   PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+
+# A release tag has to match every recorded version, checked before any compute minutes go on the builds.
+version-check:
+  stage: .pre
+  image: docker.io/library/python:3.14
+  tags: [saas-linux-small-amd64]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/
+  script:
+    - ./set_version.py --check "$CI_COMMIT_TAG"
 
 # Workspace tests (simulator scenarios, OpenSSL interop), clippy, the fuzz targets' check and the
 # Python module's tests.
@@ -113,3 +123,29 @@ module-release:
     - python3 -m venv .venv && .venv/bin/pip install -q pytest cryptography
     - .venv/bin/python -m unittest discover -s vtech-link/py/tests -t vtech-link/py/tests
     - .venv/bin/pytest tests/test_link_session.py -k test_load_the_real_module
+
+# A version tag makes a GitLab release: the wheels, their checksums and the revision, stored in the
+# package registry because job artifacts expire. CI holds no PyPI or GitHub credentials; publish.sh takes
+# the release from here to both.
+gitlab-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/cli:v1.128.0
+  tags: [saas-linux-small-amd64]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/
+  needs:
+    - job: build-x86_64
+    - job: build-aarch64
+    - job: module-release
+      artifacts: false
+    - job: pytest
+      artifacts: false
+  variables:
+    GLAB_ENABLE_CI_AUTOLOGIN: "true"
+  script:
+    - mkdir release-assets
+    - cp vtech-link/dist/*/*.whl release-assets/
+    - (cd release-assets && sha256sum *.whl > SHA256SUMS)
+    - echo "$CI_COMMIT_SHA" > release-assets/REVISION
+    - git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$CI_COMMIT_TAG" > notes.md
+    - glab release create "$CI_COMMIT_TAG" release-assets/* --name "$CI_COMMIT_TAG" --notes-file notes.md --ref "$CI_COMMIT_SHA" --no-update --use-package-registry --package-name vtech-link

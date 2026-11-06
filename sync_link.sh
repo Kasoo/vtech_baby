@@ -16,7 +16,7 @@ for set in "$@"; do
   cp "$HERE/vtech-link/dist/$set/_vtech_link.abi3.so" "$PKG/native/$set/"
 done
 # The notices of the crates linked into the module ship next to it (vtech-link/tools/licenses.sh).
-cp "$HERE/vtech-link/THIRD_PARTY_LICENSES.txt" "$PKG/native/"
+cp "$HERE/vtech-link/py/THIRD_PARTY_LICENSES.txt" "$PKG/native/"
 
 rev=$(git -C "$HERE" log -1 --format=%H -- vtech-link)
 dirty=$(git -C "$HERE" status --porcelain -- vtech-link | head -1)

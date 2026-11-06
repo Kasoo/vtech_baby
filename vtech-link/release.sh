@@ -11,7 +11,8 @@
 # both cached under build/cache/SET (SET-on-aarch64 on an aarch64 host, whose tools differ). RUN_OPTS is added to every `podman run` (CI passes --network=host).
 #
 # Builds the committed tree (git archive of REV, default HEAD at start), not the working tree, unless
-# WORKTREE=1. Each set is built twice and the two hashes compared. Writes dist/SET/_vtech_link.abi3.so (stripped).
+# WORKTREE=1. Each set is built twice and the two hashes compared. Writes dist/SET/_vtech_link.abi3.so (stripped)
+# and the wheel it came from, dist/SET/*.whl.
 # maturin's auditwheel check covers the glibc sets. The musl sets skip it (it would graft libgcc_s), so every set is
 # checked here to need no library other than libc, libgcc_s and the glibc split-outs.
 set -e
@@ -71,11 +72,12 @@ build() {
   (cd /src && maturin build --release --strip --locked --compatibility $compat $targetarg -m py/Cargo.toml -o /src/target/wheels) >&2
   python3 -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); n=[n for n in z.namelist() if n.endswith(\"_vtech_link.abi3.so\")]; assert len(n)==1, z.namelist(); open(sys.argv[2],\"wb\").write(z.read(n[0]))" \
     /src/target/wheels/*.whl "$1"
+  cp /src/target/wheels/*.whl "$2"
 }
-mkdir -p /dist
-build /dist/_vtech_link.abi3.so
-build /tmp/second.so
-if cmp -s /dist/_vtech_link.abi3.so /tmp/second.so; then echo "reproducible: yes"; else echo "reproducible: NO"; fi
+mkdir -p /dist /tmp/second
+build /dist/_vtech_link.abi3.so /dist
+build /tmp/second.so /tmp/second
+if cmp -s /dist/_vtech_link.abi3.so /tmp/second.so && cmp -s /dist/*.whl /tmp/second/*.whl; then echo "reproducible: yes"; else echo "reproducible: NO"; fi
 ' 
 
 for set in "$@"; do

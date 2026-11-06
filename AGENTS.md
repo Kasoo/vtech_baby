@@ -25,6 +25,7 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 | `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns; `social-preview.png` is the GitHub social preview, rendered from `brand-src/social.svg` and uploaded by hand (Settings → General → Social preview). |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork), `social.svg` (the social preview, built from the icon and `images/device.png`) and `render.sh` (needs inkscape and Open Sans) for `brand/` and `images/social-preview.png`. |
 | `sync_link.sh` | Builds vtech-link's `_vtech_link.abi3.so` (`vtech-link/release.sh`) and installs it into `native/<arch>-<libc>/`, recording the revision in `native/LINK_SOURCE`. |
+| `publish.sh` | Takes a GitLab release to PyPI and GitHub (see "Releases" below). |
 
 ## Read first
 
@@ -129,8 +130,29 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
   committed; open protocol questions and known issues go in "Design notes" below.
 - **GitLab is the primary repo** (remote `gitlab`). It push-mirrors to GitHub (remote `github`), which
   exists only for HACS. Push to GitLab only; a direct push to GitHub diverges from the mirror.
-- Releases are GitHub releases (HACS ignores bare tags). The tag matches `version` in `manifest.json`.
+- `vtech-link/py/LICENSE` is a copy of the root `LICENSE`, because `release.sh` builds from the `vtech-link/`
+  subtree alone. Change both together.
 - Nothing about any particular network or deployment belongs here.
+
+## Releases
+
+The integration and `vtech-link` share one version, and a tag `X.Y.Z` releases both. `vtech-link` stays in this
+repo and isn't published to crates.io: its only consumer is this integration, and it depends on the `dimpl`
+fork through `[patch.crates-io]`. HACS reads only GitHub releases and ignores bare tags.
+
+The first release is `0.3.0`, counting the two earlier designs: `0.1.0` was the vendor's SDK, `0.2.0` the
+drop-in SDK. Don't tag those numbers: any `X.Y.Z` tag starts a release pipeline.
+
+1. `./set_version.py X.Y.Z`, commit, then push the commit and the tag to GitLab. Its pipeline checks the versions, builds and tests the wheels, and `gitlab-release` creates the GitLab
+   release: the four wheels, `SHA256SUMS` and `REVISION`, stored in the package registry because job
+   artifacts expire. CI holds no PyPI or GitHub credentials.
+2. `./publish.sh --dry-run X.Y.Z` downloads and verifies the release: checksums, revision against the tag, one
+   wheel per target, the manifest's version and pin, `twine check`, and any wheel already on PyPI.
+3. `./publish.sh X.Y.Z` uploads to PyPI, then creates the GitHub release. PyPI comes first so the version HACS
+   offers can always be installed. It asks before each step, and a rerun skips what is done.
+
+Credentials are local: a PyPI token for twine (`TWINE_PASSWORD` or `~/.pypirc`) and `GITHUB_TOKEN`, a
+fine-grained token with Contents: write on the mirror.
 
 ## Design notes
 
