@@ -151,8 +151,9 @@ drop-in SDK. Don't tag those numbers: any `X.Y.Z` tag starts a release pipeline.
 3. `./publish.sh X.Y.Z` uploads to PyPI, then creates the GitHub release. PyPI comes first so the version HACS
    offers can always be installed. It asks before each step, and a rerun skips what is done.
 
-Credentials are local: a PyPI token for twine (`TWINE_PASSWORD` or `~/.pypirc`) and `GITHUB_TOKEN`, a
-fine-grained token with Contents: write on the mirror.
+Credentials are local: twine finds the PyPI token in the keyring (service
+`https://upload.pypi.org/legacy/`, username `__token__`) or in `TWINE_PASSWORD`, and the GitHub token is
+`GITHUB_TOKEN` or else `gh`'s.
 
 ## Design notes
 
