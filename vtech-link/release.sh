@@ -20,7 +20,7 @@ export LC_ALL=C
 HERE=$(cd "$(dirname "$0")" && pwd)
 ALPINE=docker.io/library/alpine:3.24
 CROSS=ghcr.io/rust-cross
-MATURIN=${MATURIN:-1.15.0}
+MATURIN=${MATURIN:-1.16.0}
 [ $# -gt 0 ] || set -- x86_64-glibc aarch64-glibc x86_64-musl aarch64-musl
 TOP=$(git -C "$HERE" rev-parse --show-toplevel)
 REV=${REV:-$(git -C "$HERE" rev-parse HEAD)}   # one revision for every set

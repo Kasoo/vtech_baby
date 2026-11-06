@@ -194,18 +194,18 @@ impl DtlsClient {
     }
 
     pub fn handle_timeout(&mut self, now: Instant) {
-        if let Phase::Finished(deadline) = self.phase {
-            if now >= deadline {
-                return self.end(LinkError::AvAuthFailed(AvAuthStage::Dtls(None)));
-            }
+        if let Phase::Finished(deadline) = self.phase
+            && now >= deadline
+        {
+            return self.end(LinkError::AvAuthFailed(AvAuthStage::Dtls(None)));
         }
         if self.is_ended() {
             return;
         }
-        if self.dimpl_timeout.is_none_or(|t| now >= t) {
-            if let Err(e) = self.dtls.handle_timeout(now) {
-                return self.on_error(e);
-            }
+        if self.dimpl_timeout.is_none_or(|t| now >= t)
+            && let Err(e) = self.dtls.handle_timeout(now)
+        {
+            return self.on_error(e);
         }
         self.pump(now);
     }

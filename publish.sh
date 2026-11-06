@@ -16,7 +16,7 @@ GITLAB_API=${GITLAB_API:-https://gitlab.com/api/v4/projects/jonathanduncan%2Fvte
 GITHUB_API=${GITHUB_API:-https://api.github.com/repos/Kasoo/vtech_baby}
 GITHUB_GIT=${GITHUB_GIT:-https://github.com/Kasoo/vtech_baby.git}
 PYPI_JSON=${PYPI_JSON:-https://pypi.org/pypi/vtech-link}
-TWINE=${TWINE:-uvx twine@6.2.0}
+TWINE=${TWINE:-uvx twine@7.0.0}
 MIRROR_WAIT=${MIRROR_WAIT:-600}   # seconds to wait for the tag to reach the GitHub mirror
 MANIFEST=custom_components/vtech_baby/manifest.json
 

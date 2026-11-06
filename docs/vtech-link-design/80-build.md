@@ -82,7 +82,7 @@ dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
 | `x86_64-musl` | `docker.io/library/alpine:3.24` + rustup | `x86_64-unknown-linux-musl`, `-C target-feature=-crt-static` | musllinux_1_2 |
 | `aarch64-musl` | `ghcr.io/rust-cross/rust-musl-cross:aarch64-musl` + rustup (cross) | `aarch64-unknown-linux-musl`, `-crt-static` | musllinux_1_2 |
 
-- Built with **maturin** 1.15.0 from pip (`maturin build --release --strip --locked --compatibility <tag>`),
+- Built with **maturin** 1.16.0 from pip (`maturin build --release --strip --locked --compatibility <tag>`),
   with the toolchain pinned by `rust-toolchain.toml` installed by rustup in every container (Alpine's own
   rust is not used). Musl passes `--auditwheel skip`, since maturin would otherwise graft `libgcc_s` into
   the wheel; `release.sh`'s own `DT_NEEDED` check replaces it. The `.so` is taken out of the wheel: we ship the file, not a wheel (below).

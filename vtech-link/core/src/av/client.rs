@@ -227,11 +227,11 @@ impl AvClient {
                     payload,
                 } => {
                     let seq = packet::get16(&payload, 0);
-                    if let Some((want, _)) = self.reset {
-                        if seq == Some(want) {
-                            self.reset = None;
-                            self.events.push_back(AvEvent::ResetDone { confirmed: true });
-                        }
+                    if let Some((want, _)) = self.reset
+                        && seq == Some(want)
+                    {
+                        self.reset = None;
+                        self.events.push_back(AvEvent::ResetDone { confirmed: true });
                     }
                 }
                 ControlEvent::Message { .. } => self.packets_ignored += 1,
@@ -391,12 +391,12 @@ impl AvClient {
                 if self.ack_at.is_some_and(|t| now >= t) || now >= self.last_ack + self.config.ack_idle {
                     self.send_ack(now);
                 }
-                if let Some((_, deadline)) = self.reset {
-                    if now >= deadline {
-                        self.reset = None;
-                        self.reset_timeouts += 1;
-                        self.events.push_back(AvEvent::ResetDone { confirmed: false });
-                    }
+                if let Some((_, deadline)) = self.reset
+                    && now >= deadline
+                {
+                    self.reset = None;
+                    self.reset_timeouts += 1;
+                    self.events.push_back(AvEvent::ResetDone { confirmed: false });
                 }
             }
         }

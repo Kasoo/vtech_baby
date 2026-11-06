@@ -53,12 +53,11 @@ fn read_interfaces() -> Vec<Interface> {
 /// The host's IPv4 interfaces, read at most once a second.
 pub fn interfaces() -> Vec<Interface> {
     let now = Instant::now();
-    if let Ok(cache) = CACHE.read() {
-        if let Some((at, list)) = cache.as_ref() {
-            if now.saturating_duration_since(*at) < REFRESH {
-                return list.clone();
-            }
-        }
+    if let Ok(cache) = CACHE.read()
+        && let Some((at, list)) = cache.as_ref()
+        && now.saturating_duration_since(*at) < REFRESH
+    {
+        return list.clone();
     }
     let list = read_interfaces();
     if let Ok(mut cache) = CACHE.write() {
@@ -82,11 +81,11 @@ pub fn check(dst: Ipv4Addr) -> bool {
     }
     REFUSED_SENDS.fetch_add(1, Ordering::Relaxed);
     let now = Instant::now();
-    if let Ok(mut last) = LAST_WARNING.lock() {
-        if last.is_none_or(|t| now.saturating_duration_since(t) >= WARN_EVERY) {
-            *last = Some(now);
-            log::warn!("refused a send to {dst}: not on a directly attached subnet");
-        }
+    if let Ok(mut last) = LAST_WARNING.lock()
+        && last.is_none_or(|t| now.saturating_duration_since(t) >= WARN_EVERY)
+    {
+        *last = Some(now);
+        log::warn!("refused a send to {dst}: not on a directly attached subnet");
     }
     false
 }

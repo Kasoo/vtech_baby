@@ -68,15 +68,15 @@ fn tail_order(n: usize) -> Option<&'static [usize]> {
 
 fn load(block: &[u8]) -> [u32; 4] {
     let mut w = [0u32; 4];
-    for (w, c) in w.iter_mut().zip(block.chunks_exact(4)) {
-        *w = <[u8; 4]>::try_from(c).map_or(0, u32::from_le_bytes);
+    for (w, c) in w.iter_mut().zip(block.as_chunks::<4>().0) {
+        *w = u32::from_le_bytes(*c);
     }
     w
 }
 
 fn store(block: &mut [u8], w: [u32; 4]) {
-    for (c, w) in block.chunks_exact_mut(4).zip(w) {
-        c.copy_from_slice(&w.to_le_bytes());
+    for (c, w) in block.as_chunks_mut::<4>().0.iter_mut().zip(w) {
+        *c = w.to_le_bytes();
     }
 }
 
@@ -96,15 +96,14 @@ pub fn scramble(buf: &mut [u8], prefix: usize) {
     let Some(head) = buf.get_mut(..prefix.min(buf.len())) else {
         return;
     };
-    let mut blocks = head.chunks_exact_mut(16);
-    for block in &mut blocks {
+    let (blocks, tail) = head.as_chunks_mut::<16>();
+    for block in blocks {
         let mut b = load(block);
         for ((b, rot), k) in b.iter_mut().zip(ROT).zip(KEY_WORDS) {
             *b = b.rotate_right(rot) ^ k;
         }
         store(block, permute(b));
     }
-    let tail = blocks.into_remainder();
     let mut tmp = [0u8; 16];
     for ((t, x), k) in tmp.iter_mut().zip(tail.iter()).zip(KEY) {
         *t = x ^ k;
@@ -128,15 +127,14 @@ pub fn unscramble(buf: &mut [u8], prefix: usize) {
     let Some(head) = buf.get_mut(..prefix.min(buf.len())) else {
         return;
     };
-    let mut blocks = head.chunks_exact_mut(16);
-    for block in &mut blocks {
+    let (blocks, tail) = head.as_chunks_mut::<16>();
+    for block in blocks {
         let mut b = unpermute(load(block));
         for ((b, rot), k) in b.iter_mut().zip(ROT).zip(KEY_WORDS) {
             *b = (*b ^ k).rotate_left(rot);
         }
         store(block, b);
     }
-    let tail = blocks.into_remainder();
     let mut tmp = [0u8; 16];
     match tail_order(tail.len()) {
         Some(order) => {

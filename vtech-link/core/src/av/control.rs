@@ -192,11 +192,11 @@ impl ControlStream {
             if seq_after16(frame16, acked) {
                 break;
             }
-            if let Some(done) = self.inflight.pop_front() {
-                if let Some(id) = done.id {
-                    self.record_latency(now.saturating_duration_since(done.first_sent));
-                    self.events.push_back(ControlEvent::Acked(id));
-                }
+            if let Some(done) = self.inflight.pop_front()
+                && let Some(id) = done.id
+            {
+                self.record_latency(now.saturating_duration_since(done.first_sent));
+                self.events.push_back(ControlEvent::Acked(id));
             }
         }
         self.fill_window(now);

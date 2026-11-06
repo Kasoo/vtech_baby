@@ -238,10 +238,10 @@ pub enum Drop {
 
 fn token_ref(pkt: &[u8], token_at: usize) -> Option<TokenRef> {
     let flags = *pkt.get(3)?;
-    if flags & FLAG_SUBHEADER != 0 {
-        if let Some(t) = get8(pkt, token_at) {
-            return Some(TokenRef::Full(t));
-        }
+    if flags & FLAG_SUBHEADER != 0
+        && let Some(t) = get8(pkt, token_at)
+    {
+        return Some(TokenRef::Full(t));
     }
     Some(TokenRef::Low16(pkt.get(0x0c..0x0e)?.try_into().ok()?))
 }

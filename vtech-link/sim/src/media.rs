@@ -304,11 +304,11 @@ impl MediaTx {
             self.group.iter_mut().for_each(|s| *s = None);
         }
         self.group[usize::from(index)] = Some(frame);
-        if index == K - 1 {
-            if let Some(parity) = self.parity() {
-                out.push(envelope(group, K, &parity));
-                self.counters.parity += 1;
-            }
+        if index == K - 1
+            && let Some(parity) = self.parity()
+        {
+            out.push(envelope(group, K, &parity));
+            self.counters.parity += 1;
         }
     }
 

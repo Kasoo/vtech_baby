@@ -185,18 +185,18 @@ impl MediaQueue {
     pub(crate) fn push(&self, frame: EncryptedFrame) {
         let mut s = lock(&self.state);
         let i = slot(frame.stream);
-        if s.counts.get(i).copied().unwrap_or(0) >= self.caps.get(i).copied().unwrap_or(1) {
-            if let Some(pos) = s.items.iter().position(|f| slot(f.stream) == i) {
-                s.items.remove(pos);
-                if let Some(c) = s.counts.get_mut(i) {
-                    *c -= 1;
-                }
-                if let Some(o) = s.overflow.get_mut(i) {
-                    *o += 1;
-                }
-                if let Some(l) = s.lost.get_mut(i) {
-                    *l += 1;
-                }
+        if s.counts.get(i).copied().unwrap_or(0) >= self.caps.get(i).copied().unwrap_or(1)
+            && let Some(pos) = s.items.iter().position(|f| slot(f.stream) == i)
+        {
+            s.items.remove(pos);
+            if let Some(c) = s.counts.get_mut(i) {
+                *c -= 1;
+            }
+            if let Some(o) = s.overflow.get_mut(i) {
+                *o += 1;
+            }
+            if let Some(l) = s.lost.get_mut(i) {
+                *l += 1;
             }
         }
         if let Some(c) = s.counts.get_mut(i) {
@@ -515,10 +515,10 @@ impl Link {
         }
         // Join the thread if it has already gone; otherwise it finishes on its own.
         let mut thread = lock(&self.shared().thread);
-        if thread.as_ref().is_some_and(JoinHandle::is_finished) {
-            if let Some(t) = thread.take() {
-                let _ = t.join();
-            }
+        if thread.as_ref().is_some_and(JoinHandle::is_finished)
+            && let Some(t) = thread.take()
+        {
+            let _ = t.join();
         }
     }
 

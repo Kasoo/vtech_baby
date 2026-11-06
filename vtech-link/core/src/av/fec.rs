@@ -115,7 +115,11 @@ impl Group {
     }
 
     fn shard(&self, i: usize) -> &[u8] {
-        self.block.chunks_exact(BLOCK).nth(i).unwrap_or_default()
+        self.block
+            .as_chunks::<BLOCK>()
+            .0
+            .get(i)
+            .map_or(&[], |shard| shard.as_slice())
     }
 
     /// Rebuild the one missing data shard from the parity and the other data shards.
@@ -217,7 +221,7 @@ impl Fec {
         if g.done || g.have & (1 << index) != 0 {
             return None;
         }
-        let dst = g.block.chunks_exact_mut(BLOCK).nth(usize::from(index))?;
+        let dst = g.block.as_chunks_mut::<BLOCK>().0.get_mut(usize::from(index))?;
         let (head, tail) = dst.split_at_mut(src.len());
         head.copy_from_slice(src);
         tail.fill(0);
@@ -259,7 +263,7 @@ mod tests {
     /// A synthetic data shard: kind 5 or 7, packet number, count, index, `plen` payload bytes.
     fn shard(i: usize, k: usize, plen: usize) -> Vec<u8> {
         let mut f = vec![0u8; MEDIA_HEADER + plen];
-        f[0] = if i % 3 == 0 { 7 } else { 5 };
+        f[0] = if i.is_multiple_of(3) { 7 } else { 5 };
         f[2..4].copy_from_slice(&(0x100 + i as u16).to_le_bytes());
         f[4..6].copy_from_slice(&(k as u16).to_le_bytes());
         f[6..8].copy_from_slice(&(i as u16).to_le_bytes());

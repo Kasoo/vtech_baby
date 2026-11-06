@@ -5,7 +5,7 @@ members = ["core", "py", "cli", "sim"]
 [workspace.package]
 version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.99"
 license = "Apache-2.0"
 publish = false
 

@@ -345,7 +345,7 @@ impl MediaRx {
         }
         if self.config.drop_every > 0 {
             self.arrivals += 1;
-            if self.arrivals % u64::from(self.config.drop_every) == 0 {
+            if self.arrivals.is_multiple_of(u64::from(self.config.drop_every)) {
                 return self.stats.packets_dropped_test += 1;
             }
         }
@@ -471,7 +471,11 @@ impl MediaRx {
                     p.count,
                     if p.info.is_some() { "" } else { ", no frame info" },
                     now.saturating_duration_since(p.first_at).as_millis(),
-                    if wait == self.config.partial_wait { "a packet gap was skipped" } else { "no packet gap skipped" }
+                    if wait == self.config.partial_wait {
+                        "a packet gap was skipped"
+                    } else {
+                        "no packet gap skipped"
+                    }
                 );
                 asm.last = Some(p.seq);
                 asm.partial.remove(&number);
@@ -543,7 +547,9 @@ impl MediaRx {
             if !naks.is_empty() {
                 log::debug!(
                     "media: NAK {:04x?} (pn_cum {:#06x})",
-                    naks.iter().map(|o| self.window.cum.wrapping_add(*o)).collect::<Vec<_>>(),
+                    naks.iter()
+                        .map(|o| self.window.cum.wrapping_add(*o))
+                        .collect::<Vec<_>>(),
                     self.window.cum
                 );
                 self.nak_at = Some(now);

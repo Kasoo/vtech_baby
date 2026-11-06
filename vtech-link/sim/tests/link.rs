@@ -421,7 +421,7 @@ fn s4_media_frames_in_order() {
     assert!(video.iter().chain(&audio).all(|f| f.lost_before == 0));
     // Every 15th video frame is a keyframe.
     for f in &video {
-        assert_eq!(f.key, tag(f).index % 15 == 0);
+        assert_eq!(f.key, tag(f).index.is_multiple_of(15));
     }
     let stats = link.stats(SEC).unwrap();
     let m = stats.av.unwrap().media;
@@ -829,8 +829,7 @@ fn reactor_panic_ends_the_link_cleanly() {
         std::thread::sleep(300 * MS);
         link._panic_reactor();
         talk_link._panic_reactor();
-        let results = [request, push, next, frame, accept]
-            .map(|h| h.join().unwrap());
+        let results = [request, push, next, frame, accept].map(|h| h.join().unwrap());
         (t0.elapsed(), results)
     });
     // The waiters were released by the failure, not by their timeouts.
@@ -844,7 +843,10 @@ fn reactor_panic_ends_the_link_cleanly() {
     // Later calls fail at once.
     let t0 = Instant::now();
     assert_eq!(link.send(0x5010, &[], long), Err(closed.clone()));
-    assert_eq!(link.request(OP_DEVINFO, &[0; 4], OP_DEVINFO_REPLY, long), Err(closed.clone()));
+    assert_eq!(
+        link.request(OP_DEVINFO, &[0; 4], OP_DEVINFO_REPLY, long),
+        Err(closed.clone())
+    );
     assert_eq!(link.next_push(long), Err(closed.clone()));
     assert_eq!(link.stats(long).unwrap_err(), closed);
     assert_eq!(media.start(long), Err(closed.clone()));
