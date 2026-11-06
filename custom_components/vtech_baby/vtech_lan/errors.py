@@ -17,11 +17,7 @@ class VtechError(Exception):
 
 
 class UnsupportedHost(VtechError):
-    """The integration has no native module for this host's architecture and C library."""
-
-
-class ModuleMismatch(VtechError):
-    """The process already loaded the native module from a different path."""
+    """The `vtech-link` module can't be imported on this host."""
 
 
 class Unreachable(VtechError):

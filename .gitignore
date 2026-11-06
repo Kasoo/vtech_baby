@@ -5,9 +5,6 @@ __pycache__/
 # The ThroughTek SDK is user-supplied and proprietary: never commit it (docs/vtech-lan-kit/sdk/README.md).
 /docs/vtech-lan-kit/sdk/*/
 *.so
-!/custom_components/vtech_baby/native/*/libtk.so
-!/custom_components/vtech_baby/native/*-*/lib*APIs.so
-!/custom_components/vtech_baby/native/*-*/_vtech_link.abi3.so
 # Credentials
 LICENSE_KEY.txt
 .env

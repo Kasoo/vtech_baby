@@ -98,7 +98,7 @@ def main() -> int:
     args.remove("--owner-present")
     url = args[0] if args else serve(tone_wav())
 
-    module = link.load(os.path.join(HERE, "_vtech_link.abi3.so"))
+    module = link.load()
     s = LinkSession(module, os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
                 os.environ.get("VTECH_ACCOUNT", "admin"), name="talk", keepalive_s=20)
     log("connected", s.connect(), s.info())

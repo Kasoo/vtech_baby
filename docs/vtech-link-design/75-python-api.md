@@ -174,11 +174,11 @@ stays, and each session picks its backend. Differences from the table below:
 **The SDK path was removed 2026-10-27** (Phase 3; the last state with both is tag `dual-backend-v1`).
 **The worker was retired 2026-10-29** (the last state with it is tag `worker-process-v1`): `vtech_lan/hub.py`
 loads the module in HA's process, hands out `LinkSession`s and owns the live views, talk-backs and the
-loopback HTTP server. `LinkSession._call` turns a `PanicException` into a lost session. A module file
-changed since it was loaded raises the `restart_required` Repairs issue; `worker_crashed` is deleted
+loopback HTTP server. `LinkSession._call` turns a `PanicException` into a lost session. A different
+version installed since it was loaded raises the `restart_required` Repairs issue; `worker_crashed` is deleted
 at setup. Differences from the table below:
-- `native.py` keeps its name: `prepare()` returns `Prepared(arch, link_path, fingerprint)`; the
-  fingerprint is the module's sha256.
+- `native.py` is gone: `link.load()` imports the module the `vtech-link` wheel installed, and
+  `link.is_current()` compares its version with the installed one for `restart_required`.
 - `WorkerClient.ensure(link_path, fingerprint)`; `module_info()` (the worker's pid, the module path and
   `link.info()`) replaces `sdk_info()`. `const.BACKEND` and the sessions' `backend` are gone.
 - `diagnostics.py` reports `module` and each camera's `link` (`info()` and `stats()`).

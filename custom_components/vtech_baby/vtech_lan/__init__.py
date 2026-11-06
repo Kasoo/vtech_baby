@@ -4,7 +4,7 @@ No Home Assistant imports: usable and testable standalone. Specification: docs/v
 
     from vtech_lan import link, LinkSession, ops, provision
     c = provision.provision(qr_text)        # the pairing QR -> uid, av_password, authkey
-    s = LinkSession(link.load(module_path), c.uid, c.authkey, c.av_password, on_push=print)
+    s = LinkSession(link.load(), c.uid, c.authkey, c.av_password, on_push=print)
     s.connect(); s.get_params(); s.close()
 """
 from . import ops, provision
@@ -12,7 +12,6 @@ from .errors import (
     AuthFailed,
     CapacityExceeded,
     MediaError,
-    ModuleMismatch,
     ProtocolError,
     RequestTimeout,
     SessionGone,
@@ -23,7 +22,7 @@ from .errors import (
 from .session import PARAMS_UPDATE, LinkSession, Push, SessionBase
 
 __all__ = [
-    "AuthFailed", "CapacityExceeded", "LinkSession", "MediaError", "ModuleMismatch", "PARAMS_UPDATE",
+    "AuthFailed", "CapacityExceeded", "LinkSession", "MediaError", "PARAMS_UPDATE",
     "ProtocolError", "Push", "RequestTimeout", "SessionBase", "SessionGone", "Unreachable", "UnsupportedHost",
     "VtechError", "ops", "provision",
 ]

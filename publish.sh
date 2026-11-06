@@ -8,7 +8,7 @@
 # skips what is already done.
 #
 # Needs curl, jq and uv. Credentials stay on this machine: twine reads the PyPI token (TWINE_PASSWORD or
-# ~/.pypirc), and GITHUB_TOKEN is a fine-grained token with Contents: write on the mirror.
+# ~/.pypirc), and the GitHub token is GITHUB_TOKEN or else gh's.
 set -eu
 export LC_ALL=C
 
@@ -102,7 +102,7 @@ if [ -n "$upload" ]; then
 fi
 
 # GitHub release: a draft until its assets are in, so HACS never sees it half made.
-: "${GITHUB_TOKEN:?set GITHUB_TOKEN to create the GitHub release}"
+GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth token)}
 status=$(github -o /dev/null -w '%{http_code}' "$GITHUB_API/releases/tags/$tag")
 if [ "$status" = 200 ]; then
   echo "GitHub release $tag exists already"
@@ -117,6 +117,7 @@ until [ "$(git ls-remote "$GITHUB_GIT" "refs/tags/$tag" "refs/tags/$tag^{}" | ta
   waited=$((waited + 15))
 done
 
+echo "On PyPI. Check it now: let a test Home Assistant install vtech-link==$version from PyPI."
 confirm "Create GitHub release $tag? HACS offers it to users from then on."
 
 # A draft left by a run that failed part-way.

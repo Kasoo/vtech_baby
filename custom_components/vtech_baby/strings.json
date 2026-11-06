@@ -29,7 +29,6 @@
       "unknown": "Unexpected error; see the logs."
     },
     "abort": {
-      "unsupported_host": "This Home Assistant host's processor ({machine}) isn't supported. The integration needs a 64-bit system: x86_64 (most PCs) or aarch64 (64-bit ARM, such as a Raspberry Pi 4 or 5 running a 64-bit OS).",
       "already_configured": "This camera is already configured; its credentials were updated.",
       "reauth_successful": "The camera was re-paired."
     }

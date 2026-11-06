@@ -55,7 +55,7 @@ def main() -> int:
         log(f"  {what}: NOT received in {timeout:.0f} s")
         return False
 
-    s = LinkSession(link.load(os.path.join(HERE, "_vtech_link.abi3.so")), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"],
+    s = LinkSession(link.load(), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"],
                 os.environ["VTECH_PWD"], os.environ.get("VTECH_ACCOUNT", "admin"), name="control",
                 keepalive_s=20, on_push=on_push)
     log("connected", s.connect())

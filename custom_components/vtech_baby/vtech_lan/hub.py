@@ -19,7 +19,7 @@ from collections import deque
 from typing import Any, Callable
 
 from . import link
-from .errors import ModuleMismatch, SessionGone, VtechError
+from .errors import SessionGone, VtechError
 from .media import LiveStream
 from .session import LinkSession
 from .talkback import TalkBack
@@ -30,11 +30,11 @@ QUEUE_CHUNKS = 600            # ~15–30 s of stream; a live-view client further
 
 
 class Hub:
-    def __init__(self, link_loader: Callable[[str], Any] = link.load):
+    def __init__(self, link_loader: Callable[[], Any] = link.load,
+                 link_is_current: Callable[[Any], bool] = link.is_current):
         self._link_loader = link_loader
+        self._link_is_current = link_is_current
         self.link: Any = None                        # the _vtech_link module, once loaded
-        self._link_path: str | None = None
-        self._fingerprint: str | None = None
         self.current: dict[str, LinkSession] = {}    # uid -> the session the live view uses
         self.streams: dict[str, LiveStream] = {}     # uid -> live view
         self.talks: dict[str, TalkBack] = {}         # uid -> talk-back
@@ -45,24 +45,20 @@ class Hub:
         self.closed = False
 
     # ── The module ───────────────────────────────────────────────────────────
-    def load(self, link_path: str, fingerprint: str = "") -> bool:
-        """Load the module once. Returns False if it is already loaded and the file has changed since
-        (a new version needs a Home Assistant restart; the loaded one keeps running). Blocking."""
+    def load(self) -> bool:
+        """Load the module once. Returns False if a different version has been installed since (it needs
+        a Home Assistant restart; the loaded one keeps running). Blocking."""
         with self._lock:
             if self.closed:
                 raise SessionGone("the hub is shut down", call="load")
-            if self.link is not None:
-                if link_path != self._link_path:
-                    raise ModuleMismatch(f"vtech-link is already loaded from {self._link_path}", call="load")
-                return fingerprint == self._fingerprint
-            self.link = self._link_loader(link_path)
-            self._link_path, self._fingerprint = link_path, fingerprint
-            return True
+            if self.link is None:
+                self.link = self._link_loader()
+            return self._link_is_current(self.link)
 
     def module_info(self) -> dict[str, Any] | None:
         if self.link is None:
             return None
-        return {"link": link.info(self.link), "link_path": self._link_path}
+        return {"link": link.info(self.link)}
 
     # ── Sessions ─────────────────────────────────────────────────────────────
     def session(self, uid: str, authkey: str, password: str, account: str = "admin", *,

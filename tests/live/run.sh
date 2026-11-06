@@ -1,6 +1,6 @@
 #!/bin/sh
-# Run a live probe inside the real HA image, shipping the vtech_lan package as a zip and the package's
-# vtech-link module for the image (musl) next to it.
+# Run a live probe inside the real HA image, shipping the vtech_lan package as a zip and vtech-link's
+# module for the image (musl) next to it, from vtech-link/dist.
 #
 #   VTECH_LIVE_RUNNER=... VTECH_UID=... VTECH_PWD=... VTECH_AUTHKEY=... ./run.sh [probe.py] [probe args...]
 #
@@ -15,8 +15,8 @@ ROOT=$(cd "$HERE/../.." && pwd)
 ARCH="${ARCH:-amd64}"
 case "$ARCH" in amd64) A=x86_64 ;; arm64) A=aarch64 ;; *) echo "ARCH must be amd64 or arm64" >&2; exit 2 ;; esac
 export ARCH
-MODULE="$ROOT/custom_components/vtech_baby/native/$A-musl/_vtech_link.abi3.so"
-[ -f "$MODULE" ] || { echo "no $MODULE: run sync_link.sh $A-musl" >&2; exit 2; }
+MODULE="$ROOT/vtech-link/dist/$A-musl/_vtech_link.abi3.so"
+[ -f "$MODULE" ] || { echo "no $MODULE: run vtech-link/release.sh $A-musl" >&2; exit 2; }
 PROBE="$HERE/probe_phase1.py"
 case "$1" in *.py) PROBE=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); shift ;; esac
 

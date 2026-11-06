@@ -14,7 +14,6 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.vtech_baby import manager as mgr
-from custom_components.vtech_baby import native
 from custom_components.vtech_baby.const import (
     CONF_ACCOUNT, CONF_AUTHKEY, CONF_AV_PASSWORD, CONF_MAC, CONF_QR, CONF_SDK_DIR, CONF_UID, DOMAIN,
 )
@@ -83,11 +82,11 @@ def fake():
 @pytest.fixture(autouse=True)
 def module_patch(fake):
     def prep(hub):
-        return hub.load("/pkg/_vtech_link.abi3.so", fake.fingerprint)
-    fake.fingerprint = "fp"
-    with patch.object(mgr, "_prepare_and_load", prep), \
+        hub.load()
+        return fake.current
+    fake.current = True
+    with patch.object(mgr, "_load_module", prep), \
          patch.object(mgr, "make_hub", lambda: fake_hub(fake)), \
-         patch.object(native, "host_supported", lambda: "x86_64"), \
          patch.object(mgr, "RECONNECT_MIN_S", 0.05), patch.object(mgr, "RECONNECT_MAX_S", 0.1):
         yield
 
@@ -156,17 +155,10 @@ async def test_untested_model_warns_then_adds(hass: HomeAssistant, fake):
     await unload(hass, r["result"])
 
 
-async def test_unsupported_host(hass: HomeAssistant):
-    with patch.object(native, "host_supported", lambda: None):
-        r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert r["type"] is FlowResultType.ABORT and r["reason"] == "unsupported_host"
-    assert r["description_placeholders"]["machine"]
-
-
 async def test_module_load_failure_is_reported(hass: HomeAssistant):
     def broken(client):
         raise mgr.SetupError("can't load the module")
-    with patch.object(mgr, "_prepare_and_load", broken):
+    with patch.object(mgr, "_load_module", broken):
         r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
         r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"
@@ -529,12 +521,12 @@ async def test_module_panic_loses_the_session_and_reconnects(hass: HomeAssistant
 
 
 async def test_a_new_module_asks_for_a_restart(hass: HomeAssistant, fake):
-    """A module file changed since it was loaded (an update without a restart) keeps the loaded one
-    running and raises a Repairs issue."""
+    """A different version installed since the module was loaded (an update without a restart) keeps the
+    loaded one running and raises a Repairs issue."""
     from homeassistant.helpers import issue_registry as ir
     entry = await setup_entry(hass)
     assert ir.async_get(hass).async_get_issue(DOMAIN, "restart_required") is None
-    fake.fingerprint = "updated"
+    fake.current = False
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert ir.async_get(hass).async_get_issue(DOMAIN, "restart_required") is not None

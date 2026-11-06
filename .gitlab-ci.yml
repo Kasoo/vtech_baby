@@ -120,7 +120,7 @@ module-release:
     VTECH_LINK_MODULE: $CI_PROJECT_DIR/vtech-link/dist/x86_64-glibc/_vtech_link.abi3.so
     VTECH_SIM: $CI_PROJECT_DIR/vtech-link/target/debug/sim-camera
   script:
-    - python3 -m venv .venv && .venv/bin/pip install -q pytest cryptography
+    - python3 -m venv .venv && .venv/bin/pip install -q pytest cryptography vtech-link/dist/x86_64-glibc/*.whl
     - .venv/bin/python -m unittest discover -s vtech-link/py/tests -t vtech-link/py/tests
     - .venv/bin/pytest tests/test_link_session.py -k test_load_the_real_module
 

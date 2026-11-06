@@ -26,7 +26,6 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from . import native
 from .const import (
     CONF_ACCOUNT,
     CONF_AUTHKEY,
@@ -88,22 +87,21 @@ def make_hub() -> Hub:
     return Hub()
 
 
-def _prepare_and_load(hub: Hub) -> bool:
-    """Load this host's module. False if the loaded one differs from the file now installed."""
+def _load_module(hub: Hub) -> bool:
+    """Load the module. False if the loaded one differs from the version now installed."""
     try:
-        prepared = native.prepare()
-        return hub.load(prepared.link_path, prepared.fingerprint)
+        return hub.load()
     except (VtechError, OSError) as err:
         raise SetupError(str(err)) from err
 
 
 async def async_load(hass: HomeAssistant) -> Hub:
-    """Make sure the hub has this host's module loaded. Serialised, so one setup loads it. An update
+    """Make sure the hub has the module loaded. Serialised, so one setup loads it. An update
     installed since it was loaded raises a Repairs issue: it takes effect after a restart."""
     lock = hass.data.setdefault(f"{DOMAIN}_load_lock", asyncio.Lock())
     hub = get_hub(hass)
     async with lock:
-        current = await hass.async_add_executor_job(_prepare_and_load, hub)
+        current = await hass.async_add_executor_job(_load_module, hub)
     if not current:
         ir.async_create_issue(hass, DOMAIN, ISSUE_RESTART_REQUIRED, is_fixable=False, is_persistent=False,
                               severity=ir.IssueSeverity.WARNING, translation_key=ISSUE_RESTART_REQUIRED)

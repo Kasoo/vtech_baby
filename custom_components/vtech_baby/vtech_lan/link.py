@@ -1,56 +1,55 @@
 """Load `_vtech_link`, the Rust protocol library (vtech-link), and forward its log records.
 
-The module is a Python extension built for this host's arch and libc (`_vtech_link.abi3.so`). It is
-loaded once per process from an explicit path, and never unloaded. Its
-Rust threads never take the GIL: a daemon thread here drains its log ring into Python logging under
+The module is the `vtech-link` package, which Home Assistant installs from the manifest's requirement.
+It is imported once per process and never unloaded. Its Rust threads never take the GIL: a daemon thread here drains its log ring into Python logging under
 this module's logger.
 
 Design: docs/vtech-link-design/75-python-api.md.
 """
 from __future__ import annotations
 
-import importlib.machinery
-import importlib.util
+import importlib
+import importlib.metadata
 import logging
 import os
 import threading
 from typing import Any
 
-from .errors import ModuleMismatch, UnsupportedHost
+from .errors import UnsupportedHost
 
 _LOG = logging.getLogger(__name__)
 
 MODULE_NAME = "_vtech_link"
+DISTRIBUTION = "vtech-link"
 LOG_WAIT_S = 1.0
 
 _lock = threading.Lock()
-_loaded: tuple[str, Any] | None = None          # (path, module)
+_loaded: Any = None
 
 
-def load(path: str) -> Any:
-    """The module at `path`, loaded once per process. Raises ModuleMismatch if a different path was loaded
-    first, and UnsupportedHost if it can't be loaded here."""
+def load() -> Any:
+    """The module, imported once per process. Raises UnsupportedHost if it can't be imported here."""
     global _loaded
-    path = os.path.abspath(path)
     with _lock:
         if _loaded is not None:
-            if _loaded[0] != path:
-                raise ModuleMismatch(f"this process already loaded {MODULE_NAME} from {_loaded[0]}", call="load")
-            return _loaded[1]
+            return _loaded
         try:
-            loader = importlib.machinery.ExtensionFileLoader(MODULE_NAME, path)
-            spec = importlib.util.spec_from_file_location(MODULE_NAME, path, loader=loader)
-            if spec is None:
-                raise ImportError(f"no module spec for {path}")
-            module = importlib.util.module_from_spec(spec)
-            loader.exec_module(module)
+            module = importlib.import_module(MODULE_NAME)
         except (ImportError, OSError) as e:
-            raise UnsupportedHost(f"can't load {path}: {e}", call="load") from e
+            raise UnsupportedHost(f"can't load {MODULE_NAME}: {e}", call="load") from e
         module.set_log_level(_LOG.getEffectiveLevel())
         threading.Thread(target=_forward_logs, args=(module,), name="vtech-link-logs", daemon=True).start()
-        _loaded = (path, module)
-        _LOG.debug("loaded %s %s from %s", MODULE_NAME, module.__version__, path)
+        _loaded = module
+        _LOG.debug("loaded %s %s from %s", MODULE_NAME, module.__version__, module.__file__)
         return module
+
+
+def is_current(module: Any) -> bool:
+    """False if a different version of the package was installed after `module` was loaded."""
+    try:
+        return importlib.metadata.version(DISTRIBUTION) == module.__version__.partition("+")[0]
+    except importlib.metadata.PackageNotFoundError:
+        return True
 
 
 def info(module: Any) -> dict[str, Any]:

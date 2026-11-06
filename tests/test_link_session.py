@@ -1,6 +1,7 @@
 """LinkSession, LinkMediaSource and LinkUplink over the fake `_vtech_link` (`fake_link.py`), the error
 mapping, panics, the hub loading the module, and loading the real module when it is built."""
 import datetime as dt
+import importlib.util
 import os
 import struct
 import subprocess
@@ -487,21 +488,19 @@ def test_a_panic_in_connect_is_a_failed_connect(mod):
 # ── The hub ──────────────────────────────────────────────────────────────────
 def fake_hub(mod):
     from vtech_lan.hub import Hub
-    return Hub(link_loader=lambda _path: mod)
+    return Hub(link_loader=lambda: mod, link_is_current=lambda _module: mod.is_current)
 
 
 def test_hub_loads_the_module_once_and_runs_sessions(mod, socket_enabled):
-    from vtech_lan.errors import ModuleMismatch
     hub = fake_hub(mod)
+    mod.is_current = True
     try:
         assert hub.module_info() is None
-        assert hub.load("/x/_vtech_link.abi3.so", "fp") is True
-        assert hub.load("/x/_vtech_link.abi3.so", "fp") is True
-        assert hub.load("/x/_vtech_link.abi3.so", "new") is False        # updated on disk: needs a restart
-        with pytest.raises(ModuleMismatch):
-            hub.load("/y/_vtech_link.abi3.so", "fp")
-        info = hub.module_info()
-        assert info["link"]["version"] == "0.1.0+fake" and info["link_path"] == "/x/_vtech_link.abi3.so"
+        assert hub.load() is True
+        assert hub.load() is True
+        mod.is_current = False
+        assert hub.load() is False                                       # a new version: needs a restart
+        assert hub.module_info()["link"]["version"] == "0.1.0+fake"
         s = hub.session("LINKCAM", "k3yAuth8", "pw", name="b", keepalive_s=0)
         assert s.connect().model == "RM5754"
         assert s.connection_mode() == "lan" and mod.opened[0].uid == "LINKCAM"
@@ -514,7 +513,7 @@ def test_hub_loads_the_module_once_and_runs_sessions(mod, socket_enabled):
 
 def test_hub_media_session_is_current_until_lost_or_closed(mod, socket_enabled):
     hub = fake_hub(mod)
-    hub.load("/x/_vtech_link.abi3.so")
+    hub.load()
     try:
         lost = []
         s = hub.session("LINKCAM", "k3yAuth8", "pw", media=True, keepalive_s=0, recv_timeout_ms=20,
@@ -536,26 +535,27 @@ def test_hub_media_session_is_current_until_lost_or_closed(mod, socket_enabled):
 
 
 # ── Loading the real module ──────────────────────────────────────────────────
-REAL = os.environ.get("VTECH_LINK_MODULE",
-                      os.path.join(ROOT, "vtech-link", "target", "debug", "lib_vtech_link.so"))
+def test_is_current_compares_the_installed_version(monkeypatch):
+    from vtech_lan import link
+    module = FakeLinkModule()
+    module.__version__ = "1.2.3+abcdef"
+    monkeypatch.setattr(link.importlib.metadata, "version", lambda _name: "1.2.3")
+    assert link.is_current(module)
+    monkeypatch.setattr(link.importlib.metadata, "version", lambda _name: "1.2.4")
+    assert not link.is_current(module)
 
 
-@pytest.mark.skipif(not os.path.isfile(REAL), reason="vtech-link's Python module isn't built (py/tests/run.sh)")
+@pytest.mark.skipif(importlib.util.find_spec("_vtech_link") is None, reason="the vtech-link wheel isn't installed")
 def test_load_the_real_module():
     """In a subprocess: `link.load` starts a log thread that lives as long as the process."""
     script = """
 import sys
 sys.path.append(sys.argv[1])
 from vtech_lan import link
-from vtech_lan.errors import ModuleMismatch, from_link
-m = link.load(sys.argv[2])
-assert link.load(sys.argv[2]) is m
-try:
-    link.load(sys.argv[2] + ".other")
-except ModuleMismatch:
-    pass
-else:
-    raise SystemExit("a second path loaded")
+from vtech_lan.errors import from_link
+m = link.load()
+assert link.load() is m
+assert link.is_current(m)
 info = link.info(m)
 assert info["lan_only"] == {"refused_sends": 0, "refused_lookups": 0}, info
 try:
@@ -565,7 +565,7 @@ except m.LinkError as e:
     assert (type(err).__name__, err.call) == ("VtechError", "connect"), err
 print("OK", m.__version__)
 """
-    out = subprocess.run([sys.executable, "-I", "-c", script, os.path.join(ROOT, "custom_components", "vtech_baby"),
-                          REAL], capture_output=True, text=True, timeout=60)
+    out = subprocess.run([sys.executable, "-I", "-c", script, os.path.join(ROOT, "custom_components", "vtech_baby")],
+                         capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     assert out.stdout.startswith("OK 0.")

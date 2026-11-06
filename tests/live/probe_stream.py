@@ -124,7 +124,7 @@ def wait_idle(media, timeout=15):
 
 
 def main():
-    module = link.load(os.path.join(HERE, "_vtech_link.abi3.so"))
+    module = link.load()
     log(f"vtech-link {module.__version__}")
     s = LinkSession(module, os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
                 os.environ.get("VTECH_ACCOUNT", "admin"), name="stream", keepalive_s=20)

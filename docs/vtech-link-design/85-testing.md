@@ -92,7 +92,7 @@ The existing 234 tests run against `tests/fake_link.py` (`75-python-api.md`). Ne
 `MediaReceiver` (keyframe join, `lost_before` accounting, stats); `talkback.py` with a fake `TalkBack`
 (stop mid-stream, drain vs drop); and `link.py` loading (a missing module, the wrong directory).
 
-A **smoke test with the real module** (`tests/test_link_native.py`, skipped unless a build is present)
+A **smoke test with the real module** (`tests/test_link_session.py`, skipped unless the wheel is installed)
 runs the module against the simulator through a test-only `_vtech_link._sim_connect()` hook. That hook
 exists only in debug builds, behind a cargo feature.
 

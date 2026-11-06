@@ -6,15 +6,15 @@ Notes for working on this repo. User-facing docs are in `README.md`; keep that s
 
 A Home Assistant integration (domain `vtech_baby`) that controls and monitors the **VTech RM5754HD**
 baby-monitor camera **LAN-direct, with no cloud**. The camera speaks only ThroughTek's Kalay P2P
-protocol (TUTK). The integration ships its own implementation of the transport, vtech-link
-(`vtech-link/`, Rust), as a Python extension module per arch and libc, loaded into Home Assistant's
+protocol (TUTK). The integration has its own implementation of the transport, vtech-link
+(`vtech-link/`, Rust), a Python extension module published to PyPI, loaded into Home Assistant's
 process. The opcode layer above the transport is Python. Not affiliated with VTech or ThroughTek.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (opcode layer, sessions, the hub), `native/<arch>-<libc>/_vtech_link.abi3.so` (vtech-link, built by `sync_link.sh`), `brand/`. |
+| `custom_components/vtech_baby/` | **The package (what HACS installs).** `manifest.json`, `__init__.py`, platform modules, `vtech_lan/` (opcode layer, sessions, the hub), `brand/`. Pure Python: `manifest.json` pins `vtech-link`, which Home Assistant installs from PyPI. |
 | `vtech-link/` | The transport: protocol core, CLI, simulator, Python module (`_vtech_link`). Status and next steps: `TODO.md` ("vtech-link"). |
 | `tutk-host/` | Not shipped. Our earlier implementation of the three TUTK SDK libraries, which the package used before vtech-link (tag `dual-backend-v1`); kept for A/B runs against vtech-link. See `tutk-host/NOTES.md`. |
 | `tutk-sdk/` | Archived (tag `tutk-sdk-dropin-v1`): the drop-in build of the same libraries for the patched path. |
@@ -24,7 +24,6 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 | `tests/` | Offline tests (`fake_link.py` stands in for `_vtech_link`, `fake_camera.py` for the camera); `tests/live/` probes for a real camera. |
 | `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns; `social-preview.png` is the GitHub social preview, rendered from `brand-src/social.svg` and uploaded by hand (Settings → General → Social preview). |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork), `social.svg` (the social preview, built from the icon and `images/device.png`) and `render.sh` (needs inkscape and Open Sans) for `brand/` and `images/social-preview.png`. |
-| `sync_link.sh` | Builds vtech-link's `_vtech_link.abi3.so` (`vtech-link/release.sh`) and installs it into `native/<arch>-<libc>/`, recording the revision in `native/LINK_SOURCE`. |
 | `publish.sh` | Takes a GitLab release to PyPI and GitHub (see "Releases" below). |
 
 ## Read first
@@ -41,11 +40,9 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 ## Rules
 
 ### Proprietary material and secrets
-- **`native/<arch>-<libc>/_vtech_link.abi3.so`** is installed only by `sync_link.sh`, never by hand, so
-  `native/LINK_SOURCE` always names the vtech-link revision it came from.
 - **The vendor's SDK libraries** are used only by the kit's reference client and `tutk-host` A/B runs,
   from local copies. Never ship, download or commit them, patched or not (`docs/vtech-lan-kit/sdk/README.md`).
-  `.gitignore` excludes `docs/vtech-lan-kit/sdk/*/` and every `.so` except our own.
+  `.gitignore` excludes `docs/vtech-lan-kit/sdk/*/` and every `.so`.
 - The QR/HKDF provisioning constants are app-wide values **embedded** in the package
   (`vtech_lan/provision.py`), matching the kit's reference client (a test enforces it). They live in code
   only: the docs name and describe them but never print the values.
@@ -58,8 +55,7 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 
 ### Code
 - `vtech_lan/` has **no `homeassistant` imports**, so it can be unit-tested and run standalone.
-- **The hub** (`vtech_lan/hub.py`, one per HA process) loads `_vtech_link` once (`native.py` finds it,
-  `vtech_lan/link.py` loads it), hands out sessions, and owns each camera's live view, talk-back and the
+- **The hub** (`vtech_lan/hub.py`, one per HA process) loads `_vtech_link` once (`vtech_lan/link.py` imports it), hands out sessions, and owns each camera's live view, talk-back and the
   loopback HTTP server.
 - **The only native code is Rust**, built with `panic = "unwind"`: keep that in every release profile.
   PyO3 raises a panic in a module call as `PanicException`, which derives from `BaseException`, so
@@ -101,8 +97,8 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
   is unanswered, so the reference client calls `IOTC_Set_LanSearchPort(32762)`).
 - **Offline tests:**
   `python3 -m venv .venv && .venv/bin/pip install -r requirements_test.txt`, then `.venv/bin/pytest`
-  from the repo root. The test that loads the real module needs `sync_link.sh`'s build for this host;
-  it skips without one. Run tests from the root. Platform modules are named by Home Assistant (`select.py`, `sensor.py`, ...)
+  from the repo root. The test that loads the real module needs a `vtech-link` wheel installed in the venv
+  (`vtech-link/release.sh`, then `pip install vtech-link/dist/<set>/*.whl`); it skips without one. Run tests from the root. Platform modules are named by Home Assistant (`select.py`, `sensor.py`, ...)
   and shadow other modules of the same name, so never put `custom_components/vtech_baby` (or
   `vtech_lan/`) on `sys.path` ahead of the standard library.
 - **Live tests:** `tests/live/run.sh` runs a probe inside the real HA image on a host on the camera's
@@ -122,6 +118,9 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
   `module-release` then runs the module tests against the release x86_64-glibc build.
 - **Try a change in HA:** copy `custom_components/vtech_baby` (only that) into a test instance's
   `custom_components/` and restart HA.
+- **Try an unpublished `vtech-link` in HA:** with HA running, `uv pip install --target` the wheel into the
+  container's user site (`python3 -m site --user-site`), then restart HA from inside (`homeassistant.restart`).
+  It is lost when the container is recreated; HA then installs the pinned version from PyPI.
 
 ## Conventions
 
@@ -175,8 +174,10 @@ fine-grained token with Contents: write on the mirror.
 - **LAN-only, always.** vtech-link implements only LAN-direct sessions: it sends only to directly
   attached IPv4 subnets (host or directed broadcast) or 255.255.255.255, never resolves names, and has
   no P2P or relay path. `lan_only_stats()` counts refused sends (`vtech-link-design/00-requirements.md`, R5).
-- **Several cameras share one module** per process (`vtech_lan.link.load()`); loading it again from a
-  different path is refused (`ModuleMismatch`).
+- **Several cameras share one module** per process (`vtech_lan.link.load()`).
+- **`vtech-link` comes from PyPI** (decided 2026-11-06): HACS installs one zip on every host and pip picks
+  the wheel for the arch and libc, so no binaries live in git. In a container, Home Assistant installs
+  requirements into the container, so it fetches the wheel again each time the container is recreated.
 - **Version 2 config entries** (2026-10): version 1 ran on the vendor's SDK and stored its directory;
   `async_migrate_entry` drops it and deletes the extracted and patched libraries under the HA config
   directory.

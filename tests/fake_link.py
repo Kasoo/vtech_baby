@@ -286,6 +286,8 @@ class FakeLink:
 
 
 class FakeLinkModule:
+    is_current = True
+
     """Stands in for the loaded `_vtech_link` module."""
 
     LinkError = LinkError
@@ -335,4 +337,4 @@ class PanicException(BaseException):
 def fake_hub(link_mod):
     """A Hub that loads `link_mod` as the vtech-link module."""
     from custom_components.vtech_baby.vtech_lan.hub import Hub
-    return Hub(link_loader=lambda _path: link_mod)
+    return Hub(link_loader=lambda: link_mod, link_is_current=lambda _module: True)

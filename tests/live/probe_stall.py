@@ -40,7 +40,7 @@ def timed(label, fn):
 
 
 def main():
-    s = LinkSession(link.load(os.path.join(HERE, "_vtech_link.abi3.so")), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
+    s = LinkSession(link.load(), os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],
                 name="stall", keepalive_s=0,
                 on_push=lambda p: print(f"{ts()}  push 0x{p.code:x}: {p.value}", flush=True))
     print(f"{ts()} connected: {s.connect()} mode={s.connection_mode()}", flush=True)

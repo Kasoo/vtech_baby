@@ -35,8 +35,9 @@ If you try another model, please report how it went.
 - Home Assistant running on x86_64 or arm64 Linux: Home Assistant OS or Container (musl), or another
   Linux install with glibc 2.17 or later.
 
-The integration includes its own implementation of the camera's network protocol (ThroughTek's Kalay),
-for each of those. Nothing needs downloading.
+The integration has its own implementation of the camera's network protocol (ThroughTek's Kalay),
+[`vtech-link`](https://pypi.org/project/vtech-link/), with builds for each of those. Home Assistant
+installs it from PyPI by itself.
 
 ## Install
 
@@ -63,5 +64,6 @@ on the parent unit, and paste the text in.
 ## Notes
 
 - The integration only talks to the camera over the local network, and never contacts any internet
-  servers.
+  servers. Home Assistant itself needs internet access to install `vtech-link` from PyPI, the first time
+  and whenever its container is recreated.
 - While the parent unit is on, video quality is limited to 720p.

@@ -1,6 +1,0 @@
-vtech_link_commit: 9343ed117217817cb6c92c50bdf7416a6e05c348
-synced: 2026-11-06T21:01:57Z
-e48e124407cb054f32ed5eacb10fe360a744417efcbd2ed3cebef0735148551b  native/aarch64-glibc/_vtech_link.abi3.so
-4755c9e7b21a8a6d682b754d0f1a1ad0d2a9f9845dcde632ba390540321a966d  native/aarch64-musl/_vtech_link.abi3.so
-340004dcdd79d47db43e21a743798c3af1ca3393d379afb7154be6f364acc687  native/x86_64-glibc/_vtech_link.abi3.so
-5d57f4e2fa15782fd4d60f8050979d7282208aff76064868a89ab7b448dc7a23  native/x86_64-musl/_vtech_link.abi3.so

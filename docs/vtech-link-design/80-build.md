@@ -131,17 +131,16 @@ plus `tools/ha_import_check.sh` (loading the module in the HA image) cover loada
 
 ## Shipping and loading
 
-- `sync_link.sh` (replacing `sync_sdk.sh`) runs `release.sh` and copies each build to
-  `custom_components/vtech_baby/native/<arch>-<libc>/_vtech_link.abi3.so`. It writes
-  `native/LINK_SOURCE` with the `vtech-link` revision. These are our own builds, so they may be
-  committed; `.gitignore` keeps its exception for `native/*-*/`.
-- **Why vendor the `.so` rather than a PyPI requirement in `manifest.json`**: it keeps the integration
-  self-contained, with no package index and no network at install. It also keeps the existing
-  "built only by the sync script" rule. Publishing wheels to PyPI later is possible without changing the
-  code; only the loader would change.
+- `release.sh` keeps each set's wheel in `dist/<set>/`. CI publishes them in a GitLab release and
+  `publish.sh` uploads them to PyPI; `manifest.json` pins that version and pip picks the wheel for the
+  host. The package imports the module; it ships no binaries.
+- **Why PyPI rather than vendoring the `.so`** (changed 2026-11-06; until then the four builds sat in
+  `native/<arch>-<libc>/`): it keeps binaries out of git, where each rebuild added about 8 MB, and it is
+  the usual way for a Home Assistant integration. The cost is that Home Assistant needs a package index
+  at install, and in a container whenever the container is recreated.
 - **Licence notices**: the module compiles in dimpl and the RustCrypto crates (MIT/Apache), whose
-  notices must travel with the binaries. `sync_link.sh` writes
-  `native/THIRD_PARTY_LICENSES` with `cargo about generate`.
+  notices must travel with the binaries. `tools/licenses.sh` writes
+  `py/THIRD_PARTY_LICENSES.txt` with `cargo about generate`, and the wheel ships it.
 - Size: the hello-world was 366–398 KB per build, stripped. The full module at `d1d49ea` is 1.64 MB
   (aarch64) to 1.95 MB (x86_64), against an estimate of about 1 MB. dimpl's certificate-parsing code,
   which a PSK-only client never runs, is part of that. Today's C sets are about 300 KB each; the four

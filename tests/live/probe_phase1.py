@@ -43,7 +43,7 @@ def on_lost(e):
 
 def main():
     t0 = time.monotonic()
-    module = link.load(os.path.join(HERE, "_vtech_link.abi3.so"))
+    module = link.load()
     print(f"vtech-link {module.__version__} loaded in {time.monotonic() - t0:.2f}s", flush=True)
     for cycle in range(1, CYCLES + 1):
         s = LinkSession(module, os.environ["VTECH_UID"], os.environ["VTECH_AUTHKEY"], os.environ["VTECH_PWD"],

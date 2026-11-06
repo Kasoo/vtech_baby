@@ -6,7 +6,6 @@ never stored.
 from __future__ import annotations
 
 import logging
-import platform
 from collections.abc import Mapping
 from typing import Any
 
@@ -15,7 +14,6 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig
 
-from . import native
 from .const import (
     CONF_ACCOUNT,
     CONF_AUTHKEY,
@@ -46,9 +44,6 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
         self._pending: tuple[str, dict[str, str]] | None = None   # entry awaiting the model warning
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        if await self.hass.async_add_executor_job(native.host_supported) is None:
-            return self.async_abort(reason="unsupported_host",
-                                    description_placeholders={"machine": platform.machine() or "unknown"})
         return await self.async_step_camera()
 
     # One camera, from its pairing QR
