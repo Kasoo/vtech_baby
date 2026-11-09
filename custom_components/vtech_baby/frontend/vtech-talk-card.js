@@ -6,9 +6,10 @@
 //   name: Hold to talk                  (optional)
 //
 // The video is Home Assistant's own camera stream. It starts muted, since browsers only autoplay muted
-// video; the speaker button turns the camera's sound on. Home Assistant picks the stream by that: muted it
-// plays WebRTC (lowest delay), with sound it plays HLS when only HLS carries the camera's audio, which is a
-// few seconds behind.
+// video; the speaker button turns the camera's sound on by starting the stream again unmuted. Home
+// Assistant then plays WebRTC if its audio is there, else HLS (seconds behind) if that has audio. WebRTC
+// audio can be missing from the first connection, since go2rtc converts the camera's audio for it on
+// demand; the restart picks it up.
 //
 // Hold the button (pointer, touch, or Space/Enter) and talk: the microphone streams to the camera as you
 // speak, over Home Assistant's websocket (command `vtech_baby/talk`, then binary messages of 16-bit mono
