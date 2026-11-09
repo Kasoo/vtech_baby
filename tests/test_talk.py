@@ -160,3 +160,21 @@ async def test_card_is_served(hass: HomeAssistant, fake, hass_ws_client):
     r = await ws.client.get(talk.CARD_URL)
     assert r.status == 200 and 'customElements.define("vtech-talk-card"' in await r.text()
     await unload(hass, entry)
+
+
+async def test_card_is_a_dashboard_resource(hass: HomeAssistant, fake):
+    """One module resource for the card, at the current version: a stale one is updated, a duplicate removed."""
+    from homeassistant.components.lovelace.const import LOVELACE_DATA
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "lovelace", {})
+    resources = hass.data[LOVELACE_DATA].resources
+    await resources.async_get_info()
+    await resources.async_create_item({"res_type": "module", "url": f"{talk.CARD_URL}?v=old"})
+    await resources.async_create_item({"res_type": "module", "url": f"{talk.CARD_URL}?v=older"})
+    await resources.async_create_item({"res_type": "module", "url": "/hacsfiles/other.js"})
+    entry = await setup_entry(hass)
+    urls = [r["url"] for r in resources.async_items()]
+    ours = [u for u in urls if u.startswith(talk.CARD_URL)]
+    assert len(ours) == 1 and "?v=old" not in ours[0] and "/hacsfiles/other.js" in urls
+    await unload(hass, entry)

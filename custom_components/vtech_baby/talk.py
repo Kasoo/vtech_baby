@@ -11,8 +11,9 @@
   exists only for that talk. Nothing is written to disk.
 - One talk at a time per speaker: another while one plays is refused, since replacing an announcement
   loses the lullaby it would resume.
-- The card itself (`frontend/vtech-talk-card.js`) is served by the integration and loaded on every
-  dashboard, so it needs no resource entry.
+- The card itself (`frontend/vtech-talk-card.js`) is served by the integration, which keeps a dashboard
+  resource for it (storage mode), so users add none. It isn't loaded through the page's extra modules: the
+  mobile app's start page comes from a service-worker cache that can predate the card, so it never loads.
 """
 from __future__ import annotations
 
@@ -25,6 +26,8 @@ from collections.abc import AsyncIterator
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
+
+import logging
 
 import voluptuous as vol
 from aiohttp import web
@@ -54,6 +57,7 @@ CARD_FILE = Path(__file__).parent / "frontend" / "vtech-talk-card.js"
 IDLE_S = 3.0                       # no audio for this long ends the talk
 MAX_S = 120.0                      # audio longer than this is cut off
 DATA = f"{DOMAIN}_talk"
+_LOG = logging.getLogger(__name__)
 
 
 class LiveClip:
@@ -117,11 +121,33 @@ async def async_setup(hass: HomeAssistant):
     websocket_api.async_register_command(hass, ws_talk)
     hass.http.register_view(ClipView(talks))
     await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(CARD_FILE), False)])
-    if "frontend" in hass.config.components:
-        from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
+    digest = await hass.async_add_executor_job(lambda: hashlib.sha256(CARD_FILE.read_bytes()).hexdigest())
+    await _async_register_card(hass, f"{CARD_URL}?v={digest[:12]}")     # a new card busts browsers' caches
 
-        digest = await hass.async_add_executor_job(lambda: hashlib.sha256(CARD_FILE.read_bytes()).hexdigest())
-        add_extra_js_url(hass, f"{CARD_URL}?v={digest[:12]}")      # a new card busts the browser's cache
+
+async def _async_register_card(hass: HomeAssistant, url: str):
+    """Keep one dashboard resource for the card at `url`. Dashboards in YAML resource mode can't be
+    changed from here: the card then loads through the page's extra modules, and the log says to add it."""
+    from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE  # noqa: PLC0415
+
+    lovelace = hass.data.get(LOVELACE_DATA)
+    if lovelace is None or lovelace.resource_mode != MODE_STORAGE:
+        if "frontend" in hass.config.components:
+            from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
+
+            add_extra_js_url(hass, url)
+        _LOG.info("dashboard resources are in YAML: add %s as a module resource for the talk card", url)
+        return
+    resources = lovelace.resources
+    await resources.async_get_info()                           # loads the stored resources
+    ours = [r for r in resources.async_items() if r["url"].split("?")[0] == CARD_URL]
+    if not ours:
+        await resources.async_create_item({"res_type": "module", "url": url})
+        return
+    if ours[0]["url"] != url:
+        await resources.async_update_item(ours[0]["id"], {"res_type": "module", "url": url})
+    for extra in ours[1:]:
+        await resources.async_delete_item(extra["id"])
 
 
 @websocket_api.websocket_command({

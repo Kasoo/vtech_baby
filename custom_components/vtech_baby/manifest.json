@@ -2,7 +2,8 @@
   "domain": "vtech_baby",
   "name": "VTech Baby Monitor",
   "after_dependencies": [
-    "frontend"
+    "frontend",
+    "lovelace"
   ],
   "codeowners": [
     "@Kasoo"
