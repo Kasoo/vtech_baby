@@ -112,7 +112,7 @@ class VtechTalkCard extends HTMLElement {
     this._root = this.attachShadow({ mode: "open" });
     this._root.innerHTML = `
       <style>
-        ha-card { padding: 12px; display: flex; flex-direction: column; gap: 8px; height: 100%; box-sizing: border-box; justify-content: center; }
+        ha-card { padding: 12px; display: flex; flex-direction: column; gap: 12px; height: 100%; box-sizing: border-box; justify-content: center; }
         button {
           display: flex; align-items: center; justify-content: center; gap: 10px;
           width: 100%; min-height: 64px; border: none; border-radius: 32px;
@@ -124,11 +124,14 @@ class VtechTalkCard extends HTMLElement {
         button.talking { background: var(--error-color, #db4437); animation: pulse 1.2s ease-in-out infinite; }
         button.opening, button.finishing { opacity: 0.8; cursor: progress; }
         @keyframes pulse { 50% { filter: brightness(1.2); } }
-        .status { min-height: 1.2em; text-align: center; font-size: 0.9em; color: var(--secondary-text-color); }
+        button.talk { width: 50%; min-width: 180px; align-self: center; }
+        .status { text-align: center; font-size: 0.9em; color: var(--secondary-text-color); margin-top: -4px; }
+        .status:empty { display: none; }
         .status.error { color: var(--error-color, #db4437); }
         .video { position: relative; margin: -12px -12px 0; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; overflow: hidden; background: #000; }
         .video:not(.on) { display: none; }
         ha-camera-stream { display: block; width: 100%; }
+        ha-camera-stream.next { position: absolute; inset: 0; }
         .sound {
           position: absolute; top: 8px; right: 8px; z-index: 1; width: 40px; min-height: 40px; padding: 0;
           border-radius: 20px; background: rgba(0, 0, 0, 0.5); color: #fff; animation: none;
@@ -177,13 +180,25 @@ class VtechTalkCard extends HTMLElement {
   }
 
   // A new stream element per sound setting: Home Assistant chooses WebRTC or HLS when the element starts.
+  // The old one stays underneath, at its size, until the new one has a picture, so the card doesn't
+  // collapse while it connects.
   _makeVideo() {
     const box = this._root.querySelector(".video");
-    if (this._video) this._video.remove();
+    const old = this._video;
     const video = document.createElement("ha-camera-stream");
     video.muted = !this._sound;
     video.allowExoPlayer = true;
     video.stateObj = this._hass.states[this._config.camera];
+    if (old) {
+      video.classList.add("next");
+      const swap = () => {
+        clearTimeout(timer);
+        if (old.isConnected) old.remove();
+        video.classList.remove("next");
+      };
+      const timer = setTimeout(swap, 10000);       // no picture yet: show the new one anyway
+      video.addEventListener("load", swap, { once: true });
+    }
     box.appendChild(video);
     box.classList.add("on");
     this._video = video;
