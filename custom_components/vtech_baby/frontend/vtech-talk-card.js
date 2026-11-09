@@ -2,7 +2,11 @@
 //
 //   type: custom:vtech-talk-card
 //   entity: media_player.<camera>_speaker
-//   name: Hold to talk          (optional)
+//   camera: camera.<camera>_live_view   (optional: live video above the button)
+//   name: Hold to talk                  (optional)
+//
+// The video is Home Assistant's own camera stream with its player controls, so the camera's sound can be
+// unmuted in place. It starts muted, since browsers only autoplay muted video.
 //
 // Hold the button (pointer, touch, or Space/Enter) and talk: the microphone streams to the camera as you
 // speak, over Home Assistant's websocket (command `vtech_baby/talk`, then binary messages of 16-bit mono
@@ -47,10 +51,22 @@ registerProcessor("vtech-capture", VtechCapture);
 `;
 let workletUrl;
 
+// `ha-camera-stream` is loaded with Home Assistant's picture cards; make one to load it if nothing has.
+async function loadCameraStream() {
+  if (customElements.get("ha-camera-stream")) return;
+  const helpers = await window.loadCardHelpers();
+  helpers.createCardElement({ type: "picture-entity", entity: "camera.none", camera_view: "live" });
+  await customElements.whenDefined("hui-picture-entity-card");
+  await Promise.race([customElements.whenDefined("ha-camera-stream"), new Promise((r) => setTimeout(r, 5000))]);
+}
+
 class VtechTalkCard extends HTMLElement {
   setConfig(config) {
     if (!config.entity || !config.entity.startsWith("media_player.")) {
       throw new Error("entity: the camera's speaker (media_player.…) is required");
+    }
+    if (config.camera && !config.camera.startsWith("camera.")) {
+      throw new Error("camera: a camera entity (camera.…)");
     }
     this._config = config;
     this._state = "idle";
@@ -60,14 +76,15 @@ class VtechTalkCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._update();
+    this._updateVideo();
   }
 
   getCardSize() {
-    return 2;
+    return this._config && this._config.camera ? 7 : 2;
   }
 
   getGridOptions() {
-    return { columns: 12, rows: 2, min_rows: 2 };
+    return this._config && this._config.camera ? { columns: 12, min_columns: 6 } : { columns: 12, rows: 2, min_rows: 2 };
   }
 
   static getStubConfig(hass) {
@@ -106,8 +123,12 @@ class VtechTalkCard extends HTMLElement {
         @keyframes pulse { 50% { filter: brightness(1.2); } }
         .status { min-height: 1.2em; text-align: center; font-size: 0.9em; color: var(--secondary-text-color); }
         .status.error { color: var(--error-color, #db4437); }
+        .video { margin: -12px -12px 0; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; overflow: hidden; background: #000; }
+        .video:empty { display: none; }
+        ha-camera-stream { display: block; width: 100%; }
       </style>
       <ha-card>
+        <div class="video"></div>
         <button type="button"><ha-icon icon="mdi:microphone"></ha-icon><span class="label"></span></button>
         <div class="status" role="status"></div>
       </ha-card>`;
@@ -132,6 +153,24 @@ class VtechTalkCard extends HTMLElement {
     });
     button.addEventListener("contextmenu", (e) => e.preventDefault());
     this._update();
+  }
+
+  async _updateVideo() {
+    const entity = this._config.camera;
+    if (!entity || !this._hass || !this._root) return;
+    const stateObj = this._hass.states[entity];
+    if (!this._video) {
+      if (this._videoLoading) return;
+      this._videoLoading = true;
+      await loadCameraStream();
+      const video = document.createElement("ha-camera-stream");
+      video.controls = true;
+      video.muted = this._config.muted !== false;
+      video.allowExoPlayer = true;
+      this._root.querySelector(".video").appendChild(video);
+      this._video = video;
+    }
+    if (stateObj && this._video.stateObj !== stateObj) this._video.stateObj = stateObj;
   }
 
   _update() {
