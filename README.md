@@ -72,8 +72,8 @@ entity: media_player.<camera>_speaker
 camera: camera.<camera>_live_view
 ```
 
-With `camera`, the card shows the live video above the button, with player controls to unmute the
-camera's sound in place.
+With `camera`, the card shows the live video above the button. It starts muted; the speaker button on the
+video turns the camera's sound on (the video may then run a few seconds behind).
 
 Hold the button and talk: your voice streams to the camera as you speak, and stops when you release
 it. A lullaby that was playing stops, then restarts afterwards. The browser asks for the microphone the

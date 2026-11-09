@@ -5,8 +5,10 @@
 //   camera: camera.<camera>_live_view   (optional: live video above the button)
 //   name: Hold to talk                  (optional)
 //
-// The video is Home Assistant's own camera stream with its player controls, so the camera's sound can be
-// unmuted in place. It starts muted, since browsers only autoplay muted video.
+// The video is Home Assistant's own camera stream. It starts muted, since browsers only autoplay muted
+// video; the speaker button turns the camera's sound on. Home Assistant picks the stream by that: muted it
+// plays WebRTC (lowest delay), with sound it plays HLS when only HLS carries the camera's audio, which is a
+// few seconds behind.
 //
 // Hold the button (pointer, touch, or Space/Enter) and talk: the microphone streams to the camera as you
 // speak, over Home Assistant's websocket (command `vtech_baby/talk`, then binary messages of 16-bit mono
@@ -123,16 +125,21 @@ class VtechTalkCard extends HTMLElement {
         @keyframes pulse { 50% { filter: brightness(1.2); } }
         .status { min-height: 1.2em; text-align: center; font-size: 0.9em; color: var(--secondary-text-color); }
         .status.error { color: var(--error-color, #db4437); }
-        .video { margin: -12px -12px 0; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; overflow: hidden; background: #000; }
-        .video:empty { display: none; }
+        .video { position: relative; margin: -12px -12px 0; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; overflow: hidden; background: #000; }
+        .video:not(.on) { display: none; }
         ha-camera-stream { display: block; width: 100%; }
+        .sound {
+          position: absolute; top: 8px; right: 8px; z-index: 1; width: 40px; min-height: 40px; padding: 0;
+          border-radius: 20px; background: rgba(0, 0, 0, 0.5); color: #fff; animation: none;
+        }
       </style>
       <ha-card>
-        <div class="video"></div>
-        <button type="button"><ha-icon icon="mdi:microphone"></ha-icon><span class="label"></span></button>
+        <div class="video"><button type="button" class="sound" aria-label="Camera sound"><ha-icon icon="mdi:volume-off"></ha-icon></button></div>
+        <button type="button" class="talk"><ha-icon icon="mdi:microphone"></ha-icon><span class="label"></span></button>
         <div class="status" role="status"></div>
       </ha-card>`;
-    const button = this._root.querySelector("button");
+    this._root.querySelector(".sound").addEventListener("click", () => this._setSound(!this._sound));
+    const button = this._root.querySelector("button.talk");
     button.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
@@ -163,23 +170,37 @@ class VtechTalkCard extends HTMLElement {
       if (this._videoLoading) return;
       this._videoLoading = true;
       await loadCameraStream();
-      const video = document.createElement("ha-camera-stream");
-      video.controls = true;
-      video.muted = this._config.muted !== false;
-      video.allowExoPlayer = true;
-      this._root.querySelector(".video").appendChild(video);
-      this._video = video;
+      this._makeVideo();
     }
     if (stateObj && this._video.stateObj !== stateObj) this._video.stateObj = stateObj;
   }
 
+  // A new stream element per sound setting: Home Assistant chooses WebRTC or HLS when the element starts.
+  _makeVideo() {
+    const box = this._root.querySelector(".video");
+    if (this._video) this._video.remove();
+    const video = document.createElement("ha-camera-stream");
+    video.muted = !this._sound;
+    video.allowExoPlayer = true;
+    video.stateObj = this._hass.states[this._config.camera];
+    box.appendChild(video);
+    box.classList.add("on");
+    this._video = video;
+  }
+
+  _setSound(on) {
+    this._sound = on;
+    this._root.querySelector(".sound ha-icon").setAttribute("icon", on ? "mdi:volume-high" : "mdi:volume-off");
+    if (this._video) this._makeVideo();
+  }
+
   _update() {
     if (!this._root) return;
-    const button = this._root.querySelector("button");
+    const button = this._root.querySelector("button.talk");
     const stateObj = this._hass && this._hass.states[this._config.entity];
     const supported = !!(navigator.mediaDevices && window.AudioWorkletNode);
     const available = stateObj && stateObj.state !== "unavailable";
-    button.className = this._state;
+    button.className = `talk ${this._state}`;
     button.disabled = !supported || !available || this._state === "finishing";
     button.setAttribute("aria-pressed", String(this._state === "talking"));
     const idle = this._config.name || LABELS.idle;
@@ -205,7 +226,7 @@ class VtechTalkCard extends HTMLElement {
   }
 
   async _press() {
-    if (this._state !== "idle" || this._root.querySelector("button").disabled) return;
+    if (this._state !== "idle" || this._root.querySelector("button.talk").disabled) return;
     const talk = { held: true, handlerId: null, queue: [], ended: false };
     this._talk = talk;
     this._status("");
