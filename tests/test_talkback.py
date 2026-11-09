@@ -245,6 +245,72 @@ def test_a_read_returns_what_has_arrived(socket_enabled):
         server.server_close()
 
 
+def test_raw_pcm_decodes_as_it_arrives(socket_enabled):
+    """`audio/L16` arriving at real-time rate yields its first frame at once, not when the stream ends."""
+    _av()
+    from vtech_lan.audio import alaw_frames
+
+    rate, release = 16000, threading.Event()
+    n = rate // 10
+    chunk = struct.pack(f">{n}h", *(int(8000 * math.sin(2 * math.pi * 440 * i / rate)) for i in range(n)))
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"                               # chunked needs 1.1
+
+        def do_GET(self):                                           # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", f"audio/L16;rate={rate};channels=1")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))    # 100 ms, then nothing until released
+            self.wfile.flush()
+            release.wait(5)
+            self.wfile.write(b"%x\r\n%s\r\n0\r\n\r\n" % (len(chunk), chunk))
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        frames = alaw_frames(f"http://127.0.0.1:{server.server_address[1]}/live")
+        start = time.monotonic()
+        assert len(next(frames)) == 160
+        assert time.monotonic() - start < 2                         # didn't wait for the rest
+        release.set()
+        assert 9 <= 1 + len(list(frames)) <= 11                     # 200 ms in all
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+
+
+def test_raw_pcm_needs_a_rate(socket_enabled):
+    _av()
+    from vtech_lan.audio import alaw_frames
+    from vtech_lan.errors import MediaError
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):                                           # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/L16")
+            self.send_header("Content-Length", "320")
+            self.end_headers()
+            self.wfile.write(bytes(320))
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(MediaError, match="needs a rate"):
+            next(alaw_frames(f"http://127.0.0.1:{server.server_address[1]}/x"))
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_a_redirect_off_http_is_refused(socket_enabled):
     _av()
     from vtech_lan.audio import alaw_frames

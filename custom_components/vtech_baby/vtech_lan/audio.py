@@ -8,6 +8,10 @@ The URL is fetched with urllib and PyAV reads the response as a file: the FFmpeg
 fails with EIO on the first read of a chunked response, which is how Home Assistant serves TTS while it
 is still being generated. Playlists (HLS, m3u, pls) are handed to FFmpeg by URL instead, since their
 entries are relative to it. urllib checks TLS certificates; FFmpeg doesn't by default.
+
+Raw PCM (`audio/L16` with `rate` and `channels` parameters: 16-bit big-endian, RFC 2586) starts decoding
+as soon as data arrives. A container makes FFmpeg read ahead before the first frame (WAV's demuxer reads
+64 KiB), which holds back live audio by seconds.
 """
 from __future__ import annotations
 
@@ -48,6 +52,7 @@ class _Arrived:
 
     def __init__(self, resp):
         self._resp = resp
+        self.headers = resp.headers
 
     def read(self, size: int = -1) -> bytes:
         return self._resp.read1(size)
@@ -68,6 +73,22 @@ def _fetch(url: str):
     return _Arrived(resp)
 
 
+def _raw_pcm(resp: _Arrived) -> tuple[str | None, dict[str, str]]:
+    """The demuxer and its options for an `audio/L16` response, else (None, {}) for FFmpeg to probe."""
+    if resp.headers.get_content_type() != "audio/l16":
+        return None, {}
+    try:
+        rate, channels = int(resp.headers.get_param("rate")), int(resp.headers.get_param("channels", "1"))
+    except (TypeError, ValueError):
+        rate = channels = 0
+    if not 1000 <= rate <= 192000 or channels not in (1, 2):
+        resp.close()
+        raise MediaError("audio/L16 needs a rate and 1 or 2 channels", call="talk-back")
+    # Nothing to probe: the format is all in the content type.
+    return "s16be", {"sample_rate": str(rate), "ch_layout": "mono" if channels == 1 else "stereo",
+                     "probesize": "32", "analyzeduration": "1"}
+
+
 def alaw_frames(url: str) -> Iterator[bytes]:
     """160-byte A-law frames of the first audio stream at `url`. A short last frame is padded with silence.
 
@@ -77,9 +98,10 @@ def alaw_frames(url: str) -> Iterator[bytes]:
     if urlsplit(url).scheme not in SCHEMES:
         raise MediaError(f"unsupported media URL {url!r}: only http and https are played", call="talk-back")
     resp = _fetch(url)
+    fmt, opts = _raw_pcm(resp) if resp is not None else (None, {})
     try:
-        container = av.open(resp if resp is not None else url, timeout=(OPEN_TIMEOUT_S, READ_TIMEOUT_S),
-                            options={"protocol_whitelist": PROTOCOLS})
+        container = av.open(resp if resp is not None else url, format=fmt, timeout=(OPEN_TIMEOUT_S, READ_TIMEOUT_S),
+                            options={"protocol_whitelist": PROTOCOLS, **opts})
     except av.FFmpegError as err:
         if resp is not None:
             resp.close()

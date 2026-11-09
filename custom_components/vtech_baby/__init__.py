@@ -21,6 +21,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
+from . import talk
 from .const import CONF_SDK_DIR, CONF_UID, DOMAIN, ISSUE_WORKER_CRASHED, SDK_DIRS
 from .manager import CameraManager, SetupError, async_load
 
@@ -55,6 +56,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     hass.services.async_register(DOMAIN, SERVICE_GET_MOTION_EVENTS, get_motion_events,
                                  schema=GET_MOTION_EVENTS_SCHEMA, supports_response=SupportsResponse.ONLY)
+    await talk.async_setup(hass)
     return True
 
 

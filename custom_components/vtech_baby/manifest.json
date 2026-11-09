@@ -1,12 +1,17 @@
 {
   "domain": "vtech_baby",
   "name": "VTech Baby Monitor",
+  "after_dependencies": [
+    "frontend"
+  ],
   "codeowners": [
     "@Kasoo"
   ],
   "config_flow": true,
   "dependencies": [
-    "media_source"
+    "http",
+    "media_source",
+    "websocket_api"
   ],
   "documentation": "https://github.com/Kasoo/vtech_baby",
   "integration_type": "device",

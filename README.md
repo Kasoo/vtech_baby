@@ -15,7 +15,8 @@ You get one device per camera with:
 - the room temperature, and the too-hot/too-cold alert with its limits;
 - the night-light (red, orange or yellow) and the status LED;
 - night vision, resolution, motion sensitivity, sound detection, notification interval and lullaby timer;
-- a speaker for the camera's lullabies, its volume, and text-to-speech or other media.
+- a speaker for the camera's lullabies, its volume, and text-to-speech or other media;
+- a hold-to-talk dashboard card, to talk live through the camera.
 
 ![The camera's device page in Home Assistant](https://raw.githubusercontent.com/Kasoo/vtech_baby/refs/heads/main/images/device.png)
 
@@ -60,6 +61,20 @@ option is used. Home Assistant then can't connect, and asks you to re-pair the c
 **Authentication expired for** *camera name* in **Settings → Repairs**, and the integration has a
 **Reconfigure** button in **Settings → Devices & services**. Select it, scan the camera's current QR code
 on the parent unit, and paste the text in.
+
+## Hold to talk
+
+Add a **Manual** card to a dashboard:
+
+```yaml
+type: custom:vtech-talk-card
+entity: media_player.<camera>_speaker
+```
+
+Hold the button and talk: your voice streams to the camera as you speak, and stops when you release
+it. A lullaby that was playing stops, then restarts afterwards. The browser asks for the microphone the
+first time, and the microphone needs Home Assistant over HTTPS. Any user who can control the speaker can
+use it.
 
 ## Notes
 
