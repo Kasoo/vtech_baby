@@ -73,7 +73,8 @@ camera: camera.<camera>_live_view
 ```
 
 With `camera`, the card shows the live video above the button. It starts muted; the speaker button on the
-video turns the camera's sound on.
+video turns the camera's sound on. The video keeps its shape while it loads; for a camera that isn't 16:9,
+set `aspect_ratio` (for example `4:3`).
 
 Hold the button and talk: your voice streams to the camera as you speak, and stops when you release
 it. A lullaby that was playing stops, then restarts afterwards. The browser asks for the microphone the

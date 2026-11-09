@@ -3,6 +3,7 @@
 //   type: custom:vtech-talk-card
 //   entity: media_player.<camera>_speaker
 //   camera: camera.<camera>_live_view   (optional: live video above the button)
+//   aspect_ratio: "16:9"                (optional: the video's shape, kept while it loads)
 //   name: Hold to talk                  (optional)
 //
 // The video is Home Assistant's own camera stream. It starts muted, since browsers only autoplay muted
@@ -54,6 +55,13 @@ registerProcessor("vtech-capture", VtechCapture);
 `;
 let workletUrl;
 
+// "16:9", "4/3" or 1.78 → width / height; 16:9 if missing or unreadable.
+function parseRatio(value) {
+  const m = String(value ?? "").match(/^\s*(\d+(?:\.\d+)?)\s*(?:[:/x]\s*(\d+(?:\.\d+)?))?\s*$/);
+  const ratio = m ? Number(m[1]) / Number(m[2] || 1) : NaN;
+  return ratio > 0.2 && ratio < 5 ? ratio : 16 / 9;
+}
+
 // `ha-camera-stream` is loaded with Home Assistant's picture cards; make one to load it if nothing has.
 async function loadCameraStream() {
   if (customElements.get("ha-camera-stream")) return;
@@ -72,6 +80,7 @@ class VtechTalkCard extends HTMLElement {
       throw new Error("camera: a camera entity (camera.…)");
     }
     this._config = config;
+    this._ratio = parseRatio(config.aspect_ratio);
     this._state = "idle";
     this._render();
   }
@@ -128,9 +137,9 @@ class VtechTalkCard extends HTMLElement {
         .status { text-align: center; font-size: 0.9em; color: var(--secondary-text-color); margin-top: -4px; }
         .status:empty { display: none; }
         .status.error { color: var(--error-color, #db4437); }
-        .video { position: relative; margin: -12px -12px 0; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; overflow: hidden; background: #000; }
+        .video { position: relative; aspect-ratio: var(--vtech-video-ratio, 16 / 9); margin: -12px -12px 0; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; overflow: hidden; background: #000; }
         .video:not(.on) { display: none; }
-        ha-camera-stream { display: block; width: 100%; }
+        ha-camera-stream { display: block; width: 100%; height: 100%; }
         ha-camera-stream.next { position: absolute; inset: 0; }
         .sound {
           position: absolute; top: 8px; right: 8px; z-index: 1; width: 40px; min-height: 40px; padding: 0;
@@ -142,6 +151,10 @@ class VtechTalkCard extends HTMLElement {
         <button type="button" class="talk"><ha-icon icon="mdi:microphone"></ha-icon><span class="label"></span></button>
         <div class="status" role="status"></div>
       </ha-card>`;
+    // The video's box is there, at the stream's shape, before the stream loads, so nothing moves when it does.
+    const box = this._root.querySelector(".video");
+    box.style.setProperty("--vtech-video-ratio", String(this._ratio));
+    box.classList.toggle("on", !!this._config.camera);
     this._root.querySelector(".sound").addEventListener("click", () => this._setSound(!this._sound));
     const button = this._root.querySelector("button.talk");
     button.addEventListener("pointerdown", (e) => {
@@ -188,6 +201,8 @@ class VtechTalkCard extends HTMLElement {
     const video = document.createElement("ha-camera-stream");
     video.muted = !this._sound;
     video.allowExoPlayer = true;
+    video.aspectRatio = this._ratio;
+    video.fitMode = "contain";
     video.stateObj = this._hass.states[this._config.camera];
     if (old) {
       video.classList.add("next");
@@ -200,7 +215,6 @@ class VtechTalkCard extends HTMLElement {
       video.addEventListener("load", swap, { once: true });
     }
     box.appendChild(video);
-    box.classList.add("on");
     this._video = video;
   }
 
