@@ -318,12 +318,23 @@ class VtechTalkCard extends HTMLElement {
   }
 }
 
-if (!customElements.get("vtech-talk-card")) {
-  customElements.define("vtech-talk-card", VtechTalkCard);
-  window.customCards = window.customCards || [];
-  window.customCards.push({
-    type: "vtech-talk-card",
-    name: "VTech hold to talk",
-    description: "Hold and talk to stream your voice live through a VTech baby monitor's speaker.",
-  });
+// Home Assistant loads this module before its frontend, which then replaces `window.customElements`
+// with its own registry; a card defined before that is invisible to it ("Custom element doesn't exist").
+// So define the card once Home Assistant's own elements are in the current registry.
+function register() {
+  if (!customElements.get("home-assistant")) return false;
+  if (!customElements.get("vtech-talk-card")) {
+    customElements.define("vtech-talk-card", VtechTalkCard);
+    window.customCards = window.customCards || [];
+    window.customCards.push({
+      type: "vtech-talk-card",
+      name: "VTech hold to talk",
+      description: "Hold and talk to stream your voice live through a VTech baby monitor's speaker.",
+    });
+  }
+  return true;
+}
+
+if (!register()) {
+  const timer = setInterval(() => register() && clearInterval(timer), 50);
 }
