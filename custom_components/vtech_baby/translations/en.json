@@ -29,7 +29,7 @@
       "unknown": "Unexpected error; see the logs."
     },
     "abort": {
-      "already_configured": "This camera is already configured; its credentials were updated.",
+      "already_configured": "This camera is already configured. If its credentials changed (for example after a Wi-Fi change), Home Assistant will ask you to re-pair it (see Settings → Repairs).",
       "reauth_successful": "The camera was re-paired."
     }
   },
