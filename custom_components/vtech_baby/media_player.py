@@ -29,9 +29,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import talk
 from .entity import VtechEntity
 from .manager import CameraManager
 from .vtech_lan import ops
+from .vtech_lan.audio import LiveAudio
 
 SOURCES = {name: track for track, name in ops.LULLABY_NAMES.items()}
 TALK_BACK = "Talk-back"
@@ -96,10 +98,12 @@ class VtechSpeaker(VtechEntity, MediaPlayerEntity):
 
     # ── Media (talk-back) ────────────────────────────────────────────────────
     async def async_play_media(self, media_type: MediaType | str, media_id: str, **kwargs: Any) -> None:
-        if media_source.is_media_source_id(media_id):
-            media_id = (await media_source.async_resolve_media(self.hass, media_id, self.entity_id)).url
-        url = async_process_play_media_url(self.hass, media_id)
-        old, task = self._task, self.hass.async_create_task(self._play(url, bool(kwargs.get(ATTR_MEDIA_ANNOUNCE))))
+        media: str | LiveAudio | None = talk.take_audio(self.hass, media_id)    # the talk card's microphone
+        if media is None:
+            if media_source.is_media_source_id(media_id):
+                media_id = (await media_source.async_resolve_media(self.hass, media_id, self.entity_id)).url
+            media = async_process_play_media_url(self.hass, media_id)
+        old, task = self._task, self.hass.async_create_task(self._play(media, bool(kwargs.get(ATTR_MEDIA_ANNOUNCE))))
         self._task = task
         if old is not None:
             old.cancel()                # it stops its talk-back before releasing the lock
@@ -127,14 +131,14 @@ class VtechSpeaker(VtechEntity, MediaPlayerEntity):
             task.cancel()
             await asyncio.wait([task])
 
-    async def _play(self, url: str, announce: bool) -> None:
+    async def _play(self, media: str | LiveAudio, announce: bool) -> None:
         async with self._lock:
             m = self.coordinator
             lullaby = m.lullaby_track
             if lullaby is not None:
                 await m.async_stop_lullaby()
             try:
-                await m.async_talk(url)
+                await m.async_talk(media)
             finally:
                 # Resume after an announcement that played out or failed; not after a stop or replacement.
                 if announce and lullaby is not None and not _cancelling() and m.session is not None:

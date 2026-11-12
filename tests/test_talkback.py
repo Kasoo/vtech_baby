@@ -285,6 +285,57 @@ def test_raw_pcm_decodes_as_it_arrives(socket_enabled):
         server.server_close()
 
 
+def _tone_le(seconds: float, rate: int) -> bytes:
+    n = int(seconds * rate)
+    return struct.pack(f"<{n}h", *(int(8000 * math.sin(2 * math.pi * 440 * i / rate)) for i in range(n)))
+
+
+def test_live_audio_decodes_as_it_arrives():
+    """Live audio in memory yields its first frame at once, and ends when `end()` is called."""
+    _av()
+    from vtech_lan.audio import LiveAudio, alaw_frames
+
+    audio = LiveAudio(16000, idle_s=5.0, max_s=60.0)
+    audio.feed(_tone_le(0.1, 16000))
+    frames = alaw_frames(audio)
+    start = time.monotonic()
+    assert len(next(frames)) == 160
+    assert time.monotonic() - start < 2                             # didn't wait for the rest
+    threading.Timer(0.2, lambda: (audio.feed(_tone_le(0.1, 16000)), audio.end())).start()
+    assert 9 <= 1 + len(list(frames)) <= 11                         # 200 ms in all
+
+
+def test_live_audio_resamples_and_ends_when_idle():
+    _av()
+    from vtech_lan.audio import LiveAudio, alaw_frames
+
+    audio = LiveAudio(48000, idle_s=0.3, max_s=60.0)
+    audio.feed(_tone_le(0.2, 48000))                                # then nothing
+    start = time.monotonic()
+    assert 9 <= len(list(alaw_frames(audio))) <= 11
+    assert time.monotonic() - start < 3
+
+
+def test_live_audio_is_cut_off_at_max_s():
+    _av()
+    from vtech_lan.audio import LiveAudio, alaw_frames
+
+    audio = LiveAudio(8000, idle_s=5.0, max_s=0.1)
+    audio.feed(_tone_le(0.3, 8000))                                 # ends the audio at 100 ms
+    audio.feed(_tone_le(0.1, 8000))                                 # dropped
+    assert 4 <= len(list(alaw_frames(audio))) <= 6
+
+
+def test_live_audio_without_audio_has_no_frames():
+    """No frames at all, which `TalkBack.start` reports as media without audio."""
+    _av()
+    from vtech_lan.audio import LiveAudio, alaw_frames
+
+    audio = LiveAudio(16000, idle_s=5.0, max_s=60.0)
+    audio.end()
+    assert list(alaw_frames(audio)) == []
+
+
 def test_raw_pcm_needs_a_rate(socket_enabled):
     _av()
     from vtech_lan.audio import alaw_frames

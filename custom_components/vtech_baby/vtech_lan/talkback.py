@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from . import ops
-from .audio import alaw_frames
+from .audio import LiveAudio, alaw_frames
 from .errors import MediaError, ProtocolError, SessionGone, VtechError
 
 _LOG = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ class TalkBack:
 
     def __init__(self, get_session: Callable[[], Any], name: str = "",
                  audio_wanted: Callable[[], bool] = lambda: False,
-                 open_media: Callable[[str], Iterator[bytes]] = alaw_frames):
+                 open_media: Callable[[str | LiveAudio], Iterator[bytes]] = alaw_frames):
         self._get_session, self.name = get_session, name
         self._audio_wanted, self._open_media = audio_wanted, open_media
         self._lock = threading.Lock()              # serialises start and stop
@@ -86,12 +86,13 @@ class TalkBack:
         t = self._thread
         return t is not None and t.is_alive()
 
-    def start(self, url: str, on_end: OnEnd | None = None) -> None:
-        """Play `url` through the camera's speaker. Returns once the camera is receiving it.
+    def start(self, media: str | LiveAudio, on_end: OnEnd | None = None) -> None:
+        """Play `media` (a URL, or live audio) through the camera's speaker. Returns once the camera is
+        receiving it.
 
         Raises MediaError for media that can't be played, SessionGone if the camera isn't connected,
         and VtechError if the camera doesn't take the uplink."""
-        first, frames = self._open(url)
+        first, frames = self._open(media)
         with self._lock:
             self._stop_locked()
             session = self._get_session()
@@ -135,8 +136,8 @@ class TalkBack:
             _LOG.warning("%s: talk-back did not stop within %.0f s", self.name, timeout)
         self._thread = self.session = None
 
-    def _open(self, url: str) -> tuple[bytes, Iterator[bytes]]:
-        frames = self._open_media(url)
+    def _open(self, media: str | LiveAudio) -> tuple[bytes, Iterator[bytes]]:
+        frames = self._open_media(media)
         try:
             return next(frames), frames
         except StopIteration:

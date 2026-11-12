@@ -44,6 +44,7 @@ from .const import (
     STALE_CREDS_FAILURES,
 )
 from .vtech_lan import ops
+from .vtech_lan.audio import LiveAudio
 from .vtech_lan.errors import (
     AuthFailed,
     MediaError,
@@ -482,8 +483,9 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         except VtechError as err:
             raise HomeAssistantError(f"camera command failed: {err}") from err
 
-    async def async_talk(self, url: str) -> None:
-        """Play `url` through the camera's speaker and return when it has played. Cancelling stops it."""
+    async def async_talk(self, media: str | LiveAudio) -> None:
+        """Play `media` (a URL, or live audio) through the camera's speaker and return when it has played.
+        Cancelling stops it."""
         if self.session is None:
             raise HomeAssistantError("camera not connected")
         loop = self.hass.loop
@@ -493,7 +495,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             loop.call_soon_threadsafe(lambda: ended.done() or ended.set_result(err))
 
         try:
-            await self.hass.async_add_executor_job(self.talk.start, url, on_end)
+            await self.hass.async_add_executor_job(self.talk.start, media, on_end)
         except asyncio.CancelledError:
             await self.hass.async_add_executor_job(self.talk.stop)     # it may have started regardless
             raise

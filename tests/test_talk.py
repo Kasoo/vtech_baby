@@ -4,7 +4,6 @@ import math
 import struct
 from unittest.mock import patch
 
-import aiohttp
 import pytest
 from homeassistant.core import HomeAssistant
 
@@ -25,10 +24,10 @@ def pcm(seconds: float, rate: int = RATE) -> bytes:
 
 
 async def connect(hass, hass_ws_client, token=None):
-    """A websocket client, once the entry (and so HTTP) is set up. HA's own URL points at its test server,
-    so the talk-back can fetch the stream."""
+    """A websocket client, once the entry is set up. HA's own URL is unreachable: the talk's audio must
+    not be fetched over HTTP (behind a proxy that wants a client certificate, that fetch fails)."""
     ws = await (hass_ws_client(access_token=token) if token else hass_ws_client())
-    hass.config.internal_url = str(ws.client.make_url("")).rstrip("/")
+    hass.config.internal_url = hass.config.external_url = "https://unreachable.invalid"
     return ws
 
 
@@ -145,12 +144,17 @@ async def test_talk_without_audio_is_an_error(hass: HomeAssistant, fake, hass_ws
     await unload(hass, entry)
 
 
-async def test_clip_url_needs_auth(hass: HomeAssistant, fake, hass_ws_client):
+async def test_talk_audio_is_taken_once(hass: HomeAssistant, fake, hass_ws_client):
+    """The content id names the talk's audio for one play only; an unknown id isn't talk audio."""
     entry = await setup_entry(hass)
     ws = await connect(hass, hass_ws_client)
-    url = ws.client.make_url(talk.CLIP_URL.format(token="t" * 43))
-    async with aiohttp.ClientSession() as anon, anon.get(url) as r:
-        assert r.status == 401
+    _, hid = await start(ws)
+    talks = hass.data[talk.DATA]
+    await wait_until(lambda: not talks.audio, 10)                  # the speaker has taken it
+    assert talk.take_audio(hass, talk.AUDIO_ID + "unknown") is None
+    assert talk.take_audio(hass, "media-source://tts/x") is None
+    await ws.send_bytes(bytes([hid]))
+    await wait_until(lambda: not talks.busy, 10)
     await unload(hass, entry)
 
 
