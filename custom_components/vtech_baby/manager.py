@@ -30,7 +30,6 @@ from .const import (
     CONF_ACCOUNT,
     CONF_AUTHKEY,
     CONF_AV_PASSWORD,
-    CONF_MAC,
     CONF_UID,
     DOMAIN,
     ISSUE_RESTART_REQUIRED,
@@ -41,7 +40,6 @@ from .const import (
     RECONNECT_MIN_S,
     SELF_TRIGGER_S,
     SIGNAL_EVENT,
-    STALE_CREDS_FAILURES,
 )
 from .vtech_lan import ops
 from .vtech_lan.audio import LiveAudio
@@ -51,7 +49,6 @@ from .vtech_lan.errors import (
     ProtocolError,
     RequestTimeout,
     SessionGone,
-    Unreachable,
     VtechError,
 )
 from .vtech_lan.hub import Hub
@@ -121,26 +118,6 @@ async def async_probe(hass: HomeAssistant, hub: Hub, creds: dict[str, str]) -> o
     """Connect once and disconnect: the config flow's credential test. Raises VtechError subclasses."""
     return await hass.async_add_executor_job(
         _probe, hub, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT])
-
-
-def mac_present(mac: str, arp_path: str = "/proc/net/arp") -> bool:
-    """True if `mac` has a complete IPv4 neighbour entry on this host (HA runs with Network=host).
-
-    The cheap disambiguator for the -13 trap: the camera is on the LAN, yet IOTC connects time out.
-    """
-    if not mac:
-        return False
-    mac = mac.lower()
-    try:
-        with open(arp_path) as f:
-            next(f, None)
-            for line in f:
-                cols = line.split()
-                if len(cols) >= 4 and cols[3].lower() == mac and int(cols[2], 16) & 0x2:
-                    return True
-    except (OSError, ValueError):
-        pass
-    return False
 
 
 # ── State ────────────────────────────────────────────────────────────────────
@@ -296,7 +273,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             return
         self.session, self.failures, self.last_error = session, 0, None
         _LOG.info("%s: connected via %s (%s)", self.name, state.connection_mode, state.devinfo)
-        # The credentials work after all (e.g. a -13 trap false alarm): withdraw any reauth prompt.
+        # The credentials work: withdraw any reauth prompt still open.
         for flow in self.config_entry.async_get_active_flows(self.hass, {SOURCE_REAUTH}):
             self.hass.config_entries.flow.async_abort(flow["flow_id"])
         self.async_set_updated_data(state)
@@ -442,16 +419,6 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
                 _LOG.warning("%s: credentials rejected (%s); starting re-authentication", self.name, err)
                 self.config_entry.async_start_reauth(self.hass)
                 return
-            except Unreachable as err:
-                self.failures += 1
-                self.last_error = str(err)
-                if self.failures >= STALE_CREDS_FAILURES and await self.hass.async_add_executor_job(
-                        mac_present, self.config_entry.data.get(CONF_MAC, "")):
-                    # The -13 trap: on the LAN but not answering IOTC. Most likely the camera's
-                    # credentials rotated (Wi-Fi change). Ask for a fresh QR; keep retrying meanwhile.
-                    _LOG.warning("%s: camera is on the LAN but connects keep timing out; its "
-                                 "credentials may have rotated, starting re-authentication", self.name)
-                    self.config_entry.async_start_reauth(self.hass)
             except VtechError as err:
                 self.failures += 1
                 self.last_error = str(err)

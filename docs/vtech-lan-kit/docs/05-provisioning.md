@@ -92,7 +92,10 @@ handled separately there).
 
 The **UID is stable**. The **AV password rotates** on a Wi-Fi change or an "update security key" re-pair,
 and because the authKey is a deterministic HKDF of the AV password it co-rotates. A stale AV
-password/authKey makes the connect fail (`-68` wrong authKey, or a connect timeout). Recovery is simply
+password/authKey makes the connect fail at once: the camera answers the LAN search for its UID with a
+wrong-authKey reject (`-68`). It does not go silent, so a connect that gets no search reply at all means
+the camera is off the network or still booting, not that its credentials rotated. (That a key from before
+a rotation gets the same reject as any other wrong key is assumed, not confirmed.) Recovery is simply
 to **re-scan the current pairing QR**: the new AV password comes straight out of it and the new authKey
 falls out of the HKDF. An integration can drive this from its re-authentication flow (`90-ha-runtime.md`)
 by asking for a fresh QR rather than for typed credentials.

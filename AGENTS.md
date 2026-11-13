@@ -221,12 +221,12 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   `0x728` = `word1 = 0`; `0x732` = `int@0 = 1`), so each op in `ops.py` has its own success check.
 - The real length of notification interval index 0 ("default"), and whether index 6 ("never") also stops
   `0x1fff` pushes to LAN clients.
+- Whether a genuinely rotated (old) authKey gets the same explicit `-68` reject as an arbitrary wrong one.
+  The manager assumes it does: only `AuthFailed` starts reauth, and an unreachable camera (no search
+  reply) is retried forever. Stale credentials that went silent instead would show as a camera that
+  never comes back.
 
 ### Known issues
-- **Stale credentials look like an offline camera.** After a Wi-Fi change or a re-pair the AV password
-  and authKey rotate (the UID doesn't), and a stale authKey makes the connect time out (`-13`) rather
-  than fail with `-68`. The manager counts consecutive unreachable connects while the camera's MAC is on
-  the LAN (`STALE_CREDS_FAILURES`) and then starts reauth, which asks for a fresh pairing QR.
 - **Post-connect IOCtrl stall.** Occasionally, a `0x731` write within about a minute of (re)connecting is
   followed by ~35–40 s with no replies. The session isn't lost and recovers by itself; the cause is
   unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. It happened in HA

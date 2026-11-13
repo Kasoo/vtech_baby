@@ -160,7 +160,7 @@ and keepalive tick counters, and the next search and alive deadlines.
   interface first, and the config may name the interface. All on-link interfaces stay the default,
   because the camera can be on any of them.
 - **Optional unicast hint** (new): if the config has the camera's last known IPv4 address (the
-  integration knows its MAC and can read the neighbour table; `manager.py` `mac_present`), also send
+  integration knows its MAC and can read the neighbour table), also send
   the record and probe there each round. The kit says the connect-path probe works unicast too
   (`15-wire-format.md`). This makes discovery work if broadcasts are filtered, and costs nothing.
 - **On a long `0x602` whose token matches ours:**

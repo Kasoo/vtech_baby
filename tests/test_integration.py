@@ -236,27 +236,26 @@ async def test_lost_session_goes_unavailable_then_reconnects(hass: HomeAssistant
     await unload(hass, entry)
 
 
-async def test_minus13_trap_starts_reauth_when_camera_on_lan(hass: HomeAssistant, fake):
+async def test_unreachable_never_starts_reauth(hass: HomeAssistant, fake):
+    """A camera that is off the network or still booting gets no search reply; that is not a credentials problem."""
     entry = await setup_entry(hass)
-    with patch.object(mgr, "STALE_CREDS_FAILURES", 2), patch.object(mgr, "mac_present", lambda mac: True):
-        fake.fail_connect(-13)
-        fake.kill()
-        await wait_until(lambda: any(f["context"]["source"] == "reauth"
-                                     for f in hass.config_entries.flow.async_progress()))
-    assert entry.runtime_data.failures >= 2
-    fake.heal()           # it was only an outage: the prompt is withdrawn
-    await wait_until(lambda: hass.states.get(TEMP).state == "21")
+    fake.fail_connect(-13)
+    fake.kill()
+    await wait_until(lambda: entry.runtime_data.failures >= 6)
     assert not any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+    fake.heal()
+    await wait_until(lambda: hass.states.get(TEMP).state == "21")
     await unload(hass, entry)
 
 
-async def test_minus13_without_camera_on_lan_just_retries(hass: HomeAssistant, fake):
+async def test_rejected_key_on_reconnect_starts_reauth(hass: HomeAssistant, fake):
+    """Rotated credentials: the camera rejects the authKey, and the reconnect loop asks for a fresh QR."""
     entry = await setup_entry(hass)
-    with patch.object(mgr, "STALE_CREDS_FAILURES", 1), patch.object(mgr, "mac_present", lambda mac: False):
-        fake.fail_connect(-13)
-        fake.kill()
-        await wait_until(lambda: entry.runtime_data.failures >= 3)
-    assert not any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+    fake.fail_connect(-68)
+    fake.kill()
+    await wait_until(lambda: any(f["context"]["source"] == "reauth"
+                                 for f in hass.config_entries.flow.async_progress()))
+    assert entry.runtime_data.failures == 0
     await unload(hass, entry)
 
 
@@ -311,18 +310,6 @@ async def test_newer_entry_version_is_refused(hass: HomeAssistant):
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     assert entry.state is ConfigEntryState.MIGRATION_ERROR
-
-
-# ── Pure helpers ─────────────────────────────────────────────────────────────
-def test_mac_present(tmp_path):
-    arp = tmp_path / "arp"
-    arp.write_text("IP address  HW type  Flags  HW address  Mask  Device\n"
-                   "192.168.1.9  0x1  0x2  00:11:22:33:44:ff  *  eth0\n"
-                   "192.168.1.8  0x1  0x0  00:11:22:33:44:ee  *  eth0\n")
-    assert mgr.mac_present("00:11:22:33:44:FF", str(arp))
-    assert not mgr.mac_present("00:11:22:33:44:ee", str(arp))     # incomplete entry
-    assert not mgr.mac_present("", str(arp))
-    assert not mgr.mac_present("00:11:22:33:44:ff", str(tmp_path / "missing"))
 
 
 # ── Entities ─────────────────────────────────────────────────────────────────

@@ -21,9 +21,6 @@ SDK_DIRS = (("vtech_baby", "sdk"), ("vtech_baby", "lib"))
 KEEPALIVE_S = 20.0
 RECONNECT_MIN_S = 10.0
 RECONNECT_MAX_S = 300.0
-# The -13 trap (AGENTS.md, "Design notes"): after this many consecutive "unreachable" connects while
-# the camera's MAC is present on the LAN, assume rotated credentials and ask for a fresh QR. The threshold is a guess.
-STALE_CREDS_FAILURES = 4
 
 # DEVINFO models this integration has been tested with: the RM5754HD reports "RM5754". Setup
 # warns about any other (config_flow, step "untested_model").
