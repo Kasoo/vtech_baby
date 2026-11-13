@@ -10,7 +10,8 @@
 // video; the speaker button turns the camera's sound on by starting the stream again unmuted. Home
 // Assistant then plays WebRTC if its audio is there, else HLS (seconds behind) if that has audio. WebRTC
 // audio can be missing from the first connection, since go2rtc converts the camera's audio for it on
-// demand; the restart picks it up.
+// demand; the restart picks it up. Clicking the video opens the camera's own dialog, where it can go
+// full screen.
 //
 // Hold the button (pointer, touch, or Space/Enter) and talk: the microphone streams to the camera as you
 // speak, over Home Assistant's websocket (command `vtech_baby/talk`, then binary messages of 16-bit mono
@@ -139,6 +140,7 @@ class VtechTalkCard extends HTMLElement {
         .status.error { color: var(--error-color, #db4437); }
         .video { position: relative; aspect-ratio: var(--vtech-video-ratio, 16 / 9); margin: -12px -12px 0; border-radius: var(--ha-card-border-radius, 12px) var(--ha-card-border-radius, 12px) 0 0; overflow: hidden; background: #000; }
         .video:not(.on) { display: none; }
+        .video.on { cursor: pointer; }
         ha-camera-stream { display: block; width: 100%; height: 100%; }
         ha-camera-stream.next { position: absolute; inset: 0; }
         .sound {
@@ -155,7 +157,15 @@ class VtechTalkCard extends HTMLElement {
     const box = this._root.querySelector(".video");
     box.style.setProperty("--vtech-video-ratio", String(this._ratio));
     box.classList.toggle("on", !!this._config.camera);
-    this._root.querySelector(".sound").addEventListener("click", () => this._setSound(!this._sound));
+    this._root.querySelector(".sound").addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._setSound(!this._sound);
+    });
+    box.addEventListener("click", () => {
+      this.dispatchEvent(new CustomEvent("hass-more-info", {
+        detail: { entityId: this._config.camera }, bubbles: true, composed: true,
+      }));
+    });
     const button = this._root.querySelector("button.talk");
     button.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
