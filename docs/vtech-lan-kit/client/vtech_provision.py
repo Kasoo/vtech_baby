@@ -213,6 +213,96 @@ def decode_pairing_qr(qr: str,
     }
 
 
+# --- QR format inspection (for models whose QR is not the documented v5 format) --------
+# The documented, provisionable format is version 5 (decode_pairing_qr above). Other VTech models
+# emit other formats. inspect_qr() classifies any pairing QR by its version byte so a user can see
+# whether their model can be provisioned from the QR, and gather the facts worth reporting for a
+# format that is not yet known. See ../docs/05-provisioning.md, "Other QR formats".
+def decode_v1_qr(qr: str, key: bytes = QR_AES_KEY, iv: bytes = QR_AES_IV) -> list[dict]:
+    """Decode a version-1 pairing QR into its per-camera records.
+
+    A v1 QR is `[0x01][plaintext_len:1][AES-128-CBC ciphertext]` under the same app-wide key/IV as
+    the v5 QR. The plaintext is ASCII, comma-separated, four fields per camera, one or more cameras
+    per code:  idx,name,uid,token[,idx,name,uid,token ...].
+
+    The 8-character `token` is a registration token, **not** the AV password: a v1 camera does not
+    carry its AV password in the QR, so it cannot be provisioned from the QR alone. The UID is
+    still correct. Returns [{idx, name, uid, token}].
+    """
+    raw = base64.b64decode("".join(qr.split()) + "===")
+    if not raw or raw[0] != 1:
+        raise ValueError(f"not a version-1 QR (version byte {raw[:1]!r})")
+    ct = raw[2:]
+    if len(ct) % 16:
+        raise ValueError(f"ciphertext not block-aligned ({len(ct)} bytes)")
+    pt = _aes_cbc_decrypt(key, iv, ct).rstrip(b"\x00")
+    parts = pt.decode("latin1").split(",")
+    if not parts or len(parts) % 4:
+        raise ValueError(f"v1 payload is not a whole number of 4-field records ({len(parts)} fields)")
+    return [{"idx": parts[i], "name": parts[i + 1], "uid": parts[i + 2], "token": parts[i + 3]}
+            for i in range(0, len(parts), 4)]
+
+
+def inspect_qr(qr: str) -> dict:
+    """Classify a pairing-QR string without assuming the documented v5 format.
+
+    Returns {version, provisionable, verdict, detail, cameras:[{uid,name}]}. `version` is the
+    leading byte (or None if the text is not base64); `provisionable` is whether the full
+    credential set can be derived from this QR offline.
+    """
+    try:
+        raw = base64.b64decode("".join(qr.split()) + "===")
+    except (ValueError, TypeError) as err:  # binascii.Error is a ValueError
+        return {"version": None, "provisionable": False, "verdict": "not-base64",
+                "detail": f"the text is not valid base64: {err}", "cameras": []}
+    if not raw:
+        return {"version": None, "provisionable": False, "verdict": "empty",
+                "detail": "the text decoded to no bytes", "cameras": []}
+    ver = raw[0]
+    if ver == 5:
+        try:
+            d = decode_pairing_qr(qr)
+        except ValueError as err:
+            return {"version": 5, "provisionable": False, "verdict": "v5-malformed",
+                    "detail": f"version-5 header, but the body did not decode: {err}", "cameras": []}
+        return {"version": 5, "provisionable": True, "verdict": "v5-ok",
+                "detail": "documented format: the QR carries the UID and the AV password, so the "
+                          "full credential set can be provisioned offline from it.",
+                "cameras": [{"uid": d["uid"], "name": d["name"]}]}
+    if ver == 1:
+        try:
+            cams = decode_v1_qr(qr)
+        except ValueError as err:
+            return {"version": 1, "provisionable": False, "verdict": "v1-malformed",
+                    "detail": f"version-1 header, but the body did not decode: {err}", "cameras": []}
+        return {"version": 1, "provisionable": False, "verdict": "v1-registration-token",
+                "detail": "this format carries the UID and an 8-character registration token, not "
+                          "the AV password. The AV password is not in the QR, so this model cannot "
+                          "be provisioned from the QR alone (the UID below is still correct).",
+                "cameras": [{"uid": c["uid"], "name": c["name"]} for c in cams]}
+    body = raw[1:]
+    printable = sum(1 for b in body if 0x20 <= b <= 0x7e)
+    shape = ("mostly ASCII text" if body and printable / len(body) > 0.9
+             else "block-aligned (looks like AES ciphertext)" if body and len(body) % 16 == 0
+             else "not block-aligned and not ASCII")
+    return {"version": ver, "provisionable": False, "verdict": "unknown-version",
+            "detail": f"version byte 0x{ver:02x} is not a pairing-QR format this tool knows. "
+                      f"Total {len(raw)} bytes; body {len(body)} bytes, {shape}. See COMPATIBILITY.md "
+                      "for what to report — report this line, never the QR text itself.",
+            "cameras": []}
+
+
+def format_inspection(info: dict) -> str:
+    """One-screen human summary of inspect_qr()'s result."""
+    head = (f"QR format: version {info['version']}" if info["version"] is not None
+            else "QR format: unrecognised")
+    lines = [f"{head}  ({info['verdict']})", info["detail"]]
+    for c in info["cameras"]:
+        lines.append(f"  camera: UID={c['uid']}  name={c['name']}")
+    lines.append("provisionable offline from this QR: " + ("yes" if info["provisionable"] else "no"))
+    return "\n".join(lines)
+
+
 def read_qr_image(path: str) -> str:
     """Read the base64 pairing-QR payload from an image file (a photo of the parent unit).
 
@@ -291,6 +381,10 @@ _SELFTEST_QR = ("BQBAnKyf45uQj6cMJVH0WNRYgaghpJ8gJgVv7vpkFYAp84R070RCMv02XQkQjX+
 _EXPECT_UID = "TESTUID0000000000001"
 _EXPECT_AVPWD = "Pw0rdXyz"
 _DERIV_VECTOR = ("Pw0rdXyz", "tPVrrfrL")  # AV password -> authKey
+# Synthetic version-1 QR (fabricated: two cameras, 8-char registration tokens, not AV passwords).
+# Built with the app-wide QR key/IV above; exercises the non-v5 inspection path only.
+_SELFTEST_V1_QR = ("AV9CTHbs9uYqrsCWjQlhQ11bqghEzSpBAYJ9aj6/n9TVGUmSXuXkqffEEKbASGvzuyNd2YGYEqctlX9K"
+                   "GDo8q2nJyncaY2xKR1YjY6QFpcNtvyOMXXqJVrdk5ULGK7Wfj3M=")
 
 
 def _selftest() -> int:
@@ -314,6 +408,16 @@ def _selftest() -> int:
     print(f"[provision] authkey well-formed base62x8: {'OK' if ak_b62 else 'FAIL'}")
     ok &= ak_b62
 
+    i5 = inspect_qr(_SELFTEST_QR)
+    print(f"[inspect] v5 -> version={i5['version']} verdict={i5['verdict']} provisionable={i5['provisionable']}")
+    ok &= i5["version"] == 5 and i5["provisionable"]
+    i1 = inspect_qr(_SELFTEST_V1_QR)
+    v1_uids = [c["uid"] for c in i1["cameras"]]
+    print(f"[inspect] v1 -> version={i1['version']} verdict={i1['verdict']} "
+          f"provisionable={i1['provisionable']} uids={v1_uids}")
+    ok &= (i1["version"] == 1 and not i1["provisionable"]
+           and v1_uids == ["TESTUID0000000000001", "TESTUID0000000000002"])
+
     print("\nSELFTEST", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
@@ -326,12 +430,20 @@ if __name__ == "__main__":
     ap.add_argument("--qr", help="pairing-QR text (base64) to provision from")
     ap.add_argument("--image", help="photo of the pairing QR to provision from (needs pyzbar/opencv)")
     ap.add_argument("--avpwd", help="derive authKey from this AV password only")
+    ap.add_argument("--inspect", action="store_true",
+                    help="classify the QR's format (works for non-v5 QRs) instead of provisioning")
     ap.add_argument("--selftest", action="store_true", help="run built-in known-vector self-test")
     ap.add_argument("--env", action="store_true", help="print as VTECH_* exports")
     a = ap.parse_args()
 
     if a.selftest:
         sys.exit(_selftest())
+    if a.inspect:
+        text = a.qr or (read_qr_image(a.image) if a.image else None)
+        if not text:
+            ap.error("--inspect needs --qr TEXT or --image FILE")
+        print(format_inspection(inspect_qr(text)))
+        sys.exit(0)
     if a.avpwd:
         print(derive_authkey(a.avpwd))
         sys.exit(0)
