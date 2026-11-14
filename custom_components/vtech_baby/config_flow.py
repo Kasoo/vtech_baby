@@ -95,6 +95,9 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
                 ) -> tuple[provision.Credentials | None, dict[str, str]]:
         try:
             creds = provision.provision(text)
+        except provision.UnsupportedQr as err:
+            _LOG.debug("unsupported pairing QR: %s", err)
+            return None, {CONF_QR: "unsupported_qr"}
         except provision.InvalidQr as err:
             _LOG.debug("invalid pairing QR: %s", err)
             return None, {CONF_QR: "invalid_qr"}

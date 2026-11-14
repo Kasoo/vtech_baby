@@ -21,7 +21,8 @@
       }
     },
     "error": {
-      "invalid_qr": "This is not a VTech pairing QR code. Paste the full text the QR reader shows.",
+      "invalid_qr": "This isn’t a pairing QR this integration recognises. Paste the full text the QR reader shows.",
+      "unsupported_qr": "This camera’s pairing QR is a format this integration can’t use: it doesn’t contain the camera’s password, so the camera can’t be set up from the QR (the password is held in your VTech account). See COMPATIBILITY.md in the repository.",
       "wrong_camera": "This QR code belongs to a different camera.",
       "invalid_auth": "The camera rejected the credentials from this QR code. Scan the QR again; it changes after a Wi-Fi change.",
       "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant. If its Wi-Fi changed recently, scan a fresh QR code.",

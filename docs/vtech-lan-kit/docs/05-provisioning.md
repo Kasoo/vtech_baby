@@ -56,6 +56,28 @@ The decrypted plaintext is a sequence of **TLV** records, each:
 
 The UID (type 3) and AV password (type 5) are the two credentials carried by the QR.
 
+## Other QR formats
+
+The format above (version byte `0x05`) is the one this specification provisions from, and the one the
+RM5754HD emits. Other models in the family emit other formats under the same base64 + AES-128-CBC
+envelope (same app-wide key and IV), differing in the header and the payload shape:
+
+- **Version `0x01`** — a 2-byte header `[0x01][plaintext_len:1]`, then the AES-128-CBC ciphertext. The
+  plaintext is **ASCII, comma-separated**, four fields per camera and one or more cameras per code:
+  `idx,name,uid,token[,idx,name,uid,token …]`. The per-camera `name` contains `VTECH_`, the `uid` is the
+  20-character Kalay identifier, and the 8-character `token` is a **registration token, not the AV
+  password**. A camera that emits this format **does not carry its AV password in the QR**: the AV
+  password is held in the owner's account and is not recoverable from the QR, so the offline route above
+  cannot produce a full credential set for it. The UID is still valid. (Seen on the RM5764HD / RM7766.)
+- **Other version bytes** have not been characterised. The envelope is likely the same; the header and
+  payload shape are unknown until one is seen.
+
+The authKey derivation below is **not** format-specific: it is a function of the AV password alone, so for
+any model whose AV password can be obtained, the authKey is derived the same way.
+
+The reference client's `inspect_qr()` / `vtech_provision.py --inspect` classifies a QR by version byte
+without assuming version 5, and recovers the UID from a version-1 QR.
+
 ## authKey derivation
 
 The IOTC authKey is computed on the client from the AV password and the app-wide master key:
