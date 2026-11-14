@@ -27,7 +27,12 @@ encryption secrets, and may not work at all, or only partly.
 When you add a camera, the integration detects its model, and warns you if it's an untested model
 before you choose whether to add it anyway.
 
-If you try another model, please report how it went.
+If you try another model, please report how it went. [`COMPATIBILITY.md`](COMPATIBILITY.md) walks through
+checking a different model against your own camera — classifying its pairing QR, and probing whether it
+connects — and what to include in a report. (Some models, such as the RM5764HD, keep their camera
+password in your VTech account rather than in the pairing QR, so they can't be set up from the QR alone;
+the integration says so when you try one, and a way to provision them from the account is under
+investigation. The guide explains how to tell whether your model is one of these.)
 
 ## What you need
 

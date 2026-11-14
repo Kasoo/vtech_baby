@@ -36,6 +36,25 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 | `docs/vtech-lan-kit/docs/90-ha-runtime.md` | How a session threads, fails and reconnects inside HA. Its SDK specifics (ctypes, buffers, return codes) are background now: vtech-link handles them. `85-ha-deployment.md` is the SDK-era packaging, kept as background. |
 | `docs/vtech-link-design/` | vtech-link's design; `75-python-api.md` is the module's surface the package uses. |
 | `docs/vtech-lan-kit/client/vtech_camera_client.py` | Working reference implementation. Use it to check behaviour. |
+| `COMPATIBILITY.md` | User guide for trying a model other than the RM5754HD: classify its pairing QR, provision/probe, report. Written from the documented protocol + the user's own camera only — never the VTech app. |
+
+## Other VTech models (compatibility)
+
+`COMPATIBILITY.md` is the user-facing walkthrough; the `camera-compatibility` project skill
+(`.claude/skills/`, discovered when Claude Code's cwd is this repo) is the operating procedure for it.
+Supporting tools in `docs/vtech-lan-kit/client/`:
+
+- `vtech_provision.py --inspect --qr <text>` (or `--image`) classifies any pairing QR by version byte,
+  not just the documented version 5: it reports whether the QR can be provisioned offline and recovers
+  the UID from a version-1 QR (whose 8-char field is a registration token, not the AV password). The
+  known formats are specified in `docs/vtech-lan-kit/docs/05-provisioning.md` ("Other QR formats").
+- `vtech_probe.py` — connect-only probe (no media, no setting changes; safe against a live monitor) that
+  runs the documented connect/auth sequence against the user's camera and interprets the return code
+  (`-68` = reachable but wrong credentials; `-13` = not reachable; AV-layer refusal = account/password).
+
+Keep all of this in pure protocol + own-camera terms: never add guidance that reasons from, or asks a
+user to inspect, the VTech app. Add a new QR version to the kit spec only once it is actually
+characterised from a real example.
 
 ## Rules
 
