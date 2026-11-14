@@ -21,7 +21,7 @@ from custom_components.vtech_baby.vtech_lan import provision
 
 from fake_camera import i32
 from fake_link import FakeLinkModule, LinkError, PanicException, fake_hub
-from test_provision import make_qr
+from test_provision import V1_CAMERAS, make_qr, make_v1_qr
 
 UID = "TESTUID0000000000001"
 QR = make_qr([(2, b"VTECH_5754_test"), (3, UID.encode()), (5, b"Pw0rdXyz"), (7, bytes.fromhex("0011223344ff"))])
@@ -131,6 +131,8 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, fake):
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"      # straight to the pairing QR
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: "garbage"})
     assert r["errors"] == {CONF_QR: "invalid_qr"}
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: make_v1_qr(V1_CAMERAS)})
+    assert r["errors"] == {CONF_QR: "unsupported_qr"}     # recognised format, no password in the QR
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.CREATE_ENTRY
     assert r["title"] == "VTECH_5754_test"

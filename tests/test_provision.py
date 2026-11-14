@@ -12,7 +12,7 @@ import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from vtech_lan import provision
-from vtech_lan.provision import InvalidQr
+from vtech_lan.provision import InvalidQr, UnsupportedQr
 
 KIT_CLIENT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "vtech-lan-kit", "client")
 
@@ -37,6 +37,19 @@ FIELDS = [(2, b"VTECH_5754_test"), (3, b"TESTUID0000000000001"), (5, b"Pw0rdXyz"
           (7, bytes.fromhex("0011223344ff"))]
 
 
+def make_v1_qr(cameras):
+    """A synthetic version-1 QR: [0x01][len:1][AES-CBC CSV], four fields per camera."""
+    pt = ",".join(f"{i + 1},{name},{uid},{tok}" for i, (name, uid, tok) in enumerate(cameras)).encode()
+    padded = pt + b"\x00" * (-len(pt) % 16)
+    enc = Cipher(algorithms.AES(provision.QR_AES_KEY), modes.CBC(provision.QR_AES_IV)).encryptor()
+    ct = enc.update(padded) + enc.finalize()
+    return base64.b64encode(bytes([0x01, len(pt) & 0xFF]) + ct).decode()
+
+
+V1_CAMERAS = [("VTECH_5764_abcd", "TESTUID0000000000001", "Tok3nAB1"),
+              ("VTECH_5764_ef01", "TESTUID0000000000002", "Tok3nCD2")]
+
+
 def test_provision_roundtrip():
     c = provision.provision(make_qr(FIELDS))
     assert (c.uid, c.av_password, c.account) == ("TESTUID0000000000001", "Pw0rdXyz", "admin")
@@ -59,6 +72,22 @@ def test_garbage_rejected(text):
 def test_wrong_version_rejected():
     with pytest.raises(InvalidQr, match="version"):
         provision.provision(make_qr(FIELDS, version=0x03))
+
+
+def test_v1_qr_recognised_as_unsupported():
+    with pytest.raises(UnsupportedQr) as exc:
+        provision.provision(make_v1_qr(V1_CAMERAS))
+    assert exc.value.version == 1
+    assert exc.value.uid == "TESTUID0000000000001"       # UID recovered; AV password is not in the QR
+    assert isinstance(exc.value, InvalidQr)               # still an InvalidQr for existing handlers
+
+
+def test_v1_shaped_but_implausible_is_plain_invalid():
+    # version byte 1 but the body isn't a VTech v1 payload -> generic reject, not UnsupportedQr.
+    bogus = base64.b64encode(bytes([0x01, 0x10]) + b"\x00" * 16).decode()
+    with pytest.raises(InvalidQr) as exc:
+        provision.provision(bogus)
+    assert not isinstance(exc.value, UnsupportedQr)
 
 
 def test_missing_password_rejected():
