@@ -133,6 +133,15 @@ a real MAC and part of the id is MAC-derived — still not something a helper ca
 A helper should **mint its id once and persist it** (mirroring the app), not regenerate per run — a new id
 each run would re-challenge every time.
 
+**The `uuid` is opaque to the server — don't over-think its format.** The server never validates a `uuid`'s
+internal structure, OS, or that the generator produced it; it only remembers which *values* it has already
+trusted. So a minted id can be any stable string of the `"AN"+…` shape — the MAC-style form (`AN`+20, with
+hex letters, the Android ≤ 5 branch) and the timestamp form (`AN`+22, all digits) are interchangeable as far
+as login is concerned. Choosing the MAC/Android-5 form buys **nothing**: it is neither more *deterministic*
+(the interleaved `Math.random()` half is still unreproducible, so you can't recompute an existing phone's id
+even from its known MAC) nor more *trusted* (a freshly minted value is unknown → 2FA regardless). Skipping
+2FA requires reusing the phone's **exact stored** `device_imei`, nothing else.
+
 ## Open gaps (not yet captured)
 
 - **Device-trust / 2FA endpoints.** The send-code and verify-code requests (and the "verification required"
