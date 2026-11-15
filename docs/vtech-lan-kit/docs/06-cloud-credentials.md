@@ -162,10 +162,15 @@ An explicit override (`VTECH_UUID`) lets a user supply an id instead: their phon
 
 ## Open gaps (not yet captured)
 
-- **Device-trust / 2FA endpoints.** The send-code and verify-code requests (and the "verification required"
-  signal in the step-3 response) were **not captured** — they only fire for an *untrusted* id, which means
-  deliberately triggering an email to a live account. Until captured, the **enroll-new-device** strategy
-  can't be fully implemented; the **emulate-existing-device** strategy avoids them entirely.
+- **Device-trust / 2FA.** Partially characterised (owner-gated test, fresh uuid): step 3
+  (`POST {AM1}/api/v2/account/login`) returns **`HTTP 204 No Content`** (empty body) for an **untrusted** uuid
+  — the "verification required" signal — and VTech emails a code. (A **trusted** uuid returns `200` + tokens.)
+  The credentials are accepted at this point; only the device-trust is pending. **Still open:** the
+  **verify-code endpoint** the app POSTs the emailed code to (to flip the uuid to trusted and get tokens) —
+  candidates `/api/v2/account/authorize` or `/api/accounts/.../send_activate`, uncaptured. A client must handle
+  the `204` → verify → retry loop, OR the user completes trust out-of-band (if the email is a clickable link,
+  clicking it trusts the uuid and a re-login returns `200`, needing no verify endpoint). The
+  **emulate-existing-device** strategy avoids all of this.
 - **First-time pairing** (adding a *new* camera to the account) is **not** an HTTPS endpoint: the official
   app performs it over the vendor **P2P layer** (a Kalay/TUTK connect using the QR security key), gated on
   reaching the physical camera; any cloud bind is behind that connect. A credentials helper therefore
