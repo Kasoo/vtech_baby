@@ -7,6 +7,7 @@ Read in order:
 |---|---|
 | [`00-prerequisites.md`](00-prerequisites.md) | Key material and native libraries required before any connection. |
 | [`05-provisioning.md`](05-provisioning.md) | Deriving the per-camera credential set (UID, AV password, authKey) offline from the pairing QR. |
+| [`06-cloud-credentials.md`](06-cloud-credentials.md) | Pulling the same credential set from the owner's cloud account (for v1-QR cameras that don't carry the AV password); login sequence, device-list schema, the device-identifier/2FA problem, and a standalone creds-helper. |
 | [`10-transport-session.md`](10-transport-session.md) | Transport model, session establishment, and the connect/auth call sequence. |
 | [`20-ioctrl-framework.md`](20-ioctrl-framework.md) | The IOCtrl request/response model used by all control and telemetry. |
 | [`30-opcode-reference.md`](30-opcode-reference.md) | Every opcode: arguments, response layouts, and semantics. |
