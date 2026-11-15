@@ -100,18 +100,28 @@ which that id is trusted.
 **How the official app derives it** (`o/DoubleValueOrBuilder.write(context)`, key `device_imei` in
 `shared_prefs/setting.xml`) — despite the name it is **not** an IMEI:
 
-1. An 8-digit number from a sum of `Math.random()` draws.
-2. The Wi-Fi MAC (`WifiManager.getConnectionInfo().getMacAddress()`) **if** available and not the
-   `02:00:00:00:00:00` placeholder — **else** a timestamp `yyyy:MM:dd:HH:mm:ss`.
-3. Interleaved: `"AN" + src[0:6] + rand[4:] + src[6:] + rand[0:4]`, where `src` is the de-colon'd MAC or
-   timestamp.
-4. **Persisted** under `device_imei` with a flag `use_2020jun15_tutk_formula_already`; every later call
+1. `rand` — an 8-digit number: `random4 = Σ (int)(Math.random()·10^k + 1)` for `k = 0..7`, then
+   `+= 10^7` if `< 10^7`. Result is in `~[10^7, 2.1·10^7]` (so it starts with `1` or `2`), as a string.
+2. `src` — the Wi-Fi MAC (`WifiManager.getConnectionInfo().getMacAddress()`) with `:` removed, **if**
+   available and not the `02:00:00:00:00:00` placeholder — **else** a timestamp
+   `yyyy:MM:dd:HH:mm:ss` with `:` removed (`yyyyMMddHHmmss`, 14 chars).
+3. Interleave: `id = "AN" + src[0:6] + rand[4:8] + src[6:] + rand[0:4]`.
+4. **Persist** under `device_imei` with a flag `use_2020jun15_tutk_formula_already`; every later call
    returns the stored value unchanged.
 
-Since **Android 6** `getMacAddress()` returns `02:00:00:00:00:00` to apps, so on any current phone the
-timestamp branch is taken: the id is effectively **`"AN"` + timestamp + random, minted once and
-persisted**. It is **not** an IMEI, MAC, serial, ANDROID\_ID or advertising id, and **not recomputable**
-from any stable device property — it only exists in the app's stored prefs.
+Because the two parts are **interleaved**, the id is not readable left-to-right. The **length tells which
+`src` was used**: timestamp `src` (14 chars) → `"AN"` + **22** digits; MAC `src` (12 chars) → `"AN"` + **20**.
+Worked example (a synthetic value):
+`AN2024083117172059251446` → `src = 20240817205925` (2024-08-17 20:59:25) + `rand = 14463117`.
+
+Since **Android 6** `getMacAddress()` returns `02:00:00:00:00:00` to all apps, the MAC branch is dead on
+any current phone, so in practice the id is **`"AN"` + first-run timestamp + `Math.random()` digits, minted
+once and persisted**. `Math.random()` is Java's shared **non-cryptographic 48-bit LCG** (seeded once at
+first use), so the random part is unpredictable in practice but not crypto-grade; combined with the
+second-precision first-run time it is effectively a **one-time value**. Critically it is **not** an IMEI,
+MAC, serial, ANDROID\_ID or advertising id, and **not recomputable** from any stable device property — the
+only copy is in the app's stored prefs. (If you ever observe an `"AN"`+20-digit id, that device *did* expose
+a real MAC and part of the id is MAC-derived — still not something a helper can reproduce without the MAC.)
 
 ### Two strategies for a helper
 
