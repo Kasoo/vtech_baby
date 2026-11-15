@@ -142,6 +142,24 @@ as login is concerned. Choosing the MAC/Android-5 form buys **nothing**: it is n
 even from its known MAC) nor more *trusted* (a freshly minted value is unknown → 2FA regardless). Skipping
 2FA requires reusing the phone's **exact stored** `device_imei`, nothing else.
 
+### Choosing the device id — keyed by the machine, no stored state
+
+The reference helper stores nothing and still uses one id per computer. It computes the id as an HMAC of the
+normalised account email, keyed by the computer's own install id: the systemd `machine-id` on Linux, the
+`IOPlatformUUID` on macOS, the `MachineGuid` on Windows. The result is laid out in the app's
+`"AN"` + 22-digit shape (a valid past timestamp and an in-range `rand`, interleaved as above).
+
+- The same computer and email give the same id, so the emailed code is needed only on the first run.
+- The id can't be computed without reading the machine id on that computer. The machine id is used only as
+  the HMAC key and is never sent.
+- Another computer, or a reinstall, gives a new id and so one more emailed code. Each such id stays on the
+  account's trusted-device list.
+- Without a usable machine id (none present, or all zeros), the helper uses a random id for that run, and
+  every run asks for a code.
+
+An explicit override (`VTECH_UUID`) lets a user supply an id instead: their phone's real `device_imei`
+(the no-2FA *emulate* path), or a fixed id of their own that they keep secret.
+
 ## Open gaps (not yet captured)
 
 - **Device-trust / 2FA endpoints.** The send-code and verify-code requests (and the "verification required"
