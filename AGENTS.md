@@ -24,6 +24,7 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 | `tests/` | Offline tests (`fake_link.py` stands in for `_vtech_link`, `fake_camera.py` for the camera); `tests/live/` probes for a real camera. |
 | `images/` | README screenshots (not part of the package). `device.png` is the device page, its cards laid out in three columns; `social-preview.png` is the GitHub social preview, rendered from `brand-src/social.svg` and uploaded by hand (Settings → General → Social preview). |
 | `brand-src/` | `icon.svg` (original, hand-written; don't replace it with VTech artwork), `social.svg` (the social preview, built from the icon and `images/device.png`) and `render.sh` (needs inkscape and Open Sans) for `brand/` and `images/social-preview.png`. |
+| `tools/vtech_cloud_credentials.py` | Standalone helper (stdlib only, not part of the package): logs in to the user's VTech cloud account and prints each camera's UID and AV password, for the typed-credentials option. User guide: `CREDENTIALS.md`; protocol: kit `06-cloud-credentials.md`; tests: `tests/test_cloud_credentials.py`. The integration never uses the cloud. |
 | `publish.sh` | Takes a GitLab release to PyPI and GitHub (see "Releases" below). |
 
 ## Read first
@@ -45,16 +46,17 @@ process. The opcode layer above the transport is Python. Not affiliated with VTe
 Supporting tools in `docs/vtech-lan-kit/client/`:
 
 - `vtech_provision.py --inspect --qr <text>` (or `--image`) classifies any pairing QR by version byte,
-  not just the documented version 5: it reports whether the QR can be provisioned offline and recovers
-  the UID from a version-1 QR (whose 8-char field is a registration token, not the AV password). The
+  not just the documented version 5: it reports whether the QR can be provisioned offline and lists each
+  camera with its security mode (a version-1 QR's 8-char field is a plain camera's AV password). The
   known formats are specified in `docs/vtech-lan-kit/docs/05-provisioning.md` ("Other QR formats").
 - `vtech_probe.py` — connect-only probe (no media, no setting changes; safe against a live monitor) that
   runs the documented connect/auth sequence against the user's camera and interprets the return code
   (`-68` = reachable but wrong credentials; `-13` = not reachable; AV-layer refusal = account/password).
 
 Keep all of this in pure protocol + own-camera terms: never add guidance that reasons from, or asks a
-user to inspect, the VTech app. Add a new QR version to the kit spec only once it is actually
-characterised from a real example.
+user to inspect, the VTech app. (The cloud helper, `CREDENTIALS.md`, is the one place that involves the
+user's VTech account, by their choice; keep it out of the compatibility guide and the integration.) Add a
+new QR version to the kit spec only once it is actually characterised from a real example.
 
 ## Rules
 
@@ -66,7 +68,8 @@ characterised from a real example.
   (`vtech_lan/provision.py`), matching the kit's reference client (a test enforces it). They live in code
   only: the docs name and describe them but never print the values.
 - Per-camera credentials (UID, AV password, derived authKey; account `admin`) come from the owner's
-  **pairing QR** and live only in the config entry.
+  **pairing QR**, or typed by the owner, and live only in the config entry. The cloud helper's app-wide
+  constants (the IRM header, the RSA key) live in `tools/vtech_cloud_credentials.py` only, like the QR ones.
 - **Never write a real camera's credentials (or a real pairing QR) into code, tests, fixtures, docs or
   commits.** Live tests take them from `VTECH_UID`, `VTECH_PWD`, `VTECH_AUTHKEY`, `VTECH_ACCOUNT`
   (`docs/vtech-lan-kit/client/vtech_provision.py --env` prints them). Offline tests and the kit self-test use

@@ -55,17 +55,21 @@ restart.
 
 ## Add a camera
 
-1. Add the **VTech Baby Monitor** integration.
+1. Add the **VTech Baby Monitor** integration, and choose **Paste the pairing QR text**.
 2. On the parent unit, open the camera's **Connect Mobile Phone** QR code. Scan it with any QR reader
    on your phone and paste the text into the setup dialogue.
 3. If the parent unit has several cameras, its QR code may hold them all: choose the camera to add. To
    add the next one, add the integration again with the same QR code.
 
+If the QR doesn't work for you, you can type the camera's UID and password instead. If your cameras are in
+the MyVTech Baby Pro app, a separate helper can read those from your VTech account: see
+[`CREDENTIALS.md`](CREDENTIALS.md) (it adds a trusted device to the account).
+
 The camera's credentials may change when its Wi-Fi settings change or when the "Update security key"
 option is used. Home Assistant then can't connect, and asks you to re-pair the camera: it shows
 **Authentication expired for** *camera name* in **Settings → Repairs**, and the integration has a
-**Reconfigure** button in **Settings → Devices & services**. Select it, scan the camera's current QR code
-on the parent unit, and paste the text in.
+**Reconfigure** button in **Settings → Devices & services**, which you can also use at any time. Select it,
+scan the camera's current QR code on the parent unit, and paste the text in, or type the new password.
 
 ## Hold to talk
 
