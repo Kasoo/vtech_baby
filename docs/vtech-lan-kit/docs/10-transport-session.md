@@ -85,8 +85,8 @@ connect with no/incorrect authKey against an enhanced camera returns `-68`.
 
 For a **plain** camera, no authKey is supplied: connect with `IOTC_Connect_ByUID(uid, sid)` (no input struct).
 The keyless connect probe carries an all-zero authKey field and no key-authentication record; the camera
-establishes on result 1/7 (see "Selecting the mode" above). Whether presenting an authKey to a plain camera is
-rejected outright, or merely ignored, is unconfirmed.
+establishes on result 1/7 (see "Selecting the mode" above). Presenting an authKey to a plain camera is rejected
+with result 6 (`-69`), every time.
 
 ## `avClientStartEx` input struct (`av_in`)
 

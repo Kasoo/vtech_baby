@@ -82,17 +82,19 @@ def _v5_cameras(raw: bytes) -> list[Credentials]:
     i = 0
     while i + 3 <= len(pt):
         idx, typ, ln = pt[i], pt[i + 1], pt[i + 2]
+        if i + 3 + ln > len(pt):
+            break                                     # a record cut short
         if typ:                                       # type 0: the zero padding
             by_index.setdefault(idx, {})[typ] = pt[i + 3:i + 3 + ln]
         i += 3 + ln
     cameras, unsupported = [], 0
     for f in by_index.values():
+        if TLV_UNSUPPORTED in f:
+            unsupported += 1
+            continue
         plain = TLV_PWD_PLAIN in f and TLV_PWD_ENHANCED not in f
         pwd = f.get(TLV_PWD_PLAIN if plain else TLV_PWD_ENHANCED)
         if not f.get(TLV_UID) or not pwd:
-            continue
-        if TLV_UNSUPPORTED in f:
-            unsupported += 1
             continue
         pw = pwd.decode("latin1")
         cameras.append(Credentials(

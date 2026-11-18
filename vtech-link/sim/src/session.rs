@@ -467,14 +467,14 @@ fn key_exchange(hello: &[u8]) -> Option<(Vec<u8>, MasterKey)> {
     Some((reply, master))
 }
 
-/// Whether a DTLS datagram carries a ChangeCipherSpec and an epoch-1 record after it: the client's
-/// whole final flight.
 /// The password field of a login packet, up to its NUL.
 fn login_password(pkt: &[u8]) -> Option<&[u8]> {
     let field = pkt.get(0x18 + packet::LOGIN_WIDTH..0x18 + 2 * packet::LOGIN_WIDTH)?;
     Some(field.split(|&b| b == 0).next().unwrap_or_default())
 }
 
+/// Whether a DTLS datagram carries a ChangeCipherSpec and an epoch-1 record after it: the client's
+/// whole final flight.
 fn has_ccs_and_finished(datagram: &[u8]) -> bool {
     let mut rest = datagram;
     let mut ccs = false;

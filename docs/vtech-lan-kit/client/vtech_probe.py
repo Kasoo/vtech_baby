@@ -156,12 +156,11 @@ def main() -> int:
             print("\nThis QR cannot supply a full credential set, so there is nothing to probe with "
                   "--qr. Supply --uid/--pwd/--authkey directly if you have them.")
             return 3
-        cams = vp.provision_all_from_qr(a.qr)
-        if a.uid:
-            cams = [c for c in cams if c.uid == a.uid]
+        every = vp.provision_all_from_qr(a.qr)
+        cams = [c for c in every if c.uid == a.uid] if a.uid else every
         if len(cams) != 1:
-            print("the QR holds several cameras (or none match); choose one with --uid: "
-                  + ", ".join(c.uid for c in cams))
+            print("the QR holds several cameras (or none match --uid); choose one with --uid: "
+                  + ", ".join(c.uid for c in every))
             return 3
         creds = cams[0]
         a.uid, a.pwd, a.authkey, a.account, a.plain = (creds.uid, creds.av_password, creds.authkey,

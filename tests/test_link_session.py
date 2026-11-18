@@ -677,3 +677,19 @@ def test_no_key_auth_falls_back_to_plain_once():
     with pytest.raises(AuthFailed):
         s.connect()
     assert len(module.connects) == 1
+
+
+def test_enhanced_connect_works_with_a_module_without_plain():
+    """An enhanced session doesn't pass `plain`, so a module from before plain mode still connects it."""
+    module = FakeLinkModule()
+    connect = module.connect
+
+    def old_connect(uid, authkey, password, account="admin", *, connect_timeout=15.0, av_timeout=30.0,
+                    search_port=32762, peer_hint=None, interface=None):
+        return connect(uid, authkey, password, account, connect_timeout=connect_timeout,
+                       av_timeout=av_timeout, peer_hint=peer_hint)
+    module.connect = old_connect
+    s = LinkSession(module, "UID", "k3yAuth8", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
+    s.connect()
+    assert not s.plain
+    s.close()

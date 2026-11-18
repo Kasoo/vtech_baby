@@ -81,6 +81,8 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   (key exchange, media) and talk-back run in the simulator only. Whether a version-1 QR can belong to
   an enhanced camera is unconfirmed (`vtech-lan-kit/docs/05-provisioning.md`); such a camera would
   reject the keyless connect with `-68` and land in reauth.
+- A plain link ignores a short LAN reply and waits for the long one; the owner's plain camera sends the
+  long one. A plain camera that answered only with a short reply would look unreachable.
 - Whether a genuinely rotated (old) authKey gets the same explicit `-68` reject as an arbitrary wrong one.
   The manager assumes it does: only `AuthFailed` starts reauth, and an unreachable camera (no search
   reply) is retried forever. Stale credentials that went silent instead would show as a camera that

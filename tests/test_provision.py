@@ -158,3 +158,20 @@ def test_parity_with_kit(pwd):
     assert (provision.QR_AES_KEY, provision.QR_AES_IV, provision.HKDF_MASTER_KEY) == \
         (kit.QR_AES_KEY, kit.QR_AES_IV, kit.HKDF_MASTER_KEY)
 
+
+
+def test_v5_unsupported_flag_wins_over_a_missing_password():
+    with pytest.raises(provision.UnsupportedModel):
+        provision.cameras(make_qr_cameras([(0, [(3, b"TESTUID0000000000003"), (8, b"\x01")])]))
+
+
+def test_v5_record_cut_short_is_dropped():
+    qr = make_qr_cameras([(0, [(3, b"TESTUID0000000000001"), (5, b"Pw0rdXyz")])])
+    raw = bytearray(base64.b64decode(qr))
+    # Re-encrypt with the password record's length claiming more bytes than are left.
+    pt = b"\x00\x03\x14TESTUID0000000000001\x00\x05\x08Pw0rdXyz\x00\x07\x40\x00\x11"
+    pt += b"\x00" * (-len(pt) % 16)
+    enc = Cipher(algorithms.AES(provision.QR_AES_KEY), modes.CBC(provision.QR_AES_IV)).encryptor()
+    qr = base64.b64encode(bytes(raw[:3]) + enc.update(pt) + enc.finalize()).decode()
+    c = provision.provision(qr)
+    assert (c.uid, c.mac) == ("TESTUID0000000000001", "")

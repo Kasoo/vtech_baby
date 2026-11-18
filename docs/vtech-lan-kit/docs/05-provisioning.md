@@ -86,10 +86,9 @@ envelope (same app-wide key and IV), differing in the header and the payload sha
     is regenerated, a new QR is issued and the previous `token` stops working.
   - Whether a camera with a **version-1 QR can instead be in enhanced mode** (so the `token` is not the working
     AV password and the real credentials come from the cloud device list, `06-cloud-credentials.md`) is
-    **unconfirmed**: a single external report of a key rejection on a version-1 QR exists, but it has not been
-    reproduced. Until it is, treat a version-1 QR as a plain camera. The UID is valid either way.
-  Multiple cameras: a version-1 QR holds one or more 4-field records (field count a multiple of 4); a QR with
-  two records, each a different UID, has been seen, as has a single-record QR. The leading `idx` field's meaning
+    **unconfirmed**. Treat a version-1 QR as a plain camera. The UID is valid either way.
+  Multiple cameras: a version-1 QR holds one or more 4-field records (field count a multiple of 4), each with
+  its own UID. The leading `idx` field's meaning
   is **unknown** — a single-camera QR has carried `idx = 1` regardless of the camera's slot on the parent — so a
   client should match cameras by `uid`, not by `idx`. Whether regenerating the security key rotates the token of
   every camera in the QR or only one is **unknown**. The pairing device offers the QR two ways: showing it for a

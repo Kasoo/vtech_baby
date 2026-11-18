@@ -415,10 +415,12 @@ class LinkSession(SessionBase):
             raise VtechError("connect failed (vtech-link panicked)", call="connect") from e
 
     def _connect(self) -> Any:
+        # `plain` only when set, so an enhanced connect also works with a module that predates it.
+        extra = {"plain": True} if self._plain else {}
         return self._module.connect(
             self._uid, "" if self._plain else self._authkey, self._password, self._account,
             connect_timeout=float(self.connect_timeout_s), av_timeout=float(self.av_timeout_s),
-            peer_hint=self._peer_hint, plain=self._plain)
+            peer_hint=self._peer_hint, **extra)
 
     def _close_transport(self) -> None:
         if self.link is not None:
