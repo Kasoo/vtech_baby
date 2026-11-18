@@ -9,6 +9,10 @@ The credential set pulled from the owner's **cloud account** is the same UID / A
 (`06` differs only in *where the AV password comes from*). A standalone "credentials helper" that logs in
 and prints the per-camera credential set is enough; the LAN protocol (`10`+) is unchanged.
 
+> **The cloud carries the AV password, not the security mode.** A client built on cloud (or manual type-in)
+> credentials must treat the derived authKey as a candidate and fall back on `-69` — see *The cloud record
+> does not encode the security mode* below.
+
 > **Precondition.** The camera must already be **added to the account in the official app** at least once.
 > This spec covers *reading* the account's device list, not first-time pairing (which happens over the
 > vendor P2P layer, not an HTTPS endpoint — see *First-time pairing*, below).
@@ -84,9 +88,31 @@ Key points, each a correction of the natural guess:
 | **UID** | `result[i].uuid` (duplicated at `result[i].uid`) |
 | **AV account** | `result[i].account` (= `"admin"`; also `info.username`) |
 | **AV password** | `result[i].info.password` (duplicated at `result[i].password`) |
-| **authKey** | `derive_authkey(AV password)` — the HKDF construction in `05-provisioning.md` (`base62_8(HKDF-SHA256(salt=master key, ikm=AV password))`) |
+| **authKey** | **Not in the record** — `derive_authkey(AV password)` on the client, the HKDF construction in `05-provisioning.md` (`base62_8(HKDF-SHA256(salt=master key, ikm=AV password))`). Always derivable, but **only used by an *enhanced* camera** — a plain camera rejects it with `-69` (next section). |
 
 The top-level `uid`/`account`/`password` duplicates make a one-level read sufficient.
+
+### The cloud record does not encode the security mode
+
+The device record carries only the **AV password** (`info.password`). It does **not** indicate whether the
+camera is **plain** or **enhanced** (`10-transport-session.md` defines the modes), and it holds no authKey —
+the authKey is **derived on the client** from the AV password (`derive_authkey`, above) and is **not carried in
+the record**. So a cloud scrape (and any manual type-in built from one) **always produces a well-formed,
+derivable authKey, even for a plain camera** — the authKey's existence says nothing about whether the camera
+will accept it.
+
+A **plain** camera still appears in the account with a normal AV password, and a client still derives a
+valid-looking authKey from it. Presenting that authKey to the camera is rejected with
+**`-69` (`IOTC_ER_DEVICE_NOT_USE_KEY_AUTHENTICATION`)**: the camera does not use key authentication at all,
+so it returns `-69` whatever key is presented.
+
+**A cloud / manual-provisioning client must therefore not treat the derived authKey as authoritative.**
+Resolve the mode at connect time:
+
+- **Mode known** — if the mode is known from a pairing QR, connect on that path; see `05-provisioning.md`.
+- **Mode unknown** (a bare cloud scrape or hand-typed UID + password carries no mode): attempt the **enhanced**
+  connect with the derived authKey; on **`-69`**, drop the authKey and reconnect **keyless** (plain). This is
+  the **result-6 fallback** specified in `10-transport-session.md` ("Selecting the mode").
 
 ## The device identifier (`uuid` / `x-mobile-notification-id`) and 2FA
 
@@ -94,6 +120,10 @@ Step 3 sends a `uuid`, reused as the merchant `x-mobile-notification-id`. It is 
 **trusted-device id**: a login from a **known** id succeeds immediately (200 + tokens); a login from an
 **unknown** id triggers VTech's **device-trust challenge** (an emailed verification code) once, after
 which that id is trusted.
+
+**A trusted id is a secret.** Once trusted, the id plus the account password is enough to log in, with no
+code. Anyone who can obtain or compute a trusted id has, in effect, the account without its second factor.
+So a client must never use an id that someone else can compute from public inputs such as the email.
 
 ### Completing the device-trust challenge (2FA) [live/static]
 
@@ -172,10 +202,10 @@ a real MAC and part of the id is MAC-derived — still not something a helper ca
 | Strategy | What the helper uses as `uuid` | 2FA | Caveat |
 |---|---|---|---|
 | **Emulate the existing device** | the phone's stored `device_imei` | **None** — already trusted | Requires extracting `device_imei` from `shared_prefs/setting.xml` on the phone (root / platform backup). Not possible on a stock non-rooted phone. |
-| **Enroll a new device** | a freshly minted stable id (same `"AN"+…` shape), persisted by the helper | **One-time** emailed code on first login | First login returns `204`; redeem the emailed code via the `authorize` call above. After the first success the id is trusted and later logins skip 2FA. |
+| **Enroll a new device** | its own stable id (same `"AN"+…` shape) | **One-time** emailed code on first login | First login returns `204`; redeem the emailed code via the `authorize` call above. After the first success the id is trusted and later logins skip 2FA. |
 
-A helper should **mint its id once and persist it** (mirroring the app), not regenerate per run — a new id
-each run would re-challenge every time.
+A helper must use **the same id on every run** (a new id each run re-challenges every time), and the id must
+be **secret**: see *A trusted id is a secret*, above.
 
 **The `uuid` is opaque to the server — don't over-think its format.** The server never validates a `uuid`'s
 internal structure, OS, or that the generator produced it; it only remembers which *values* it has already
