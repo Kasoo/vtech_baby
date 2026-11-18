@@ -155,6 +155,22 @@ Found by the first run and fixed: the reactor sent its first search round only a
 Open: DEVINFO takes 110–170 ms. Compare with `tutk-host` on the same request before reading anything
 into it.
 
+### In Home Assistant (2026-10-29 to 2026-11-04, in-process module)
+
+Per-thread CPU from `/proc` every 10 s, as a percentage of one core; event-loop latency as websocket
+`ping` round trips every 0.2 s.
+
+| Run | HA CPU | Event-loop ping | Stream |
+|---|---|---|---|
+| 720p, 5 min 40 s, WebRTC | idle 1.5–2.5 %, streaming 5–7 % (`vtech-media` 2.3–3.3, reactor 1.2–1.5); go2rtc 2.5–2.8 % | p50 1.2–1.7 ms, p95 ≤ 1.9 ms; one 31.6 ms max at stream start | 3,396 video, 170 key, 0 bad, 1 given up |
+| 1080p, 5.5 min, HLS | idle ~2 %, streaming 6–8 % | p50 1.2–1.9 ms, p95 ≤ 3.5 ms, max 4.7 ms | heavy loss: 285 bad, 86 given up, 5 of 3,461 NAKed packets recovered; no live-view restart |
+| 1080p, 30 min, HLS | 7.4–8.8 % (mean 8.0) | p50 1.3–2.0 ms, p95 ≤ 4.1 ms, one 19.5 ms max | 26,645 video, 1,690 bad (6 %), 659 given up, 29 of 22,980 NAKed packets recovered |
+
+The loss in the 1080p runs isn't 1080p's: 720p and 1080p back to back gave up about 50 and 45 frames, on
+a day the LAN had flaky links. Fault tests on the same build: five entry reloads back in 1.3–1.6 s (one
+during an HLS stream, which kept serving); disable/enable in 0.2 s / 0.7 s; a 60 s network drop made the
+entities unavailable and they were back within 10 s of it ending; no threads left behind.
+
 ## T8 — Soak
 
 The production HA runs the new backend for two weeks (`90-migration.md`, phase 4). Daily: the HA log for
