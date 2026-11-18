@@ -159,17 +159,17 @@ new QR version to the kit spec only once it is actually characterised from a rea
 ## Releases
 
 The integration and `vtech-link` share one version, and a tag `X.Y.Z` releases both. `vtech-link` stays in this
-repo and isn't published to crates.io: its only consumer is this integration, and it depends on the `dimpl`
-fork through `[patch.crates-io]`. HACS reads only GitHub releases and ignores bare tags.
+repo and isn't published to crates.io: its only consumer is this integration, and it depends on an unreleased
+`dimpl` revision through `[patch.crates-io]`. HACS reads only GitHub releases and ignores bare tags.
 
 The first release is `0.3.0`, counting the two earlier designs: `0.1.0` was the vendor's SDK, `0.2.0` the
 drop-in SDK. Don't tag those numbers: any `X.Y.Z` tag starts a release pipeline.
 
 1. `./set_version.py X.Y.Z`, commit, then push the commit and the tag to GitLab. Its pipeline checks the versions, builds and tests the wheels, and `gitlab-release` creates the GitLab
-   release: the four wheels, `SHA256SUMS` and `REVISION`, stored in the package registry because job
+   release: the four wheels, the sdist, `SHA256SUMS` and `REVISION`, stored in the package registry because job
    artifacts expire. CI holds no PyPI or GitHub credentials.
 2. `./publish.sh --dry-run X.Y.Z` downloads and verifies the release: checksums, revision against the tag, one
-   wheel per target, the manifest's version and pin, `twine check`, and any wheel already on PyPI.
+   wheel per target and one sdist, the manifest's version and pin, `twine check`, and any file already on PyPI.
 3. `./publish.sh X.Y.Z` uploads to PyPI, then creates the GitHub release. PyPI comes first so the version HACS
    offers can always be installed. It asks before each step, and a rerun skips what is done.
 

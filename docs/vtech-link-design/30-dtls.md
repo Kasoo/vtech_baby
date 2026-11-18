@@ -61,7 +61,7 @@ The commands: `TK_CIPHERS=<openssl name>` with the `TK_TRACE=2` probe above.
 
 The camera presents no certificate. With `0xCCAC` the handshake has no Certificate,
 CertificateRequest or CertificateVerify message, and the ServerKeyExchange carries only the identity
-hint and an unsigned x25519 key (RFC 5489). The fork rejects one that carries a signature. That dimpl
+hint and an unsigned x25519 key (RFC 5489). dimpl rejects one that carries a signature. That dimpl
 does no certificate (PKI) validation doesn't matter here, because no certificate suite can be
 negotiated:
 - The link configures exactly one DTLS 1.2 suite and no DTLS 1.3 suites (`core/src/dtls/mod.rs:133`).
@@ -113,8 +113,9 @@ listed in the local checkout's uncommitted `TODO.md`.
 **Now (2026-10-26)** the fork carries each suite on its own branch for upstream:
 `tls_ecdhe_psk_with_chacha20_poly1305_sha256` (on dimpl 0.9.0, plus the rejection of ServerKeyExchange
 groups the client did not offer and of non-named curves) and `tls_psk_with_aes_128_gsm_sha256` (still on
-0.8.x). Builds take the first through `[patch.crates-io]` at tag `vtech-0.9.0-psk.1` (`11e3135`,
-`80-build.md`), so only `ccac` is available to the link; `00a8` was proven but is no longer used.
+0.8.x). **Now (2026-11-18)** upstream `main` has the first (`cdff1b8`, with the ServerKeyExchange checks), and
+builds take it through `[patch.crates-io]` at an upstream commit until a release has it (`80-build.md`).
+Only `ccac` is available to the link; `00a8` was proven but is no longer used.
 It adds `TLS_PSK_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` for DTLS
 1.2, client and server: about 480 lines added, a third of them tests.
 - **Key exchange**: a new `KeyExchangeAlgorithm::ECDHE_PSK`.

@@ -285,7 +285,7 @@ dependencies = [
 [[package]]
 name = "dimpl"
 version = "0.9.0"
-source = "git+https://github.com/Kasoo/dimpl?tag=vtech-0.9.0-psk.1#11e31357955a73fa4062fe2aca57a9c08e2e53b1"
+source = "git+https://github.com/algesten/dimpl?rev=e341a902854d96e1ab8aad910ef5ddea5c1598f8#e341a902854d96e1ab8aad910ef5ddea5c1598f8"
 dependencies = [
  "aes",
  "aes-gcm",

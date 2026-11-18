@@ -25,7 +25,7 @@ All pure Rust. No `build.rs` compiles C, and nothing links a C library beyond li
 | `mio` (`net`, `os-poll`) | the reactor | core |
 | `socket2` | socket options before handing the socket to mio | core |
 | `if-addrs` | `getifaddrs` | core |
-| `dimpl` (`"0.9"`, `default-features = false`, `rust-crypto`; from our fork until upstream has the PSK suites, below) | DTLS 1.2 PSK client | core |
+| `dimpl` (`"0.9"`, `default-features = false`, `rust-crypto`; from an upstream revision until a release has the PSK suite, below) | DTLS 1.2 PSK client | core |
 | `x25519-dalek` (`static_secrets`) | live-view key exchange (and DTLS ECDHE in the own-client fallback) | core |
 | `sha2`, `sha1`, `hmac` | PRF, transcript, connect-record HMAC, PSK | core |
 | `chacha20poly1305`, `chacha20` | DTLS records, frame crypto, key unwrap | core |
@@ -48,11 +48,11 @@ Each added crate is a reviewed decision, as the import allow-list was for `tutk-
 fails the build on an unlisted licence (MIT, Apache-2.0, BSD-3-Clause and Unicode are allowed), a
 RustSec advisory, or a banned crate (`openssl`, `openssl-sys`, `ring` and any `*-sys` that builds C).
 
-## dimpl from our fork
+## dimpl from an upstream revision
 
-dimpl needs two suites that upstream doesn't have yet (`30-dtls.md`). We use Cargo's standard
-mechanism for a pending upstream change: the code depends on the crates.io crate, and the workspace
-root swaps in our fork.
+dimpl's `main` has the `ECDHE_PSK_CHACHA20_POLY1305_SHA256` suite (`30-dtls.md`), but no release has it yet.
+We use Cargo's standard mechanism for an unreleased change: the code depends on the crates.io crate, and
+the workspace root swaps in upstream's git repository at a fixed commit.
 
 ```toml
 # core/Cargo.toml
@@ -60,18 +60,20 @@ dimpl = { version = "0.9", default-features = false, features = ["rust-crypto"] 
 
 # Cargo.toml (workspace root)
 [patch.crates-io]
-dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
+dimpl = { git = "https://github.com/algesten/dimpl", rev = "e341a902854d96e1ab8aad910ef5ddea5c1598f8" }
 ```
 
-- **Tag, not branch.** Each fork revision gets a new tag (`vtech-<upstream version>-psk.<n>`), so a
-  rebase of `psk-suites` never orphans a commit a build uses. `Cargo.lock` records the commit, and
-  builds run with `--locked`.
+- **A commit, not a branch.** `rev` pins the exact commit, so upstream moving `main` never changes a
+  build; `Cargo.lock` records it too, and builds run with `--locked`. The fuzz crate and the DTLS prototype
+  carry the same entry.
 - **The https URL**, so the release containers need no SSH key.
-- **Moving back to upstream**: delete the `[patch]` entry and bump the version, once upstream ships the
-  suites.
+- **The sdist keeps the entry**, so building from it fetches dimpl from GitHub, as the wheel builds do.
+- **Moving to a release**: delete the `[patch]` entries and bump the version, once a dimpl release has the
+  suite.
 - **Offline builds**, if wanted: `release.sh` runs `cargo vendor` before starting the containers and
   passes the vendor directory and its `.cargo/config.toml` in. `vendor/` is not committed.
-- Proven by the prototype (`prototypes/dtls-camera/Cargo.toml`), which builds from the tag with `--locked`.
+- Before this, builds used our fork (`Kasoo/dimpl`, tag `vtech-0.9.0-psk.1`); upstream merged the suite and
+  the ServerKeyExchange checks it carried.
 
 ## The four builds (R35)
 

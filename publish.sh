@@ -3,7 +3,7 @@
 #
 #   ./publish.sh [--dry-run] TAG
 #
-# Downloads and verifies the wheels, uploads them to PyPI, then creates the GitHub release HACS reads, in
+# Downloads and verifies the wheels and the sdist, uploads them to PyPI, then creates the GitHub release HACS reads, in
 # that order so the version HACS offers can always be installed. --dry-run stops after the checks. A rerun
 # skips what is already done.
 #
@@ -68,14 +68,14 @@ rev=$(git rev-parse "$tag^{commit}")
 [ "$(cat "$work/REVISION")" = "$rev" ] || die "the release was built from $(cat "$work/REVISION"), the tag is $rev"
 (cd "$work" && sha256sum --quiet -c SHA256SUMS) || die "checksum mismatch"
 
-# One wheel per target, listed in SHA256SUMS, all one version.
-[ "$(wc -l < "$work/SHA256SUMS")" -eq 4 ] || die "expected 4 wheels in SHA256SUMS"
-for pattern in '*manylinux*_x86_64.whl' '*manylinux*_aarch64.whl' '*musllinux*_x86_64.whl' '*musllinux*_aarch64.whl'; do
+# One wheel per target and one sdist, listed in SHA256SUMS, all one version.
+[ "$(wc -l < "$work/SHA256SUMS")" -eq 5 ] || die "expected 4 wheels and an sdist in SHA256SUMS"
+for pattern in '*manylinux*_x86_64.whl' '*manylinux*_aarch64.whl' '*musllinux*_x86_64.whl' '*musllinux*_aarch64.whl' '*.tar.gz'; do
   # shellcheck disable=SC2086
-  [ "$(cd "$work" && ls $pattern 2>/dev/null | wc -l)" -eq 1 ] || die "expected one wheel matching $pattern"
+  [ "$(cd "$work" && ls $pattern 2>/dev/null | wc -l)" -eq 1 ] || die "expected one file matching $pattern"
 done
-version=$(cd "$work" && ls ./*.whl | cut -d- -f2 | sort -u)
-[ "$version" = "$tag" ] || die "the wheels aren't all version $tag: $version"
+version=$( (cd "$work" && ls ./*.whl | cut -d- -f2; ls ./*.tar.gz | sed 's/^\.\/vtech_link-\(.*\)\.tar\.gz$/\1/') | sort -u)
+[ "$version" = "$tag" ] || die "the wheels and the sdist aren't all version $tag: $version"
 
 # The tagged integration claims this version and pins these wheels.
 git show "$rev:$MANIFEST" > "$work/manifest.json"
@@ -83,9 +83,9 @@ git show "$rev:$MANIFEST" > "$work/manifest.json"
 jq -e --arg pin "vtech-link==$version" '.requirements | index($pin)' "$work/manifest.json" > /dev/null \
   || die "manifest.json at $tag doesn't require vtech-link==$version"
 
-$TWINE check --strict "$work"/*.whl
+$TWINE check --strict "$work"/*.whl "$work"/*.tar.gz
 
-# PyPI files can't be replaced, so a wheel already there has to be this one.
+# PyPI files can't be replaced, so a file already there has to be this one.
 status=$(curl -sS -o "$work/pypi.json" -w '%{http_code}' "$PYPI_JSON/$version/json")
 case $status in
   200) ;;
@@ -93,7 +93,7 @@ case $status in
   *) die "PyPI answered $status" ;;
 esac
 upload=
-for wheel in "$work"/*.whl; do
+for wheel in "$work"/*.whl "$work"/*.tar.gz; do
   name=$(basename "$wheel")
   published=$(jq -r --arg name "$name" '.urls[] | select(.filename == $name) | .digests.sha256' "$work/pypi.json")
   ours=$(sha256sum "$wheel" | cut -d' ' -f1)
@@ -146,7 +146,7 @@ jq --arg tag "$tag" '{tag_name: $tag, name: .name, body: .description, draft: tr
 github -f -X POST "$GITHUB_API/releases" --data-binary "@$work/github.json" -o "$work/draft.json"
 id=$(jq -r .id "$work/draft.json")
 upload_url=$(jq -r '.upload_url | sub("\\{.*"; "")' "$work/draft.json")
-for asset in "$work"/*.whl "$work/SHA256SUMS" "$work/REVISION"; do
+for asset in "$work"/*.whl "$work"/*.tar.gz "$work/SHA256SUMS" "$work/REVISION"; do
   github -f -X POST -H "Content-Type: application/octet-stream" --data-binary "@$asset" \
     "$upload_url?name=$(basename "$asset")" -o /dev/null
 done

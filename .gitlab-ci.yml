@@ -82,7 +82,7 @@ pytest:
     - dnf -y -q install git-core diffutils >/dev/null
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
   script:
-    - vtech-link/release.sh $SETS
+    - vtech-link/release.sh $SETS $EXTRA
     - vtech-link/tools/ha_import_check.sh $SETS
     - (cd vtech-link/dist && sha256sum */_vtech_link.abi3.so > SHA256SUMS-$ARCH && echo "$CI_COMMIT_SHA" > REVISION-$ARCH)
   artifacts:
@@ -95,6 +95,7 @@ build-x86_64:
   variables:
     ARCH: x86_64
     SETS: x86_64-glibc x86_64-musl
+    EXTRA: sdist
   cache:
     key: build-x86_64
     paths: [vtech-link/build/cache/]
@@ -124,7 +125,7 @@ module-release:
     - .venv/bin/python -m unittest discover -s vtech-link/py/tests -t vtech-link/py/tests
     - .venv/bin/pytest tests/test_link_session.py -k test_load_the_real_module
 
-# A version tag makes a GitLab release: the wheels, their checksums and the revision, stored in the
+# A version tag makes a GitLab release: the wheels, the sdist, their checksums and the revision, stored in the
 # package registry because job artifacts expire. CI holds no PyPI or GitHub credentials; publish.sh takes
 # the release from here to both.
 gitlab-release:
@@ -144,8 +145,8 @@ gitlab-release:
     GLAB_ENABLE_CI_AUTOLOGIN: "true"
   script:
     - mkdir release-assets
-    - cp vtech-link/dist/*/*.whl release-assets/
-    - (cd release-assets && sha256sum *.whl > SHA256SUMS)
+    - cp vtech-link/dist/*/*.whl vtech-link/dist/sdist/*.tar.gz release-assets/
+    - (cd release-assets && sha256sum *.whl *.tar.gz > SHA256SUMS)
     - echo "$CI_COMMIT_SHA" > release-assets/REVISION
     - git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$CI_COMMIT_TAG" > notes.md
     - glab release create "$CI_COMMIT_TAG" release-assets/* --name "$CI_COMMIT_TAG" --notes-file notes.md --ref "$CI_COMMIT_SHA" --no-update --use-package-registry --package-name vtech-link

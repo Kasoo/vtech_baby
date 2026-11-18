@@ -15,9 +15,9 @@ vtech-link-core = { path = "../core" }
 # Not a member of the vtech-link workspace.
 [workspace]
 
-# Same dimpl fork as the workspace.
+# Same dimpl revision as the workspace.
 [patch.crates-io]
-dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
+dimpl = { git = "https://github.com/algesten/dimpl", rev = "e341a902854d96e1ab8aad910ef5ddea5c1598f8" }
 
 [profile.release]
 debug = 1

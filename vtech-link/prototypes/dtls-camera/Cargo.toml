@@ -17,6 +17,6 @@ opt-level = 2
 
 [workspace]
 
-# Our fork's PSK suites until upstream dimpl has them (docs/vtech-link-design/80-build.md).
+# Upstream dimpl at a revision with the PSK suites, until a release has them (docs/vtech-link-design/80-build.md).
 [patch.crates-io]
-dimpl = { git = "https://github.com/Kasoo/dimpl", tag = "vtech-0.9.0-psk.1" }
+dimpl = { git = "https://github.com/algesten/dimpl", rev = "e341a902854d96e1ab8aad910ef5ddea5c1598f8" }

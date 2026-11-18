@@ -1,7 +1,8 @@
 #!/bin/sh
 # Build the _vtech_link Python module for each target, each in a container for its libc:
 #
-#   ./release.sh [SET...]      SET: x86_64-glibc aarch64-glibc x86_64-musl aarch64-musl (default: all)
+#   ./release.sh [SET...]      SET: x86_64-glibc aarch64-glibc x86_64-musl aarch64-musl sdist
+#                              (default: the four wheel sets)
 #
 # glibc builds in manylinux2014 (glibc 2.17), so the module loads on any glibc host since; musl builds in
 # Alpine 3.24 (Home Assistant's base), linked dynamically. A set for the host's arch builds natively. On an
@@ -15,6 +16,10 @@
 # and the wheel it came from, dist/SET/*.whl.
 # maturin's auditwheel check covers the glibc sets. The musl sets skip it (it would graft libgcc_s), so every set is
 # checked here to need no library other than libc, libgcc_s and the glibc split-outs.
+#
+# The sdist set writes dist/sdist/*.tar.gz (maturin sdist, built twice and compared), then builds a wheel
+# from it in a clean venv and imports the module, which proves the sdist builds on its own (it fetches
+# crates and the patched dimpl over the network, as a user's build would).
 set -e
 export LC_ALL=C
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -80,7 +85,44 @@ build /tmp/second.so /tmp/second
 if cmp -s /dist/_vtech_link.abi3.so /tmp/second.so && cmp -s /dist/*.whl /tmp/second/*.whl; then echo "reproducible: yes"; else echo "reproducible: NO"; fi
 ' 
 
+# Runs inside Alpine for the sdist set: /src is the source, /cache the cache, /dist the output.
+SDIST='
+set -eu
+export CARGO_HOME=/cache/cargo RUSTUP_HOME=/cache/rustup PIP_CACHE_DIR=/cache/pip PATH=/cache/cargo/bin:$PATH
+export RUSTFLAGS="-C target-feature=-crt-static"
+apk add -q build-base python3 py3-pip curl git
+chan=$(sed -n "s/^channel *= *\"\(.*\)\"/\1/p" /src/rust-toolchain.toml)
+[ -x /cache/cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none >/dev/null 2>&1
+rustup -q toolchain install "$chan" --profile minimal
+export RUSTUP_TOOLCHAIN=$chan
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q "maturin==$MATURIN"
+(cd /src && /tmp/venv/bin/maturin sdist -m py/Cargo.toml -o /dist) >&2
+(cd /src && /tmp/venv/bin/maturin sdist -m py/Cargo.toml -o /tmp/second) >&2
+if cmp -s /dist/*.tar.gz /tmp/second/*.tar.gz; then echo "reproducible: yes"; else echo "reproducible: NO"; fi
+python3 -m venv /tmp/check && cd /tmp && /tmp/check/bin/pip install -q /dist/*.tar.gz
+/tmp/check/bin/python -I -c "import _vtech_link; print(\"sdist builds and imports:\", _vtech_link.__name__)"
+'
+
 for set in "$@"; do
+  if [ "$set" = sdist ]; then
+    echo "== sdist ($ALPINE)"
+    work="$HERE/build/src/sdist"
+    out="$HERE/dist/sdist"
+    cache="$HERE/build/cache/sdist"
+    [ $HOST_ARCH = x86_64 ] || cache="$cache-on-$HOST_ARCH"
+    rm -rf "$work" "$out"
+    mkdir -p "$work" "$out" "$cache"
+    if [ -n "$WORKTREE" ]; then
+      tar -C "$HERE" --exclude=./target --exclude=./dist --exclude=./build -cf - . | tar -C "$work" -xf -
+    else
+      git -C "$TOP" archive "$REV:${HERE#$TOP/}" | tar -C "$work" -xf -
+    fi
+    podman run --rm --arch "$platform" $RUN_OPTS -e MATURIN="$MATURIN" -e SOURCE_DATE_EPOCH="$EPOCH" \
+      -v "$work":/src:z -v "$cache":/cache:z -v "$out":/dist:z -w /src "$ALPINE" sh -c "$SDIST"
+    rm -rf "$work"
+    (cd "$out" && sha256sum ./*.tar.gz)
+    continue
+  fi
   arch=${set%-*}
   libc=${set#*-}
   case $libc in
