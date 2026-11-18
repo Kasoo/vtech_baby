@@ -112,16 +112,19 @@ async def async_load(hass: HomeAssistant) -> Hub:
     return hub
 
 
-def _probe(hub: Hub, uid: str, authkey: str, password: str, account: str, plain: bool) -> ops.DevInfo:
+def _probe(hub: Hub, uid: str, authkey: str, password: str, account: str,
+           plain: bool) -> tuple[ops.DevInfo, bool]:
     s = hub.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0, plain=plain)
     try:
-        return s.connect()
+        return s.connect(), s.plain
     finally:
         s.close()
 
 
-async def async_probe(hass: HomeAssistant, hub: Hub, creds: dict[str, Any]) -> ops.DevInfo:
-    """Connect once and disconnect: the config flow's credential test. Raises VtechError subclasses."""
+async def async_probe(hass: HomeAssistant, hub: Hub, creds: dict[str, Any]) -> tuple[ops.DevInfo, bool]:
+    """Connect once and disconnect: the config flow's credential test. Returns the device info, and
+    whether the camera connected in plain mode (asked for, or fallen back to). Raises VtechError
+    subclasses."""
     return await hass.async_add_executor_job(
         _probe, hub, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT],
         creds.get(CONF_PLAIN, False))
@@ -311,6 +314,12 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
             raise SessionGone("session lost while reading the camera's state", call="connect")
         self.session, self.failures, self.last_error, self._auth_unanswered = session, 0, None, 0
         _LOG.info("%s: connected via %s (%s)", self.name, state.connection_mode, state.devinfo)
+        if session.plain and not self.config_entry.data.get(CONF_PLAIN, False):
+            # The camera turned out to be plain: connect that way from the start next time.
+            _LOG.warning("%s: the camera doesn't use key authentication; it is set up as a plain camera now",
+                         self.name)
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data={**self.config_entry.data, CONF_PLAIN: True})
         # The credentials work: withdraw any reauth prompt still open.
         for flow in self.config_entry.async_get_active_flows(self.hass, {SOURCE_REAUTH}):
             self.hass.config_entries.flow.async_abort(flow["flow_id"])

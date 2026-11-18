@@ -297,6 +297,7 @@ class FakeLinkModule:
     def __init__(self, camera=None):
         self.camera = camera or FakeCamera()
         self.connect_error: LinkError | None = None
+        self.plain_camera = False               # the camera uses no key authentication and no DTLS
         self.opened: list[FakeLink] = []
         self.connects: list[dict] = []
         self.log_level = 20
@@ -309,6 +310,10 @@ class FakeLinkModule:
             raise LinkError("invalid_argument", "authkey must be 8 characters")
         if self.connect_error is not None:
             raise self.connect_error
+        if self.plain_camera and not plain:
+            raise LinkError("iotc_rejected", "no_key_auth", -69)
+        if plain and not self.plain_camera:
+            raise LinkError("iotc_rejected", "auth_key", -68)
         link = FakeLink(self, uid, peer_hint)
         self.opened.append(link)
         return link

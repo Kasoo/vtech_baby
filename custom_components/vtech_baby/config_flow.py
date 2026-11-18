@@ -1,10 +1,11 @@
-"""Config flow: the camera's pairing QR; reauth = fresh QR.
+"""Config flow: the camera's pairing QR (a picker when it holds several cameras); reauth = fresh QR.
 
 Credentials come from the pairing-QR text (docs/vtech-lan-kit/docs/05-provisioning.md); the QR text itself is
 never stored.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -42,27 +43,53 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._hub: Hub | None = None
         self._model: str | None = None                    # from the connection test
+        self._cameras: list[provision.Credentials] = []   # a QR's cameras not yet configured, to pick from
         self._pending: tuple[str, dict[str, Any]] | None = None   # entry awaiting the model warning
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self.async_step_camera()
 
-    # One camera, from its pairing QR
+    # The pairing QR; a QR with several cameras goes on to the picker
     async def async_step_camera(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            creds, errors = self._decode(user_input[CONF_QR])
-            if creds is not None:
-                await self.async_set_unique_id(creds.uid)
-                self._abort_if_unique_id_configured()      # rotated credentials: use reauth
-                errors = await self._async_test(creds)
+            found, errors = self._decode(user_input[CONF_QR])
             if not errors:
-                self._pending = (creds.name or f"VTech {creds.uid[-4:]}",
-                                 _entry_creds(creds))
-                if (self._model or "").strip().upper() not in TESTED_MODELS:
-                    return await self.async_step_untested_model()
-                return self.async_create_entry(title=self._pending[0], data=self._pending[1])
+                configured = self._async_current_ids()
+                self._cameras = [c for c in found if c.uid not in configured]
+                if not self._cameras:
+                    return self.async_abort(reason="already_configured")   # rotated credentials: reauth
+                if len(self._cameras) > 1:
+                    return await self.async_step_pick_camera()
+                result, errors = await self._async_add(self._cameras[0])
+                if result is not None:
+                    return result
         return self.async_show_form(step_id="camera", data_schema=QR_SCHEMA, errors=errors)
+
+    async def async_step_pick_camera(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            creds = next(c for c in self._cameras if c.uid == user_input[CONF_UID])
+            result, errors = await self._async_add(creds)
+            if result is not None:
+                return result
+        choices = {c.uid: f"{c.name or 'VTech'} ({c.uid[-4:]})" for c in self._cameras}
+        return self.async_show_form(step_id="pick_camera", errors=errors,
+                                    data_schema=vol.Schema({vol.Required(CONF_UID): vol.In(choices)}))
+
+    async def _async_add(self, creds: provision.Credentials
+                         ) -> tuple[ConfigFlowResult | None, dict[str, str]]:
+        """Test one camera and create its entry (after the model warning, if needed). Returns the flow
+        result, or the form errors."""
+        await self.async_set_unique_id(creds.uid)
+        self._abort_if_unique_id_configured()
+        creds, errors = await self._async_test(creds)
+        if errors:
+            return None, errors
+        self._pending = (creds.name or f"VTech {creds.uid[-4:]}", _entry_creds(creds))
+        if (self._model or "").strip().upper() not in TESTED_MODELS:
+            return await self.async_step_untested_model(), {}
+        return self.async_create_entry(title=self._pending[0], data=self._pending[1]), {}
 
     # Only after a successful connection whose model isn't one we've tested: warn, let the user go on.
     async def async_step_untested_model(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -75,7 +102,7 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
                                     description_placeholders={"model": self._model or "unknown",
                                                               "tested": TESTED_PRODUCT})
 
-    # Reauth: a fresh QR for the same camera
+    # Reauth: a fresh QR holding the same camera
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         return await self.async_step_reauth_confirm()
 
@@ -83,45 +110,50 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         entry = self._get_reauth_entry()
         if user_input is not None:
-            creds, errors = self._decode(user_input[CONF_QR], expect_uid=entry.unique_id)
+            found, errors = self._decode(user_input[CONF_QR])
+            creds = next((c for c in found if c.uid == entry.unique_id), None)
+            if not errors and creds is None:
+                errors = {CONF_QR: "wrong_camera"}
             if creds is not None:
-                errors = await self._async_test(creds)
+                creds, errors = await self._async_test(creds)
             if not errors:
+                assert creds is not None
                 return self.async_update_reload_and_abort(entry, data_updates=_entry_creds(creds))
         return self.async_show_form(step_id="reauth_confirm", data_schema=QR_SCHEMA, errors=errors,
                                     description_placeholders={"name": entry.title})
 
     @staticmethod
-    def _decode(text: str, expect_uid: str | None = None
-                ) -> tuple[provision.Credentials | None, dict[str, str]]:
+    def _decode(text: str) -> tuple[list[provision.Credentials], dict[str, str]]:
         try:
-            creds = provision.provision(text, expect_uid)
+            return provision.cameras(text), {}
+        except provision.UnsupportedModel as err:
+            _LOG.debug("pairing QR: %s", err)
+            return [], {CONF_QR: "unsupported_model"}
         except provision.InvalidQr as err:
             _LOG.debug("invalid pairing QR: %s", err)
-            return None, {CONF_QR: "invalid_qr"}
-        if expect_uid is not None and creds.uid != expect_uid:
-            return None, {CONF_QR: "wrong_camera"}
-        return creds, {}
+            return [], {CONF_QR: "invalid_qr"}
 
-    async def _async_test(self, creds: provision.Credentials) -> dict[str, str]:
-        """Connect once with the decoded credentials. Returns form errors (empty = OK)."""
+    async def _async_test(self, creds: provision.Credentials
+                          ) -> tuple[provision.Credentials, dict[str, str]]:
+        """Connect once with the decoded credentials. Returns them (marked plain if the camera turned out
+        to be), and form errors (empty = OK)."""
         if self._hub is None:
             try:
                 self._hub = await async_load(self.hass)
             except SetupError as err:
                 _LOG.warning("the protocol module is not usable: %s", err)
-                return {"base": "module_unavailable"}
+                return creds, {"base": "module_unavailable"}
         try:
-            dev = await async_probe(self.hass, self._hub, _entry_creds(creds))
+            dev, plain = await async_probe(self.hass, self._hub, _entry_creds(creds))
         except AuthFailed:
-            return {"base": "invalid_auth"}
+            return creds, {"base": "invalid_auth"}
         except Unreachable:
-            return {"base": "cannot_connect"}
+            return creds, {"base": "cannot_connect"}
         except VtechError:
             _LOG.exception("unexpected error testing the camera connection")
-            return {"base": "unknown"}
+            return creds, {"base": "unknown"}
         self._model = dev.model
-        return {}
+        return dataclasses.replace(creds, plain=plain), {}
 
 
 def _entry_creds(creds: provision.Credentials) -> dict[str, Any]:

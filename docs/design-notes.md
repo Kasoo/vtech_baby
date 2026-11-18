@@ -26,6 +26,16 @@ and the known issues.
 - **`vtech-link` comes from PyPI** (decided 2026-11-06): HACS installs one zip on every host and pip picks
   the wheel for the arch and libc, so no binaries live in git. In a container, Home Assistant installs
   requirements into the container, so it fetches the wheel again each time the container is recreated.
+- **The security mode comes from the pairing QR** (2026-11). A version-5 credential of type 5 is an
+  enhanced camera (authKey + DTLS), type 4 and every version-1 record a plain one (no authKey, no
+  DTLS); the entry stores it as `plain` (absent = enhanced, so older entries need no migration). A
+  camera that answers "no key authentication" (`-69`) when given a key is connected again at once in
+  plain mode (`LinkSession._open`), and the manager rewrites its entry as plain. The opposite (a plain
+  entry whose camera wants a key) is a `-68` and goes to reauth like rotated credentials.
+- **One config entry per camera, also for a QR with several** (2026-11). The config flow lists the QR's
+  cameras that aren't configured yet and offers a picker when more than one is left; the same QR adds
+  the next. Cameras are matched by UID, never by the QR's camera index, and reauth takes the record with
+  the entry's UID.
 - **Version 2 config entries** (2026-10): version 1 ran on the vendor's SDK and stored its directory;
   `async_migrate_entry` drops it and deletes the extracted and patched libraries under the HA config
   directory.
@@ -67,6 +77,10 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   `0x728` = `word1 = 0`; `0x732` = `int@0 = 1`), so each op in `ops.py` has its own success check.
 - The real length of notification interval index 0 ("default"), and whether index 6 ("never") also stops
   `0x1fff` pushes to LAN clients.
+- Plain mode is confirmed live for the connect, login, device info and parameter reads; its live view
+  (key exchange, media) and talk-back run in the simulator only. Whether a version-1 QR can belong to
+  an enhanced camera is unconfirmed (`vtech-lan-kit/docs/05-provisioning.md`); such a camera would
+  reject the keyless connect with `-68` and land in reauth.
 - Whether a genuinely rotated (old) authKey gets the same explicit `-68` reject as an arbitrary wrong one.
   The manager assumes it does: only `AuthFailed` starts reauth, and an unreachable camera (no search
   reply) is retried forever. Stale credentials that went silent instead would show as a camera that

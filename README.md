@@ -29,10 +29,8 @@ before you choose whether to add it anyway.
 
 If you try another model, please report how it went. [`COMPATIBILITY.md`](COMPATIBILITY.md) walks through
 checking a different model against your own camera — classifying its pairing QR, and probing whether it
-connects — and what to include in a report. (Some models, such as the RM5764HD, keep their camera
-password in your VTech account rather than in the pairing QR, so they can't be set up from the QR alone;
-the integration says so when you try one, and a way to provision them from the account is under
-investigation. The guide explains how to tell whether your model is one of these.)
+connects — and what to include in a report. Both pairing-QR formats seen so far are supported: the
+RM5754HD's, and the shorter one some other models (such as the RM5764HD) show.
 
 ## What you need
 
@@ -60,6 +58,8 @@ restart.
 1. Add the **VTech Baby Monitor** integration.
 2. On the parent unit, open the camera's **Connect Mobile Phone** QR code. Scan it with any QR reader
    on your phone and paste the text into the setup dialogue.
+3. If the parent unit has several cameras, its QR code may hold them all: choose the camera to add. To
+   add the next one, add the integration again with the same QR code.
 
 The camera's credentials may change when its Wi-Fi settings change or when the "Update security key"
 option is used. Home Assistant then can't connect, and asks you to re-pair the camera: it shows

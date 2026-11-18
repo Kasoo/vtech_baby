@@ -389,12 +389,23 @@ class LinkSession(SessionBase):
             self._lose(err)
             raise err from e
 
+    @property
+    def plain(self) -> bool:
+        """The session connects in plain mode: asked for, or fallen back to by `_open`."""
+        return self._plain
+
     def _open(self) -> None:
         try:
-            self.link = self._module.connect(
-                self._uid, self._authkey, self._password, self._account,
-                connect_timeout=float(self.connect_timeout_s), av_timeout=float(self.av_timeout_s),
-                peer_hint=self._peer_hint, plain=self._plain)
+            try:
+                self.link = self._connect()
+            except self._module.LinkError as e:
+                if self._plain or (getattr(e, "kind", ""), getattr(e, "detail", "")) != ("iotc_rejected",
+                                                                                         "no_key_auth"):
+                    raise
+                # The camera doesn't use key authentication: it is a plain camera, so connect without a key.
+                _LOG.info("%s: camera doesn't use key authentication; connecting in plain mode", self.name)
+                self._plain = True
+                self.link = self._connect()
         except self._module.LinkError as e:
             raise from_link(e, "connect") from None
         except BaseException as e:
@@ -402,6 +413,12 @@ class LinkSession(SessionBase):
                 raise
             _LOG.error("%s: vtech-link panicked in connect: %s", self.name, e)
             raise VtechError("connect failed (vtech-link panicked)", call="connect") from e
+
+    def _connect(self) -> Any:
+        return self._module.connect(
+            self._uid, "" if self._plain else self._authkey, self._password, self._account,
+            connect_timeout=float(self.connect_timeout_s), av_timeout=float(self.av_timeout_s),
+            peer_hint=self._peer_hint, plain=self._plain)
 
     def _close_transport(self) -> None:
         if self.link is not None:

@@ -22,7 +22,7 @@ from custom_components.vtech_baby.vtech_lan import provision
 
 from fake_camera import i32
 from fake_link import FakeLinkModule, LinkError, PanicException, fake_hub
-from test_provision import make_qr
+from test_provision import V1_CAMERAS, V5_CAMERAS, make_qr, make_qr_cameras, make_v1_qr
 
 UID = "TESTUID0000000000001"
 QR = make_qr([(2, b"VTECH_5754_test"), (3, UID.encode()), (5, b"Pw0rdXyz"), (7, bytes.fromhex("0011223344ff"))])
@@ -199,6 +199,109 @@ async def test_reauth(hass: HomeAssistant, fake):
     assert entry.data[CONF_AUTHKEY] == provision.derive_authkey("NewPw123")
     assert entry.state is ConfigEntryState.LOADED
     await unload(hass, entry)
+
+
+# ── Plain cameras and QRs with several cameras ───────────────────────────────
+QR_V1 = make_v1_qr(V1_CAMERAS)
+QR_TWO = make_qr_cameras(V5_CAMERAS)
+
+
+async def add(hass, qr):
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    return await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: qr})
+
+
+async def test_v1_qr_adds_a_plain_camera(hass: HomeAssistant, fake):
+    fake.plain_camera = True
+    r = await add(hass, make_v1_qr(V1_CAMERAS[:1]))
+    assert r["type"] is FlowResultType.CREATE_ENTRY
+    assert r["data"][CONF_PLAIN] is True and r["data"][CONF_AUTHKEY] == ""
+    assert r["data"][CONF_AV_PASSWORD] == "Tok3nAB1"
+    await hass.async_block_till_done()
+    assert r["result"].state is ConfigEntryState.LOADED
+    assert all(c["plain"] and c["authkey"] == "" for c in fake.connects)
+    await unload(hass, r["result"])
+
+
+async def test_several_cameras_are_picked_one_per_entry(hass: HomeAssistant, fake):
+    fake.plain_camera = True
+    r = await add(hass, QR_V1)
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "pick_camera"
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: "TESTUID0000000000002"})
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["result"].unique_id == "TESTUID0000000000002"
+    assert r["title"] == "VTECH_5764_ef01" and r["data"][CONF_AV_PASSWORD] == "Tok3nCD2"
+    await hass.async_block_till_done()
+    # The same QR again offers only the camera not yet configured, so it is added straight away.
+    r = await add(hass, QR_V1)
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["result"].unique_id == "TESTUID0000000000001"
+    await hass.async_block_till_done()
+    r = await add(hass, QR_V1)
+    assert r["type"] is FlowResultType.ABORT and r["reason"] == "already_configured"
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        await unload(hass, entry)
+
+
+async def test_v5_qr_with_an_enhanced_and_a_plain_camera(hass: HomeAssistant, fake):
+    r = await add(hass, QR_TWO)
+    assert r["step_id"] == "pick_camera"
+    assert set(r["data_schema"].schema[CONF_UID].container) == {"TESTUID0000000000001", "TESTUID0000000000002"}
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: "TESTUID0000000000001"})
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["data"][CONF_PLAIN] is False
+    await hass.async_block_till_done()
+    await unload(hass, r["result"])
+
+
+async def test_pick_camera_shows_connect_errors(hass: HomeAssistant, fake):
+    fake.fail_connect(-13)
+    r = await add(hass, QR_TWO)
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: "TESTUID0000000000002"})
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "pick_camera"
+    assert r["errors"] == {"base": "cannot_connect"}
+
+
+async def test_unsupported_model_qr(hass: HomeAssistant, fake):
+    r = await add(hass, make_qr_cameras([(0, [(3, UID.encode()), (5, b"Pw0rdXyz"), (8, b"\x01")])]))
+    assert r["errors"] == {CONF_QR: "unsupported_model"}
+
+
+async def test_reauth_matches_the_camera_in_a_qr_with_several(hass: HomeAssistant, fake):
+    """The entry's camera is the second in the new QR; the camera is plain now."""
+    fake.fail_connect(-68)
+    entry = await setup_entry(hass)
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    fake.heal()
+    fake.plain_camera = True
+    r = await entry.start_reauth_flow(hass)
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: make_v1_qr(V1_CAMERAS[1:])})
+    assert r["errors"] == {CONF_QR: "wrong_camera"}
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"], {CONF_QR: make_v1_qr([V1_CAMERAS[1], ("VTECH_5754_test", UID, "Tok3nZZ9")])})
+    assert r["type"] is FlowResultType.ABORT and r["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
+    assert (entry.data[CONF_AV_PASSWORD], entry.data[CONF_PLAIN], entry.data[CONF_AUTHKEY]) == ("Tok3nZZ9", True, "")
+    assert entry.state is ConfigEntryState.LOADED
+    await unload(hass, entry)
+
+
+async def test_a_camera_without_key_authentication_falls_back_to_plain(hass: HomeAssistant, fake):
+    """An enhanced entry whose camera answers "no key authentication" connects plain and is stored so."""
+    fake.plain_camera = True
+    entry = await setup_entry(hass)
+    assert entry.state is ConfigEntryState.LOADED
+    assert [c["plain"] for c in fake.connects] == [False, True]
+    assert entry.data[CONF_PLAIN] is True
+    fake.kill()
+    await wait_until(lambda: len(fake.connects) == 3)
+    assert fake.connects[-1]["plain"] is True                     # straight to plain from now on
+    await unload(hass, entry)
+
+
+async def test_flow_probe_falls_back_to_plain(hass: HomeAssistant, fake):
+    fake.plain_camera = True
+    r = await add(hass, QR)
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["data"][CONF_PLAIN] is True
+    await hass.async_block_till_done()
+    await unload(hass, r["result"])
 
 
 # ── Setup and runtime ────────────────────────────────────────────────────────

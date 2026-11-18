@@ -662,3 +662,18 @@ def test_module_info_reports_a_panic(socket_enabled):
     hub.link.links = panic
     assert "panicked" in hub.module_info()["link"]["error"]
     hub.stop()
+
+
+def test_no_key_auth_falls_back_to_plain_once():
+    module = FakeLinkModule()
+    module.plain_camera = True
+    s = LinkSession(module, "UID", "k3yAuth8", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
+    s.connect()
+    assert s.plain and [(c["plain"], c["authkey"]) for c in module.connects] == [(False, "k3yAuth8"), (True, "")]
+    s.close()
+    # Asked for plain and refused: no second try.
+    module = FakeLinkModule()
+    s = LinkSession(module, "UID", "", "pw", plain=True, recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
+    with pytest.raises(AuthFailed):
+        s.connect()
+    assert len(module.connects) == 1

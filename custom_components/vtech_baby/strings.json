@@ -8,6 +8,13 @@
           "qr": "Pairing QR text"
         }
       },
+      "pick_camera": {
+        "title": "Choose a camera",
+        "description": "This pairing QR holds several cameras. Choose the one to add now. To add another, add the integration again with the same QR; cameras already set up aren’t offered.",
+        "data": {
+          "uid": "Camera"
+        }
+      },
       "untested_model": {
         "title": "Untested camera model",
         "description": "This camera reports its model as {model}. This integration has only been tested with the {tested}, so with this camera some features may not work or may behave unexpectedly, and some may not appear at all. Submit to add it anyway, or close this dialog to cancel. If you do add it, please report how well it works, with the integration's diagnostics attached."
@@ -22,7 +29,7 @@
     },
     "error": {
       "invalid_qr": "This isn’t a pairing QR this integration recognises. Paste the full text the QR reader shows.",
-      "unsupported_qr": "This camera’s pairing QR is a format this integration can’t use: it doesn’t contain the camera’s password, so the camera can’t be set up from the QR (the password is held in your VTech account). See COMPATIBILITY.md in the repository.",
+      "unsupported_model": "The pairing QR marks this camera as a model it doesn’t support.",
       "wrong_camera": "This QR code belongs to a different camera.",
       "invalid_auth": "The camera rejected the credentials from this QR code. Scan the QR again; it changes after a Wi-Fi change.",
       "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant. If its Wi-Fi changed recently, scan a fresh QR code.",
@@ -30,7 +37,7 @@
       "unknown": "Unexpected error; see the logs."
     },
     "abort": {
-      "already_configured": "This camera is already configured. If its credentials changed (for example after a Wi-Fi change), Home Assistant will ask you to re-pair it (see Settings → Repairs).",
+      "already_configured": "Every camera in this QR is already configured. If a camera’s credentials changed (for example after a Wi-Fi change), Home Assistant will ask you to re-pair it (see Settings → Repairs).",
       "reauth_successful": "The camera was re-paired."
     }
   },

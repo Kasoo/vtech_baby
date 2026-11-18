@@ -80,14 +80,61 @@ def test_v1_qr_is_a_plain_camera_first_record():
     assert c.name == "VTECH_5764_abcd"
 
 
-def test_v1_qr_reauth_picks_the_entry_uid():
-    c = provision.provision(make_v1_qr(V1_CAMERAS), expect_uid="TESTUID0000000000002")
+def test_v1_qr_lists_every_camera():
+    found = provision.cameras(make_v1_qr(V1_CAMERAS))
+    assert [(c.uid, c.av_password, c.plain) for c in found] == [
+        ("TESTUID0000000000001", "Tok3nAB1", True), ("TESTUID0000000000002", "Tok3nCD2", True)]
+
+
+def test_provision_picks_by_uid():
+    c = provision.provision(make_v1_qr(V1_CAMERAS), uid="TESTUID0000000000002")
     assert (c.uid, c.av_password) == ("TESTUID0000000000002", "Tok3nCD2")
+    with pytest.raises(KeyError):
+        provision.provision(make_v1_qr(V1_CAMERAS), uid="TESTUID0000000000009")
 
 
-def test_v1_qr_reauth_wrong_uid_is_left_for_the_caller():
-    c = provision.provision(make_v1_qr(V1_CAMERAS), expect_uid="TESTUID0000000000009")
-    assert c.uid == "TESTUID0000000000001"                 # the first record; the config flow rejects it
+def make_qr_cameras(cameras):
+    """A synthetic version-5 QR with several cameras: [(index, fields)]."""
+    pt = b"".join(bytes([idx, t, len(v)]) + v for idx, fields in cameras for t, v in fields)
+    pt += b"\x00" * (-len(pt) % 16)
+    enc = Cipher(algorithms.AES(provision.QR_AES_KEY), modes.CBC(provision.QR_AES_IV)).encryptor()
+    ct = enc.update(pt) + enc.finalize()
+    return base64.b64encode(bytes([0x05]) + struct.pack(">H", len(pt)) + ct).decode()
+
+
+V5_CAMERAS = [
+    (0, [(2, b"VTECH_5754_aaaa"), (3, b"TESTUID0000000000001"), (5, b"Pw0rdXyz"), (7, b"\x00\x11\x22\x33\x44\x55")]),
+    (1, [(2, b"VTECH_5754_bbbb"), (3, b"TESTUID0000000000002"), (4, b"Pl4inPwd")]),
+]
+
+
+def test_v5_qr_with_several_cameras_and_both_modes():
+    a, b = provision.cameras(make_qr_cameras(V5_CAMERAS))
+    assert (a.uid, a.av_password, a.authkey, a.plain, a.mac) == (
+        "TESTUID0000000000001", "Pw0rdXyz", provision.derive_authkey("Pw0rdXyz"), False, "00:11:22:33:44:55")
+    assert (b.uid, b.av_password, b.authkey, b.plain, b.name) == (
+        "TESTUID0000000000002", "Pl4inPwd", "", True, "VTECH_5754_bbbb")
+
+
+def test_v5_unsupported_model_is_skipped():
+    flagged = (2, [(3, b"TESTUID0000000000003"), (5, b"Xx9Yy8Zz"), (8, b"\x01")])
+    assert [c.uid for c in provision.cameras(make_qr_cameras([*V5_CAMERAS, flagged]))] == [
+        "TESTUID0000000000001", "TESTUID0000000000002"]
+    with pytest.raises(provision.UnsupportedModel):
+        provision.cameras(make_qr_cameras([flagged]))
+
+
+def test_v5_both_password_types_is_enhanced():
+    c = provision.provision(make_qr([(3, b"TESTUID0000000000001"), (4, b"Pl4inPwd"), (5, b"Pw0rdXyz")]))
+    assert (c.av_password, c.plain) == ("Pw0rdXyz", False)
+
+
+def test_parity_with_kit_several_cameras():
+    kit = _kit("vtech_provision")
+    for qr in (make_qr_cameras(V5_CAMERAS), make_v1_qr(V1_CAMERAS)):
+        ours, theirs = provision.cameras(qr), kit.provision_all_from_qr(qr)
+        assert [(c.uid, c.av_password, c.authkey, c.plain) for c in ours] == \
+            [(c.uid, c.av_password, c.authkey, c.plain) for c in theirs]
 
 
 def test_v1_shaped_but_implausible_is_invalid():

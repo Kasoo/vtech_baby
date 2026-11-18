@@ -3,8 +3,8 @@
 No Home Assistant imports: usable and testable standalone. Specification: docs/vtech-lan-kit/docs/.
 
     from vtech_lan import link, LinkSession, ops, provision
-    c = provision.provision(qr_text)        # the pairing QR -> uid, av_password, authkey
-    s = LinkSession(link.load(), c.uid, c.authkey, c.av_password, on_push=print)
+    c = provision.provision(qr_text)        # the pairing QR's first camera -> uid, av_password, authkey
+    s = LinkSession(link.load(), c.uid, c.authkey, c.av_password, plain=c.plain, on_push=print)
     s.connect(); s.get_params(); s.close()
 """
 from . import ops, provision
