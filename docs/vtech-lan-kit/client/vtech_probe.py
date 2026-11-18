@@ -12,8 +12,9 @@ than the documented one can tell apart "wrong credentials" from "not reachable" 
 Inputs (same as the reference client):
   VTECH_LIBDIR   directory with the patched SDK .so set + companion (see ../docs/00-prerequisites.md)
   VTECH_UID VTECH_PWD VTECH_AUTHKEY   the credential set to test   VTECH_ACCOUNT (default "admin")
-or pass them on the command line (--uid/--pwd/--authkey/--account), or derive them from a version-5
-pairing QR with --qr TEXT.
+  VTECH_PLAIN=1   a plain-mode camera: connect with no authKey (VTECH_AUTHKEY not needed)
+or pass them on the command line (--uid/--pwd/--authkey/--account/--plain), or derive them from a
+version-5 or version-1 pairing QR with --qr TEXT (--uid picks one camera of a multi-camera QR).
 
 Run it on a host sharing the camera's L2 LAN segment (the connect is by UID; see
 `../docs/00-prerequisites.md`, "Host / networking").
@@ -33,21 +34,27 @@ import vtech_provision as vp
 # IOTC return codes this probe interprets. Others are printed with their raw number.
 RC_SUCCESS_MIN = 0            # a session id (>= 0) means the connect resolved
 RC_WRONG_AUTHKEY = -68        # IOTC_ER_DEVICE_REJECT_BY_WRONG_AUTH_KEY
+RC_NO_KEY_AUTH = -69          # the camera does not use key authentication (plain mode)
 RC_TIMEOUT = -13              # IOTC_ER_TIMEOUT
 RC_INVALID = -2               # generic failure / unreachable
 
 
-def _interpret_connect(rc: int) -> tuple[bool, str]:
-    """(ok, explanation) for an IOTC_Connect_ByUIDEx return code."""
+def _interpret_connect(rc: int, plain: bool = False) -> tuple[bool, str]:
+    """(ok, explanation) for an IOTC_Connect_ByUIDEx (or, when plain, IOTC_Connect_ByUID) return code."""
     if rc >= RC_SUCCESS_MIN:
+        if plain:
+            return True, (f"session {rc}: the camera answered. The UID resolved on the LAN; a plain-mode "
+                          "camera uses no authKey.")
         return True, (f"session {rc}: the camera answered and accepted the authKey. The UID resolved "
                       "on the LAN and enhanced-security auth passed.")
+    if rc == RC_NO_KEY_AUTH:
+        return False, ("-69: the camera does not use key authentication: it is a plain-mode camera. "
+                       "Connect without an authKey (--plain, or VTECH_PLAIN=1).")
     if rc == RC_WRONG_AUTHKEY:
         return False, ("-68 (wrong/absent authKey): the camera is reachable and resolved the UID, but "
                        "it rejected the authKey. The transport is compatible; the credentials are the "
-                       "problem — a stale AV password/authKey (re-provision from a fresh QR), or, for a "
-                       "model whose QR has no AV password, credentials that have to come from the "
-                       "account rather than the QR. See COMPATIBILITY.md.")
+                       "problem — a stale AV password/authKey (re-provision from a fresh QR). "
+                       "See COMPATIBILITY.md.")
     if rc == RC_TIMEOUT:
         return False, ("-13 (timeout): no usable answer in time. Most often the camera is not on this "
                        "host's L2 LAN segment, or is still booting, or the LAN search did not reach it. "
@@ -85,9 +92,9 @@ def _session_mode(t: vc.TUTK, ses: int) -> str:
         buf[0], f"mode {buf[0]}")
 
 
-def probe(libdir: str, uid: str, pwd: str, authkey: str, account: str) -> int:
+def probe(libdir: str, uid: str, pwd: str, authkey: str, account: str, plain: bool = False) -> int:
     """Run the connect-only probe. Returns a process exit code (0 = full success)."""
-    print(f"probing UID {uid} (account={account})")
+    print(f"probing UID {uid} (account={account}, {'plain' if plain else 'enhanced'} mode)")
     t = vc.TUTK(libdir)                                   # loads + preflights the SDK libs
     t.set_license(vc._read_license(libdir).encode())
     t.iotc_init(0)
@@ -95,22 +102,28 @@ def probe(libdir: str, uid: str, pwd: str, authkey: str, account: str) -> int:
     t.av_init(16)
     sid = t.get_sid()
 
-    inbuf = (C.c_ubyte * 200)()
-    struct.pack_into("<I", inbuf, 0x00, 160)              # struct size
-    struct.pack_into("<I", inbuf, 0x04, 0)               # auth type (password)
-    ak = authkey.encode()
-    inbuf[0x08:0x08 + len(ak)] = ak                       # authKey (enhanced security)
-    struct.pack_into("<I", inbuf, 0x94, 15)              # connect timeout (s)
-    ses = t.connect(uid.encode(), sid, C.cast(inbuf, C.c_void_p))
-    ok, msg = _interpret_connect(ses)
-    print(f"\nIOTC_Connect_ByUIDEx -> {msg}")
+    if plain:
+        if t.connect_plain is None:
+            print("this SDK build has no IOTC_Connect_ByUID")
+            return 1
+        ses = t.connect_plain(uid.encode(), sid)
+    else:
+        inbuf = (C.c_ubyte * 200)()
+        struct.pack_into("<I", inbuf, 0x00, 160)          # struct size
+        struct.pack_into("<I", inbuf, 0x04, 0)           # auth type (password)
+        ak = authkey.encode()
+        inbuf[0x08:0x08 + len(ak)] = ak                   # authKey (enhanced security)
+        struct.pack_into("<I", inbuf, 0x94, 15)          # connect timeout (s)
+        ses = t.connect(uid.encode(), sid, C.cast(inbuf, C.c_void_p))
+    ok, msg = _interpret_connect(ses, plain)
+    print(f"\n{'IOTC_Connect_ByUID' if plain else 'IOTC_Connect_ByUIDEx'} -> {msg}")
     if not ok:
         return 1
 
     print(f"session path: {_session_mode(t, ses)}")
 
     ai = vc.AvIn(size=C.sizeof(vc.AvIn), sid=ses, ch=0, tmo=30,
-                 acct=account.encode(), pwd=pwd.encode(), resend=1, sec=1, auth=0)
+                 acct=account.encode(), pwd=pwd.encode(), resend=1, sec=0 if plain else 1, auth=0)
     ao = vc.AvOut(size=C.sizeof(vc.AvOut))
     av = t.av_start(C.byref(ai), C.byref(ao))
     ok, msg = _interpret_av(av)
@@ -124,7 +137,11 @@ def main() -> int:
     ap.add_argument("--pwd", default=os.environ.get("VTECH_PWD"))
     ap.add_argument("--authkey", default=os.environ.get("VTECH_AUTHKEY"))
     ap.add_argument("--account", default=os.environ.get("VTECH_ACCOUNT", "admin"))
-    ap.add_argument("--qr", help="derive the credential set from a version-5 pairing QR instead")
+    ap.add_argument("--plain", action="store_true",
+                    default=os.environ.get("VTECH_PLAIN", "") not in ("", "0"),
+                    help="plain-mode camera: connect with no authKey (or set VTECH_PLAIN=1)")
+    ap.add_argument("--qr", help="derive the credential set from a pairing QR instead "
+                                 "(--uid chooses a camera when the QR holds several)")
     ap.add_argument("--libdir", default=os.environ.get("VTECH_LIBDIR"),
                     help="SDK library directory (or set VTECH_LIBDIR)")
     a = ap.parse_args()
@@ -139,15 +156,24 @@ def main() -> int:
             print("\nThis QR cannot supply a full credential set, so there is nothing to probe with "
                   "--qr. Supply --uid/--pwd/--authkey directly if you have them.")
             return 3
-        creds = vp.provision_from_qr(a.qr)
-        a.uid, a.pwd, a.authkey, a.account = creds.uid, creds.av_password, creds.authkey, creds.account
+        cams = vp.provision_all_from_qr(a.qr)
+        if a.uid:
+            cams = [c for c in cams if c.uid == a.uid]
+        if len(cams) != 1:
+            print("the QR holds several cameras (or none match); choose one with --uid: "
+                  + ", ".join(c.uid for c in cams))
+            return 3
+        creds = cams[0]
+        a.uid, a.pwd, a.authkey, a.account, a.plain = (creds.uid, creds.av_password, creds.authkey,
+                                                       creds.account, creds.plain)
 
-    missing = [n for n in ("uid", "pwd", "authkey") if not getattr(a, n)]
+    required = ("uid", "pwd") if a.plain else ("uid", "pwd", "authkey")
+    missing = [n for n in required if not getattr(a, n)]
     if missing:
         ap.error("missing credentials: " + ", ".join(f"--{m}/VTECH_{m.upper()}" for m in missing)
-                 + " (or pass --qr for a version-5 QR)")
+                 + " (or pass --qr; --plain needs no authKey)")
 
-    return probe(a.libdir, a.uid, a.pwd, a.authkey, a.account)
+    return probe(a.libdir, a.uid, a.pwd, a.authkey or "", a.account, a.plain)
 
 
 if __name__ == "__main__":

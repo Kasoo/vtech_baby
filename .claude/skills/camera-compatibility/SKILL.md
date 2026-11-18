@@ -12,7 +12,7 @@ model gets. Two independent questions, in order: can we get its **credentials**,
 **Ground rules**
 - Work only from the documented protocol (`docs/vtech-lan-kit/docs/`) and the user's **own camera**.
   Never reason from, or ask the user to inspect, the VTech app.
-- A pairing QR and the credentials it yields (UID, AV password, authKey, registration token) are the
+- A pairing QR and the credentials it yields (UID, AV password, authKey, version-1 token) are the
   user's camera secrets. **Never print, log, commit, or ask the user to paste them.** Work with the
   `--inspect` verdict line and the probe's interpretation line, which carry no secrets.
 - The probe connects and authenticates only — it never starts video/audio or changes a setting, so it is
@@ -28,23 +28,27 @@ python3 vtech_provision.py --inspect --qr "<text>"      # or --image photo.jpg (
 
 Read the version byte / verdict:
 
-- **`v5-ok`** (version `0x05`) — the documented format; the QR carries UID + AV password. Go to Step 2.
-- **`v1-registration-token`** (version `0x01`) — the QR's 8-char field is a registration token, **not**
-  the AV password. This model **cannot be provisioned from the QR alone**; its AV password lives in the
-  owner's VTech account. The UID is valid. Offline provisioning is blocked here — say so plainly. The
-  user can still probe (Step 3) **if** they can supply the AV password from elsewhere.
+- **`v5-ok`** (version `0x05`) — the documented format; the QR carries UID + AV password for each camera
+  (several cameras per QR are possible). The report shows each camera's mode: `enhanced` (authKey) or
+  `plain` (no authKey). Go to Step 2.
+- **`v1-plain`** (version `0x01`) — the QR's 8-char field is the AV password of a plain-mode camera, so the
+  QR provisions it directly, with no authKey. The integration supports it from version 0.4.0.
+  Whether a version-1 camera can be enhanced is unconfirmed; if a key is rejected on one, report it. Go to
+  Step 2.
 - **`unknown-version`** — an uncharacterised format. Capture the report line for Step 4; do not guess at
   its structure beyond what `inspect_qr` reports. Format facts live in
   `docs/vtech-lan-kit/docs/05-provisioning.md` ("Other QR formats"); add a new version there only once
   one is actually characterised.
 
-## Step 2 — provision (version-5 only)
+## Step 2 — provision
 
 ```
-python3 vtech_provision.py --qr "<text>" --env
+python3 vtech_provision.py --qr "<text>" --env [--uid UID]
 ```
 
-Yields the `VTECH_*` set. Derivation: `docs/vtech-lan-kit/docs/05-provisioning.md`.
+Yields the `VTECH_*` set: `VTECH_AUTHKEY` for an enhanced camera, `VTECH_PLAIN=1` for a plain one. A QR
+with several cameras needs `--uid` to pick one (without `--env` it lists them all). Format and derivation:
+`docs/vtech-lan-kit/docs/05-provisioning.md`.
 
 ## Step 3 — probe the camera
 
@@ -52,8 +56,9 @@ From a host on the camera's **LAN segment**, with `VTECH_LIBDIR` pointing at the
 (`docs/vtech-lan-kit/docs/00-prerequisites.md`):
 
 ```
-python3 vtech_probe.py --qr "<text>"          # version-5 QR, or:
+python3 vtech_probe.py --qr "<text>" [--uid UID]   # any provisionable QR, or:
 VTECH_UID=... VTECH_PWD=... VTECH_AUTHKEY=... VTECH_ACCOUNT=admin python3 vtech_probe.py
+# plain camera: VTECH_PLAIN=1 (or --plain) instead of VTECH_AUTHKEY
 ```
 
 Interpret (the probe prints these in words; return codes in `docs/vtech-lan-kit/docs/00-prerequisites.md`
@@ -61,7 +66,9 @@ and `10-transport-session.md`):
 
 - **connect ok + AV ok** — transport and both auth layers work; strong candidate. Go to Step 4.
 - **connect `-68`** — reachable, UID resolved, authKey rejected. **Transport compatible, credentials
-  wrong**: stale key (re-provision from a fresh QR) or a model whose AV password isn't in the QR.
+  wrong**: stale key (re-provision from a fresh QR).
+- **connect `-69`** — the camera does not use key authentication: it is plain-mode. Connect without an
+  authKey (`--plain` / `VTECH_PLAIN=1`).
 - **connect `-13`** — timeout: reachability, not credentials. Check the host shares the camera's subnet
   and the camera is up.
 - **connect ok, AV refused** — authKey accepted, AV account/password rejected; an untested model may use

@@ -6,15 +6,15 @@ pairing-QR format, or control opcodes this integration doesn't send. This page h
 far your model gets — using only your own camera and its pairing QR. You don't need a VTech account for
 the checks here, and nothing here inspects the VTech app.
 
-> **Status — cloud-only models (e.g. RM5764HD / RM7766).** Some models don't put the camera's password
-> in the pairing QR at all; it's held in your VTech account and the QR only carries a registration token.
-> Those cameras **can't be set up from the QR today**, and the integration will tell you so when you try.
-> A way to provision them from the account is **under investigation** — there's no supported path yet.
-> Step 1 below tells you whether your model is one of these.
+> **Status — version-1 QRs (e.g. RM5764HD / RM7766).** Some models emit a version-1 pairing QR. Its
+> 8-character field is the AV password of a **plain-mode** camera, which connects with no authKey, so the
+> QR provisions it directly. The integration supports this from version 0.4.0. Whether a
+> camera with a version-1 QR can instead be in enhanced mode is unconfirmed. Step 1 below tells you which
+> format your model uses.
 
 There are two independent questions:
 
-1. **Credentials** — can the integration get the UID, AV password and authKey your camera needs?
+1. **Credentials** — can the integration get the UID, AV password and (for an enhanced camera) authKey your camera needs?
 2. **Protocol** — once connected, does the camera speak the opcodes the integration uses?
 
 Work through them in order; the credential question is the one that stops most other models today.
@@ -27,11 +27,12 @@ To open a session a camera needs four things (`docs/vtech-lan-kit/docs/00-prereq
 |---|---|
 | **UID** | the pairing QR |
 | **AV password** | the pairing QR |
-| **authKey** | derived from the AV password by a fixed construction |
+| **authKey** | derived from the AV password by a fixed construction; a **plain**-mode camera uses none |
 | **AV account** | fixed string `admin` |
 
-So on the RM5754HD the pairing QR alone yields everything. Whether that holds for your model depends
-entirely on the **QR format**.
+So on the RM5754HD the pairing QR alone yields everything. Each camera is in one of two security modes:
+**enhanced** (authKey and DTLS) or **plain** (no authKey, no DTLS), and the QR says which. A QR can hold
+several cameras. The mode is described in `docs/vtech-lan-kit/docs/10-transport-session.md`.
 
 ## Step 1 — identify your pairing QR format
 
@@ -49,23 +50,23 @@ The known formats:
 
 | Version byte | Verdict | What it means |
 |---|---|---|
-| **`0x05`** | `v5-ok` | The documented format. The QR carries the UID **and** the AV password, so the full credential set is provisioned offline from it. This is the RM5754HD. |
-| **`0x01`** | `v1-registration-token` | The QR carries the UID and an 8-character **registration token** — **not** the AV password. The AV password is **not in the QR**, so this model **cannot be provisioned from the QR alone**. The UID is still correct. (Observed on the RM5764HD / RM7766.) |
+| **`0x05`** | `v5-ok` | The documented format. The QR carries each camera's UID **and** AV password, so the full credential set is provisioned offline from it. The report lists each camera with its mode: `enhanced` (password under TLV type 5, authKey derived) or `plain` (type 4, no authKey). This is the RM5754HD (enhanced). |
+| **`0x01`** | `v1-plain` | The QR carries each camera's UID and an 8-character token, which is the AV password of a **plain**-mode camera. It is provisioned offline with **no authKey**. (Observed on the RM5764HD / RM7766.) |
 | anything else | `unknown-version` | Not a format this tool knows. The report gives the facts worth sharing (see Step 4). |
 
-If you get **`v5-ok`**, go to Step 2. If you get **`v1-registration-token`**, your model keeps its AV
-password in your VTech account rather than in the QR, so offline QR provisioning can't work; the UID the
-tool prints is still correct, and if you can obtain the AV password another way you can still probe and
-connect (Step 3). If you get **`unknown-version`**, skip to Step 4.
+If you get **`v5-ok`** or **`v1-plain`**, go to Step 2. If you get **`unknown-version`**, skip to Step 4.
 
-## Step 2 — turn a version-5 QR into credentials
+## Step 2 — turn a QR into credentials
 
 ```
-python3 vtech_provision.py --qr "<the QR text>" --env
+python3 vtech_provision.py --qr "<the QR text>"                 # lists every camera in the QR
+python3 vtech_provision.py --qr "<the QR text>" --env [--uid UID]   # --uid picks one camera
 ```
 
-This prints `VTECH_UID`, `VTECH_PWD`, `VTECH_AUTHKEY` and `VTECH_ACCOUNT`. `--selftest` checks the tool
-against built-in vectors; the derivation is specified in `docs/vtech-lan-kit/docs/05-provisioning.md`.
+This prints `VTECH_UID`, `VTECH_PWD` and `VTECH_ACCOUNT`, plus `VTECH_AUTHKEY` for an enhanced camera or
+`VTECH_PLAIN=1` for a plain one. When the QR holds several cameras, choose one with `--uid`.
+`--selftest` checks the tool against built-in vectors; the format and derivation are specified in
+`docs/vtech-lan-kit/docs/05-provisioning.md`.
 
 ## Step 3 — probe your camera
 
@@ -78,11 +79,12 @@ monitor.
 ```
 cd docs/vtech-lan-kit/client
 export VTECH_LIBDIR=/path/to/patched/libs
-# from a version-5 QR directly:
+# from a QR directly (add --uid UID to choose a camera when the QR holds several):
 python3 vtech_probe.py --qr "<the QR text>"
 # or from credentials you already have:
 export VTECH_UID=... VTECH_PWD=... VTECH_AUTHKEY=... VTECH_ACCOUNT=admin
 python3 vtech_probe.py
+# a plain-mode camera has no authKey: set VTECH_PLAIN=1 (or pass --plain) instead of VTECH_AUTHKEY
 ```
 
 What the result tells you:
@@ -90,7 +92,8 @@ What the result tells you:
 | Result | Meaning |
 |---|---|
 | **connect ok + AV ok** | The transport and both auth layers work. Your model is a strong candidate; add it in Home Assistant and see which features respond (Step 4). |
-| **connect `-68`** (wrong/absent authKey) | The camera is reachable and resolved the UID, but rejected the authKey. The **transport is compatible**; the **credentials are the problem** — a stale key (re-provision from a fresh QR), or a model whose AV password doesn't come from the QR (a `v1` result above). |
+| **connect `-68`** (wrong/absent authKey) | The camera is reachable and resolved the UID, but rejected the authKey. The **transport is compatible**; the **credentials are the problem** — a stale key (re-provision from a fresh QR). |
+| **connect `-69`** | The camera does not use key authentication: it is a **plain**-mode camera. Connect without an authKey (`--plain`, or provision from the QR, which sets `VTECH_PLAIN=1` for it). |
 | **connect `-13`** (timeout) | No answer in time. Usually the camera isn't on this host's LAN segment, is still booting, or the LAN search didn't reach it. This is a **reachability** result, not a credentials one. |
 | **connect ok, AV refused** | The IOTC session came up but the AV layer rejected the account/password. The authKey was accepted but the AV account or password differs — for an untested model the AV account may not be `admin`. |
 
@@ -103,14 +106,13 @@ When you add a camera, the integration detects the model and warns if it's untes
 far it got either way (GitHub issues). Useful details, none of which require the VTech app:
 
 - the model number, and whether it pairs one or two cameras to a parent unit;
-- the `--inspect` **verdict line** (and, for `unknown-version`, the whole report line) — but **never
-  paste the QR text itself or the decoded UID/token/password**: those are your camera's secrets;
+- the `--inspect` **verdict line** and each camera's mode (and, for `unknown-version`, the whole report
+  line) — but **never paste the QR text itself or the decoded UID/token/password**: those are your camera's secrets;
 - the probe result (the interpretation line, not your credentials);
 - if you got a session: which Home Assistant entities worked, which were missing or wrong. The opcodes
   the integration uses are in `docs/vtech-lan-kit/docs/30-opcode-reference.md`; a model that connects but
   ignores some of them is using a different or extended opcode set.
 
 With a connecting camera and notes on which opcodes answer, adding a model is mostly a protocol-mapping
-job. The blocker for a `v1` model is purely the credential source: its AV password lives in the VTech
-account, not the QR — recovering it from the account is under investigation, and until there's a
-supported path these cameras can't be added. A report on your model still helps.
+job. A report on your model still helps, including whether a camera with a version-1 QR ever turns out to
+be in enhanced mode (unconfirmed so far).

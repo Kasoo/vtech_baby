@@ -29,6 +29,8 @@ Scheme (per frame, wire layout [wrapped:32][nonce:12][tag:16][body:N]):
 
 Env:  VTECH_LIBDIR  (dir with the SDK .so set + companion libtk.so; license embedded, LICENSE_KEY.txt optional override)
       VTECH_UID VTECH_PWD VTECH_AUTHKEY   (required)   VTECH_ACCOUNT (default "admin")
+      VTECH_PLAIN=1  plain-mode camera: connect with IOTC_Connect_ByUID (no authKey) and
+                     security_mode 0; VTECH_AUTHKEY is then not needed
 CLI:  --out FILE  --seconds N  --channel N  [--skip-round1] [--dump-raw FILE] [--penc FLAG]
       --talk WAV   play a WAV through the camera speaker, then exit (no video)
 Viewing (optional, need ffmpeg/ffplay on this host):
@@ -198,6 +200,9 @@ class TUTK:
         self.av_init     = fn(self.AV, "avInitialize", C.c_int, C.c_int)
         self.get_sid     = fn(self.IO, "IOTC_Get_SessionID", C.c_int)
         self.connect     = fn(self.IO, "IOTC_Connect_ByUIDEx", C.c_int, C.c_char_p, C.c_int, C.c_void_p)
+        # plain-mode camera: no authKey struct (resolved only if the SDK exports it)
+        self.connect_plain = (fn(self.IO, "IOTC_Connect_ByUID", C.c_int, C.c_char_p, C.c_int)
+                              if hasattr(self.IO, "IOTC_Connect_ByUID") else None)
         self.av_start    = fn(self.AV, "avClientStartEx", C.c_int, C.POINTER(AvIn), C.POINTER(AvOut))
         self.send_ioctrl = fn(self.AV, "avSendIOCtrl", C.c_int, C.c_int, C.c_uint32, C.c_void_p, C.c_int)
         self.recv_ioctrl = fn(self.AV, "avRecvIOCtrl", C.c_int, C.c_int,
@@ -257,8 +262,11 @@ def _read_license(libdir):
     return DEFAULT_LICENSE_KEY
 
 
-def open_av_session(t, uid, pwd, authkey, account, channel, penc=None):
-    """Returns the avClientStartEx channel index, or raises RuntimeError."""
+def open_av_session(t, uid, pwd, authkey, account, channel, penc=None, plain=False):
+    """Returns the avClientStartEx channel index, or raises RuntimeError.
+
+    plain=True is a plain-mode camera: IOTC_Connect_ByUID with no authKey, security_mode 0.
+    """
     rc = t.set_license(_read_license(t.libdir).encode())
     log(f"Set_License_Key = {rc}")
     log(f"IOTC_Initialize2(0) = {t.iotc_init(0)}")
@@ -267,23 +275,33 @@ def open_av_session(t, uid, pwd, authkey, account, channel, penc=None):
     sid = t.get_sid()
     log(f"IOTC_Get_SessionID = {sid}")
 
-    inbuf = (C.c_ubyte * 200)()
-    struct.pack_into("<I", inbuf, 0x00, 160)          # struct size
-    struct.pack_into("<I", inbuf, 0x04, 0)            # auth type
-    inbuf[0x08:0x08 + len(authkey)] = authkey         # authKey (enhanced security)
-    struct.pack_into("<I", inbuf, 0x94, 15)           # connect timeout (s)
-    struct.pack_into("<I", inbuf, 0x98, 0)            # NEWENUM tail
     log(f"connecting to UID={uid.decode()} (needs camera on same L2/br-lan)...")
-    ses = t.connect(uid, sid, C.cast(inbuf, C.c_void_p))
-    log(f"IOTC_Connect_ByUIDEx = {ses}")
+    if plain:
+        if t.connect_plain is None:
+            raise RuntimeError("this SDK build has no IOTC_Connect_ByUID")
+        ses = t.connect_plain(uid, sid)
+        name = "IOTC_Connect_ByUID"
+    else:
+        inbuf = (C.c_ubyte * 200)()
+        struct.pack_into("<I", inbuf, 0x00, 160)          # struct size
+        struct.pack_into("<I", inbuf, 0x04, 0)            # auth type
+        inbuf[0x08:0x08 + len(authkey)] = authkey         # authKey (enhanced security)
+        struct.pack_into("<I", inbuf, 0x94, 15)           # connect timeout (s)
+        struct.pack_into("<I", inbuf, 0x98, 0)            # NEWENUM tail
+        ses = t.connect(uid, sid, C.cast(inbuf, C.c_void_p))
+        name = "IOTC_Connect_ByUIDEx"
+    log(f"{name} = {ses}")
     if ses < 0:
-        raise RuntimeError(f"IOTC_Connect_ByUIDEx failed rc={ses} (camera unreachable / wrong authKey?)")
+        hint = ("camera unreachable?" if plain else "camera unreachable / wrong authKey?")
+        if ses == -69:
+            hint = "-69: the camera does not use key authentication; set VTECH_PLAIN=1"
+        raise RuntimeError(f"{name} failed rc={ses} ({hint})")
 
     if penc is not None and t.set_penc:
         log(f"IOTC_Set_Partial_Encryption(ses, {penc}) = {t.set_penc(ses, penc)}")
 
     ai = AvIn(size=C.sizeof(AvIn), sid=ses, ch=channel, tmo=30,
-              acct=account, pwd=pwd, resend=1, sec=1, auth=0)
+              acct=account, pwd=pwd, resend=1, sec=0 if plain else 1, auth=0)
     ao = AvOut(size=C.sizeof(AvOut))
     av = t.av_start(C.byref(ai), C.byref(ao))
     log(f"avClientStartEx = {av} (serv={ao.st} sec={ao.sec})")
@@ -1087,14 +1105,15 @@ def main():
     pwd = os.environ.get("VTECH_PWD", "").encode()
     ak = os.environ.get("VTECH_AUTHKEY", "").encode()
     acct = os.environ.get("VTECH_ACCOUNT", "admin").encode()
-    if not (uid and pwd and ak):
-        sys.exit("need VTECH_UID / VTECH_PWD / VTECH_AUTHKEY in env")
+    plain = os.environ.get("VTECH_PLAIN", "") not in ("", "0")
+    if not (uid and pwd and (ak or plain)):
+        sys.exit("need VTECH_UID / VTECH_PWD / VTECH_AUTHKEY in env (VTECH_AUTHKEY not needed with VTECH_PLAIN=1)")
     if not args.libdir:
         sys.exit("need --libdir or $VTECH_LIBDIR (patched TUTK libs + companion)")
 
     t = TUTK(args.libdir)
     log("all patched libs + companion loaded in-process (RTLD_LOCAL)")
-    av = open_av_session(t, uid, pwd, ak, acct, args.channel, penc=args.penc)
+    av = open_av_session(t, uid, pwd, ak, acct, args.channel, penc=args.penc, plain=plain)
     master = negotiate_master(t, av, do_round1=not args.skip_round1)
     if args.talk:
         talkback(t, av, master, load_wav_8k(args.talk, args.talk_gain))
