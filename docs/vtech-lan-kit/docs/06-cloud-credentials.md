@@ -33,6 +33,7 @@ in `05`).
 | VSaaS gateway | `https://vsaas-gateway.kalayservice.com` | the device list (and account endpoints) |
 | `x-merchant-id` | `vt1080p` | merchant header |
 | Merchant `authorization` | the app-static **IRM header** (`getIrmHdr`, an AWS-KMS-wrapped blob, base64, 248 chars) | merchant auth; same for every install |
+| 2FA public key | app-static **RSA-2048 public key** (SubjectPublicKeyInfo, base64), embedded in the reference client | encrypts the device-trust `Custom` header (see *Completing the device-trust challenge*) |
 | User-Agent | `okhttp/3.12.13` | sent on every request |
 | authKey HKDF salt (master key) | as in `05` (`HKDF_MASTER_KEY`) | salts the authKey HKDF |
 
@@ -97,6 +98,52 @@ Step 3 sends a `uuid`, reused as the merchant `x-mobile-notification-id`. It is 
 **unknown** id triggers VTech's **device-trust challenge** (an emailed verification code) once, after
 which that id is trusted.
 
+### Completing the device-trust challenge (2FA) [live/static]
+
+When step 3's `uuid` is not yet trusted, `POST {AM1}/api/v2/account/login` returns **`HTTP 204 No Content`
+with an empty body** (the credentials are accepted; only the device is untrusted) and VTech emails a
+**numeric verification code**. The 204 response carries **no body and no challenge token** — the material
+needed to redeem the code is computed on the client. Redeem it with:
+
+```
+3a. POST {AM1}/api/v2/account/authorize
+       header  Authorization: Custom <blob>
+       body    {"code": "<emailed code>"}
+       -> 200  { "token_type":"Bearer", "access_token":<tok>, "refresh_token":<rt>,
+                 "scope":["read","read:email"], "expires_in":10800, ... }
+```
+
+- The `200` body is the **same token set as a trusted login** (step 3's success shape); feed `access_token`
+  straight into step 4. After this succeeds the `uuid` is **trusted**, so later logins with it skip the
+  challenge and return `200` directly.
+- **`Authorization: Custom <blob>`** is built entirely on the client — it is not returned by the 204:
+
+  ```
+  plaintext = f"{converted_email}:{base64(password)}:{uuid}"
+                   # converted_email = step-2 converted_data.email; password = the account password (UTF-8,
+                   # base64-encoded); uuid = the same device id sent in step 3
+  blob      = base64( RSA_encrypt( plaintext_utf8 ) )
+  header    = "Custom " + blob
+  ```
+
+  `RSA_encrypt` is **RSA with `OAEP` padding, SHA-1 digest and MGF1(SHA-1)** under an **app-wide RSA-2048
+  public key** (embedded in the reference client; one constant, non-rotating, the same for every install).
+  The output is a fixed 256 bytes. The padding is randomised, so the blob differs on every call for the same
+  inputs. The blob carries the account email, password and device id; the body carries the emailed code.
+- **Headers on 3a**, exactly: `Authorization: Custom <blob>`, `Accept: application/json`,
+  `Content-Type: application/json; charset=utf-8`, `Accept-Encoding: gzip`, `User-Agent: okhttp/3.12.13`.
+  Nothing else: like every `{AM1}` call it carries **no merchant headers** (no `x-merchant-id`,
+  `x-mobile-notification-id`, `x-mobile-os`, and no IRM `authorization`; those go only to the merchant host
+  in steps 1–2). The `uuid` is not a header here; it travels only inside the blob.
+- **Unknown:** the response to a wrong code and to an expired code (status and body), how long a code stays
+  valid, and whether a repeated step-3 login with the same untrusted `uuid` sends a new code. A client
+  should report the server's response as it is rather than assume a shape.
+- After a successful `authorize` the app issues `PUT {AM1}/api/v1/region/` (form `region=<CC>`, Bearer) to
+  record the account region; it is not required for credential retrieval.
+
+So a client enrolling a fresh device runs 1 → 2 → 3 (gets 204) → prompts the user for the emailed code →
+3a → 4. A client reusing a trusted `uuid` goes 1 → 2 → 3 (gets 200) → 4.
+
 **How the official app derives it** (`o/DoubleValueOrBuilder.write(context)`, key `device_imei` in
 `shared_prefs/setting.xml`) — despite the name it is **not** an IMEI:
 
@@ -128,7 +175,7 @@ a real MAC and part of the id is MAC-derived — still not something a helper ca
 | Strategy | What the helper uses as `uuid` | 2FA | Caveat |
 |---|---|---|---|
 | **Emulate the existing device** | the phone's stored `device_imei` | **None** — already trusted | Requires extracting `device_imei` from `shared_prefs/setting.xml` on the phone (root / platform backup). Not possible on a stock non-rooted phone. |
-| **Enroll a new device** | a freshly minted stable id (same `"AN"+…` shape), persisted by the helper | **One-time** emailed code on first login | Needs the device-trust challenge endpoints (see gap below). After the first success the id is trusted and later logins skip 2FA. |
+| **Enroll a new device** | a freshly minted stable id (same `"AN"+…` shape), persisted by the helper | **One-time** emailed code on first login | First login returns `204`; redeem the emailed code via the `authorize` call above. After the first success the id is trusted and later logins skip 2FA. |
 
 A helper should **mint its id once and persist it** (mirroring the app), not regenerate per run — a new id
 each run would re-challenge every time.
@@ -162,15 +209,6 @@ An explicit override (`VTECH_UUID`) lets a user supply an id instead: their phon
 
 ## Open gaps (not yet captured)
 
-- **Device-trust / 2FA.** Partially characterised (owner-gated test, fresh uuid): step 3
-  (`POST {AM1}/api/v2/account/login`) returns **`HTTP 204 No Content`** (empty body) for an **untrusted** uuid
-  — the "verification required" signal — and VTech emails a code. (A **trusted** uuid returns `200` + tokens.)
-  The credentials are accepted at this point; only the device-trust is pending. **Still open:** the
-  **verify-code endpoint** the app POSTs the emailed code to (to flip the uuid to trusted and get tokens) —
-  candidates `/api/v2/account/authorize` or `/api/accounts/.../send_activate`, uncaptured. A client must handle
-  the `204` → verify → retry loop, OR the user completes trust out-of-band (if the email is a clickable link,
-  clicking it trusts the uuid and a re-login returns `200`, needing no verify endpoint). The
-  **emulate-existing-device** strategy avoids all of this.
 - **First-time pairing** (adding a *new* camera to the account) is **not** an HTTPS endpoint: the official
   app performs it over the vendor **P2P layer** (a Kalay/TUTK connect using the QR security key), gated on
   reaching the physical camera; any cloud bind is behind that connect. A credentials helper therefore
@@ -182,4 +220,6 @@ An explicit override (`VTECH_UUID`) lets a user supply an id instead: their phon
 Steps 1–4, the headers, the token model, the device-list schema and the credential map are **[live]**
 (captured from the official app and decoded). The authKey derivation is **[live]** and cross-checked
 byte-for-byte against the on-camera authKey. The `device_imei` construction is **[static]** from the
-decompiled generator. The 2FA endpoints and the first-time-pairing cloud step are **open** (above).
+decompiled generator. The 2FA challenge + `authorize` redemption are **[live]** on the wire with the
+`Custom`-blob construction **[static]** from the client; only the first-time-pairing cloud step is **open**
+(above).
