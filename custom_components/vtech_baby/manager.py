@@ -33,6 +33,7 @@ from .const import (
     CONF_ACCOUNT,
     CONF_AUTHKEY,
     CONF_AV_PASSWORD,
+    CONF_PLAIN,
     CONF_UID,
     DOMAIN,
     ISSUE_RESTART_REQUIRED,
@@ -111,18 +112,19 @@ async def async_load(hass: HomeAssistant) -> Hub:
     return hub
 
 
-def _probe(hub: Hub, uid: str, authkey: str, password: str, account: str) -> ops.DevInfo:
-    s = hub.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0)
+def _probe(hub: Hub, uid: str, authkey: str, password: str, account: str, plain: bool) -> ops.DevInfo:
+    s = hub.session(uid, authkey, password, account, name=f"probe {uid[-4:]}", keepalive_s=0, plain=plain)
     try:
         return s.connect()
     finally:
         s.close()
 
 
-async def async_probe(hass: HomeAssistant, hub: Hub, creds: dict[str, str]) -> ops.DevInfo:
+async def async_probe(hass: HomeAssistant, hub: Hub, creds: dict[str, Any]) -> ops.DevInfo:
     """Connect once and disconnect: the config flow's credential test. Raises VtechError subclasses."""
     return await hass.async_add_executor_job(
-        _probe, hub, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT])
+        _probe, hub, creds[CONF_UID], creds[CONF_AUTHKEY], creds[CONF_AV_PASSWORD], creds[CONF_ACCOUNT],
+        creds.get(CONF_PLAIN, False))
 
 
 # ── State ────────────────────────────────────────────────────────────────────
@@ -287,6 +289,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         s: LinkSession
         s = self.hub.session(
             d[CONF_UID], d[CONF_AUTHKEY], d[CONF_AV_PASSWORD], d[CONF_ACCOUNT], media=True,
+            plain=d.get(CONF_PLAIN, False),
             name=self.uid[-4:], keepalive_s=KEEPALIVE_S,
             on_push=lambda p: self.hass.loop.call_soon_threadsafe(self._on_push, s, p),
             on_lost=lambda e: self.hass.loop.call_soon_threadsafe(self._on_lost, s, e))

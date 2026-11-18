@@ -9,6 +9,7 @@ CONF_ACCOUNT = "account"
 CONF_AV_PASSWORD = "av_password"
 CONF_AUTHKEY = "authkey"
 CONF_MAC = "mac"
+CONF_PLAIN = "plain"               # a version-1 (plain-mode) camera; entries from before it lack the key: False
 CONF_QR = "qr"                     # form field only; the QR text itself is never stored
 
 # Version 1 entries ran on the vendor's SDK: the entry named its directory, and the HA config directory

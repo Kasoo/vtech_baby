@@ -186,9 +186,12 @@ impl Reactor {
             sdk_version: config.sdk_version,
             alive_interval: config.timing.alive_interval,
             silence_limit: config.timing.silence_limit,
+            plain: config.plain,
             ..IotcConfig::default()
         };
-        let iotc = IotcSession::new(iotc_config, &config.uid, config.authkey.as_bytes(), token)?;
+        // A plain camera takes an all-zero authKey in the probe.
+        let authkey: &[u8] = if config.plain { &[0; 8] } else { config.authkey.as_bytes() };
+        let iotc = IotcSession::new(iotc_config, &config.uid, authkey, token)?;
         Ok(Self {
             requests: Requests::new(usize::MAX),
             config,
@@ -393,7 +396,9 @@ impl Reactor {
         let mut moved = false;
         while let Some(pkt) = self.av.as_mut().and_then(AvClient::poll_transmit) {
             moved = true;
-            if let Some(d) = &mut self.dtls {
+            if self.config.plain {
+                let _ = self.iotc.send(0, 0, &pkt);
+            } else if let Some(d) = &mut self.dtls {
                 let _ = d.send(now, &pkt);
             }
         }
@@ -456,6 +461,10 @@ impl Reactor {
                     peer.addr,
                     peer.proto_version
                 );
+                if self.config.plain {
+                    self.start_av(now);
+                    return;
+                }
                 if peer.pe_capable {
                     let _ = self.iotc.set_partial_encryption(true);
                 }
@@ -482,6 +491,16 @@ impl Reactor {
                 }
             }
             IotcEvent::Data {
+                channel: 0,
+                datatype: 0,
+                payload,
+                ..
+            } if self.config.plain => {
+                if let Some(av) = &mut self.av {
+                    av.handle_packet(now, &payload);
+                }
+            }
+            IotcEvent::Data {
                 channel,
                 datatype,
                 payload,
@@ -495,20 +514,23 @@ impl Reactor {
         }
     }
 
+    /// Start the AV login on the transport that is up (DTLS, or the IOTC channel in plain mode).
+    fn start_av(&mut self, now: Instant) {
+        let config = AvConfig {
+            ctrl_window: self.config.ctrl_window,
+            media: MediaConfig {
+                drop_every: self.config.drop_media_every,
+                ..self.config.timing.media.clone()
+            },
+            ..AvConfig::new(&self.config.account, &self.config.password)
+        };
+        let nonce = self.rng.u32();
+        self.av = Some(AvClient::new(config, nonce, now, now + self.config.av_timeout));
+    }
+
     fn on_dtls(&mut self, now: Instant, ev: DtlsEvent) {
         match ev {
-            DtlsEvent::Connected => {
-                let config = AvConfig {
-                    ctrl_window: self.config.ctrl_window,
-                    media: MediaConfig {
-                        drop_every: self.config.drop_media_every,
-                        ..self.config.timing.media.clone()
-                    },
-                    ..AvConfig::new(&self.config.account, &self.config.password)
-                };
-                let nonce = self.rng.u32();
-                self.av = Some(AvClient::new(config, nonce, now, now + self.config.av_timeout));
-            }
+            DtlsEvent::Connected => self.start_av(now),
             DtlsEvent::Data(pkt) => {
                 if let Some(av) = &mut self.av {
                     av.handle_packet(now, &pkt);

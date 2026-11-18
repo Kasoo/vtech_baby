@@ -302,10 +302,10 @@ class FakeLinkModule:
         self.log_level = 20
 
     def connect(self, uid, authkey, password, account="admin", *, connect_timeout=15.0, av_timeout=30.0,
-                search_port=32762, peer_hint=None, interface=None):
+                search_port=32762, peer_hint=None, interface=None, plain=False):
         self.connects.append({"uid": uid, "authkey": authkey, "account": account, "peer_hint": peer_hint,
-                              "connect_timeout": connect_timeout, "av_timeout": av_timeout})
-        if len(authkey) != 8:
+                              "connect_timeout": connect_timeout, "av_timeout": av_timeout, "plain": plain})
+        if not plain and len(authkey) != 8:
             raise LinkError("invalid_argument", "authkey must be 8 characters")
         if self.connect_error is not None:
             raise self.connect_error

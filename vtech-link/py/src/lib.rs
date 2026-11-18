@@ -13,7 +13,7 @@ use crate::error::secs;
 /// Connect to a camera and block until the link is up. Raises `LinkError`.
 #[pyfunction]
 #[pyo3(signature = (uid, authkey, password, account = "admin", *, connect_timeout = 15.0,
-    av_timeout = 30.0, search_port = 32762, peer_hint = None, interface = None))]
+    av_timeout = 30.0, search_port = 32762, peer_hint = None, interface = None, plain = false))]
 #[allow(clippy::too_many_arguments)]
 fn connect(
     py: Python<'_>,
@@ -26,6 +26,7 @@ fn connect(
     search_port: u16,
     peer_hint: Option<&str>,
     interface: Option<String>,
+    plain: bool,
 ) -> PyResult<link::Link> {
     link::connect(
         py,
@@ -38,6 +39,7 @@ fn connect(
         search_port,
         peer_hint,
         interface,
+        plain,
     )
 }
 

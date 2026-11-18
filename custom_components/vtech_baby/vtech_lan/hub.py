@@ -67,14 +67,14 @@ class Hub:
     def session(self, uid: str, authkey: str, password: str, account: str = "admin", *,
                 on_push: Callable[[Any], None] | None = None,
                 on_lost: Callable[[VtechError], None] | None = None,
-                media: bool = False, **options: Any) -> LinkSession:
+                media: bool = False, plain: bool = False, **options: Any) -> LinkSession:
         """A session to one camera; `connect()` it from an executor thread. `media=True` makes it the one
-        this camera's live view and talk-back use once it connects. `options` are `LinkSession` keyword
-        arguments (name, keepalive_s, ...)."""
+        this camera's live view and talk-back use once it connects. `plain` is a version-1 camera (no
+        authKey, no DTLS). `options` are `LinkSession` keyword arguments (name, keepalive_s, ...)."""
         if self.link is None:
             raise SessionGone("vtech-link isn't loaded", call="open")
         return _HubSession(self, media, self.link, uid, authkey, password, account,
-                           on_push=on_push, on_lost=on_lost, **options)
+                           on_push=on_push, on_lost=on_lost, plain=plain, **options)
 
     def _connected(self, s: _HubSession) -> None:
         with self._lock:

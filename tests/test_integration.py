@@ -16,13 +16,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.vtech_baby import manager as mgr
 from custom_components.vtech_baby.const import (
-    CONF_ACCOUNT, CONF_AUTHKEY, CONF_AV_PASSWORD, CONF_MAC, CONF_QR, CONF_SDK_DIR, CONF_UID, DOMAIN,
+    CONF_ACCOUNT, CONF_AUTHKEY, CONF_AV_PASSWORD, CONF_MAC, CONF_PLAIN, CONF_QR, CONF_SDK_DIR, CONF_UID, DOMAIN,
 )
 from custom_components.vtech_baby.vtech_lan import provision
 
 from fake_camera import i32
 from fake_link import FakeLinkModule, LinkError, PanicException, fake_hub
-from test_provision import V1_CAMERAS, make_qr, make_v1_qr
+from test_provision import make_qr
 
 UID = "TESTUID0000000000001"
 QR = make_qr([(2, b"VTECH_5754_test"), (3, UID.encode()), (5, b"Pw0rdXyz"), (7, bytes.fromhex("0011223344ff"))])
@@ -95,7 +95,7 @@ def module_patch(fake):
 def entry_data(qr=QR):
     c = provision.provision(qr)
     return {CONF_UID: c.uid, CONF_ACCOUNT: c.account, CONF_AV_PASSWORD: c.av_password,
-            CONF_AUTHKEY: c.authkey, CONF_MAC: c.mac}
+            CONF_AUTHKEY: c.authkey, CONF_MAC: c.mac, CONF_PLAIN: c.plain}
 
 
 async def setup_entry(hass, **kw) -> MockConfigEntry:
@@ -132,8 +132,6 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, fake):
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"      # straight to the pairing QR
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: "garbage"})
     assert r["errors"] == {CONF_QR: "invalid_qr"}
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: make_v1_qr(V1_CAMERAS)})
-    assert r["errors"] == {CONF_QR: "unsupported_qr"}     # recognised format, no password in the QR
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.CREATE_ENTRY
     assert r["title"] == "VTECH_5754_test"

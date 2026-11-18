@@ -56,6 +56,9 @@ pub struct LinkConfig {
     pub timing: Timing,
     /// Drop every Nth inbound media or parity packet (0: none). Tests and live probes only.
     pub drop_media_every: u32,
+    /// Plain-mode camera: no authKey, no DTLS, no partial encryption. AV packets ride IOTC datatype 0
+    /// on channel 0, and `authkey` may be empty.
+    pub plain: bool,
 }
 
 /// Protocol timers. The defaults match the SDK and the camera; tests shorten them.
@@ -114,6 +117,7 @@ impl LinkConfig {
             sdk_version: crate::iotc::codec::SDK_VERSION,
             timing: Timing::default(),
             drop_media_every: 0,
+            plain: false,
         }
     }
 }
@@ -313,7 +317,7 @@ fn timeout_deadline(timeout: Duration) -> Instant {
 impl Link {
     /// Connect, and block until the link is up or has failed.
     pub fn connect(config: LinkConfig) -> Result<Self, LinkError> {
-        if config.authkey.len() != 8 {
+        if !config.plain && config.authkey.len() != 8 {
             return Err(LinkError::InvalidArgument("authkey must be 8 characters"));
         }
         crate::iotc::session::wire_uid(&config.uid)?;

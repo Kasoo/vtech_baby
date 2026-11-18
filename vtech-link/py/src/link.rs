@@ -48,9 +48,11 @@ pub fn connect(
     search_port: u16,
     peer_hint: Option<&str>,
     interface: Option<String>,
+    plain: bool,
 ) -> PyResult<Link> {
     let mut config = LinkConfig::new(uid, authkey, password);
     config.account = account.to_string();
+    config.plain = plain;
     config.connect_timeout = secs(py, Some(connect_timeout))?;
     config.av_timeout = secs(py, Some(av_timeout))?;
     config.search_port = search_port;

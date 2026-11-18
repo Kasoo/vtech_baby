@@ -19,6 +19,7 @@ from .const import (
     CONF_AUTHKEY,
     CONF_AV_PASSWORD,
     CONF_MAC,
+    CONF_PLAIN,
     CONF_QR,
     CONF_UID,
     DOMAIN,
@@ -94,10 +95,7 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
     def _decode(text: str, expect_uid: str | None = None
                 ) -> tuple[provision.Credentials | None, dict[str, str]]:
         try:
-            creds = provision.provision(text)
-        except provision.UnsupportedQr as err:
-            _LOG.debug("unsupported pairing QR: %s", err)
-            return None, {CONF_QR: "unsupported_qr"}
+            creds = provision.provision(text, expect_uid)
         except provision.InvalidQr as err:
             _LOG.debug("invalid pairing QR: %s", err)
             return None, {CONF_QR: "invalid_qr"}
@@ -126,6 +124,6 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
         return {}
 
 
-def _entry_creds(creds: provision.Credentials) -> dict[str, str]:
+def _entry_creds(creds: provision.Credentials) -> dict[str, Any]:
     return {CONF_UID: creds.uid, CONF_ACCOUNT: creds.account, CONF_AV_PASSWORD: creds.av_password,
-            CONF_AUTHKEY: creds.authkey, CONF_MAC: creds.mac}
+            CONF_AUTHKEY: creds.authkey, CONF_MAC: creds.mac, CONF_PLAIN: creds.plain}

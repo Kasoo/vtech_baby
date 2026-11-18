@@ -12,7 +12,7 @@ import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from vtech_lan import provision
-from vtech_lan.provision import InvalidQr, UnsupportedQr
+from vtech_lan.provision import InvalidQr
 
 KIT_CLIENT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "vtech-lan-kit", "client")
 
@@ -74,20 +74,26 @@ def test_wrong_version_rejected():
         provision.provision(make_qr(FIELDS, version=0x03))
 
 
-def test_v1_qr_recognised_as_unsupported():
-    with pytest.raises(UnsupportedQr) as exc:
-        provision.provision(make_v1_qr(V1_CAMERAS))
-    assert exc.value.version == 1
-    assert exc.value.uid == "TESTUID0000000000001"       # UID recovered; AV password is not in the QR
-    assert isinstance(exc.value, InvalidQr)               # still an InvalidQr for existing handlers
+def test_v1_qr_is_a_plain_camera_first_record():
+    c = provision.provision(make_v1_qr(V1_CAMERAS))
+    assert (c.uid, c.av_password, c.authkey, c.plain) == ("TESTUID0000000000001", "Tok3nAB1", "", True)
+    assert c.name == "VTECH_5764_abcd"
 
 
-def test_v1_shaped_but_implausible_is_plain_invalid():
-    # version byte 1 but the body isn't a VTech v1 payload -> generic reject, not UnsupportedQr.
+def test_v1_qr_reauth_picks_the_entry_uid():
+    c = provision.provision(make_v1_qr(V1_CAMERAS), expect_uid="TESTUID0000000000002")
+    assert (c.uid, c.av_password) == ("TESTUID0000000000002", "Tok3nCD2")
+
+
+def test_v1_qr_reauth_wrong_uid_is_left_for_the_caller():
+    c = provision.provision(make_v1_qr(V1_CAMERAS), expect_uid="TESTUID0000000000009")
+    assert c.uid == "TESTUID0000000000001"                 # the first record; the config flow rejects it
+
+
+def test_v1_shaped_but_implausible_is_invalid():
     bogus = base64.b64encode(bytes([0x01, 0x10]) + b"\x00" * 16).decode()
-    with pytest.raises(InvalidQr) as exc:
+    with pytest.raises(InvalidQr):
         provision.provision(bogus)
-    assert not isinstance(exc.value, UnsupportedQr)
 
 
 def test_missing_password_rejected():

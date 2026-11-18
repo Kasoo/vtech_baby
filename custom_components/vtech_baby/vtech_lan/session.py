@@ -364,10 +364,11 @@ class LinkSession(SessionBase):
     backend = "link"
 
     def __init__(self, module: Any, uid: str, authkey: str, password: str, account: str = "admin", *,
-                 peer_hint: str | None = None, **kw: Any):
+                 peer_hint: str | None = None, plain: bool = False, **kw: Any):
         super().__init__(uid, authkey, password, account, **kw)
         self._module = module
         self._peer_hint = peer_hint
+        self._plain = plain
         self.link: Any = None
 
     def _call(self, name: str, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -393,7 +394,7 @@ class LinkSession(SessionBase):
             self.link = self._module.connect(
                 self._uid, self._authkey, self._password, self._account,
                 connect_timeout=float(self.connect_timeout_s), av_timeout=float(self.av_timeout_s),
-                peer_hint=self._peer_hint)
+                peer_hint=self._peer_hint, plain=self._plain)
         except self._module.LinkError as e:
             raise from_link(e, "connect") from None
         except BaseException as e:

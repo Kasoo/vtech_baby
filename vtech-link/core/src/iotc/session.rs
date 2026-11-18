@@ -22,6 +22,8 @@ pub struct IotcConfig {
     /// Silent ticks after which a keepalive goes out every tick rather than every other one.
     pub quiet_ticks: u32,
     pub sdk_version: u32,
+    /// Plain-mode camera: the search rounds send no `0xcc51` record.
+    pub plain: bool,
 }
 
 impl Default for IotcConfig {
@@ -33,6 +35,7 @@ impl Default for IotcConfig {
             silence_limit: 60,
             quiet_ticks: 5,
             sdk_version: codec::SDK_VERSION,
+            plain: false,
         }
     }
 }
@@ -221,10 +224,12 @@ impl IotcSession {
                     let mut probe = codec::probe(&self.ids);
                     codec::seal(&mut probe);
                     for &to in targets.iter() {
-                        self.transmits.push_back(Transmit {
-                            to,
-                            data: record.to_vec(),
-                        });
+                        if !self.config.plain {
+                            self.transmits.push_back(Transmit {
+                                to,
+                                data: record.to_vec(),
+                            });
+                        }
                         self.transmits.push_back(Transmit {
                             to,
                             data: probe.to_vec(),
