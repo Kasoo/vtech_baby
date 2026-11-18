@@ -12,6 +12,7 @@
 //!   vtech-link talk    [camera-ip] [seconds]    talk-back: open the speaker and send A-law silence
 //!                                               (`--tone`: a quiet 440 Hz tone, which the camera plays)
 //!
+//! `VTECH_PLAIN=1` connects a plain-mode camera: no authKey (`VTECH_AUTHKEY` may be unset), no DTLS.
 //! `VTECH_SEARCH_PORT` and `VTECH_INTERFACE` point it at the simulated camera (`sim-camera`, with `lo`).
 //!
 //! `--drop N`, `--per-second` and `--tone` may come in any position. `--drop N` drops every Nth inbound media or parity packet, to exercise parity
@@ -72,7 +73,14 @@ fn env(name: &str) -> Result<String, String> {
 }
 
 fn config(peer: Option<Ipv4Addr>, drop: u32) -> Result<LinkConfig, String> {
-    let mut c = LinkConfig::new(&env("VTECH_UID")?, &env("VTECH_AUTHKEY")?, &env("VTECH_PWD")?);
+    let plain = std::env::var("VTECH_PLAIN").is_ok_and(|v| v == "1");
+    let authkey = if plain {
+        std::env::var("VTECH_AUTHKEY").unwrap_or_default()
+    } else {
+        env("VTECH_AUTHKEY")?
+    };
+    let mut c = LinkConfig::new(&env("VTECH_UID")?, &authkey, &env("VTECH_PWD")?);
+    c.plain = plain;
     c.peer_hint = peer;
     c.drop_media_every = drop;
     // For the simulated camera: its search port, and loopback.

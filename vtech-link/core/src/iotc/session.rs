@@ -22,7 +22,8 @@ pub struct IotcConfig {
     /// Silent ticks after which a keepalive goes out every tick rather than every other one.
     pub quiet_ticks: u32,
     pub sdk_version: u32,
-    /// Plain-mode camera: the search rounds send no `0xcc51` record.
+    /// Plain-mode camera: the search rounds send no `0xcc51` record, and the camera's key-authentication
+    /// support isn't required.
     pub plain: bool,
 }
 
@@ -301,8 +302,10 @@ impl IotcSession {
                     };
                     self.on_long_reply(now, peer, result);
                 }
-                Inbound::LanReply(LanReply::Short { uid, .. }) if uid == self.ids.uid => {
-                    // We always have an authKey, and this camera answered without key authentication.
+                Inbound::LanReply(LanReply::Short { uid, .. })
+                    if uid == self.ids.uid && !self.config.plain =>
+                {
+                    // We sent an authKey, and this camera answered without key authentication.
                     self.end(LinkError::IotcRejected(IotcReject::NoKeyAuth));
                 }
                 _ => self.stats.ignored += 1,
@@ -349,7 +352,7 @@ impl IotcSession {
         if result != 1 && result != 7 {
             return self.end(LinkError::IotcRejected(IotcReject::from_result(result)));
         }
-        if peer.proto_version < codec::KEY_AUTH_MIN_VERSION {
+        if !self.config.plain && peer.proto_version < codec::KEY_AUTH_MIN_VERSION {
             return self.end(LinkError::IotcRejected(IotcReject::NoKeyAuth));
         }
         // Answer with the connect-path probe and then the ack, both unicast.

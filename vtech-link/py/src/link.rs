@@ -103,6 +103,7 @@ fn info<'py>(py: Python<'py>, entry: &Entry) -> PyResult<Bound<'py, PyDict>> {
         d.set_item("proto_version", i.proto_version)?;
         d.set_item("iotc_version", i.iotc_version)?;
         d.set_item("dtls_suite", i.dtls_suite)?;
+        d.set_item("plain", i.plain)?;
         d.set_item("partial_encryption", i.partial_encryption)?;
     }
     Ok(d)

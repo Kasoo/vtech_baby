@@ -101,8 +101,12 @@ pub struct CameraConfig {
     pub authkey: String,
     pub password: String,
     pub account: String,
-    /// The `0x602` result for a matching authKey: 1 accepts; 3, 4 and 6 refuse.
+    /// The `0x602` result for a matching authKey (an all-zero one when `plain`): 1 and 7 accept; 3,
+    /// 4 and 6 refuse.
     pub iotc_result: u8,
+    /// A plain-mode camera: no key authentication (an authKey in the probe gets result 6) and no DTLS.
+    /// The AV login comes as IOTC datatype 0 on channel 0 and carries the password in clear.
+    pub plain: bool,
     /// Header `+0x02` of the camera's datagrams.
     pub proto_version: u8,
     pub iotc_version: u32,
@@ -134,6 +138,7 @@ impl CameraConfig {
             password: password.to_string(),
             account: "admin".to_string(),
             iotc_result: 1,
+            plain: false,
             proto_version: 0x1b,
             iotc_version: 0x0403_08c8,
             max_sessions: 8,
@@ -159,6 +164,8 @@ pub struct SimStats {
     pub dropped_in: u64,
     pub dropped_out: u64,
     pub probes: u64,
+    /// `0xcc51` connect records from clients.
+    pub records: u64,
     pub sessions: u64,
     pub logins: u64,
     /// Handshakes refused for the wrong password.
@@ -431,7 +438,8 @@ impl Sim {
                     s.ended = true;
                 }
             }
-            Some(FromClient::Record | FromClient::ConnectAck { .. }) | None => {}
+            Some(FromClient::Record) => self.stats.records += 1,
+            Some(FromClient::ConnectAck { .. }) | None => {}
         }
     }
 
@@ -450,7 +458,9 @@ impl Sim {
         }
         let known = self.sessions.contains_key(&token);
         let live = self.sessions.values().filter(|s| !s.ended).count();
-        let result = if authkey[..] != *self.config.authkey.as_bytes() {
+        let result = if self.config.plain && authkey != [0; 8] {
+            6
+        } else if !self.config.plain && authkey[..] != *self.config.authkey.as_bytes() {
             5
         } else if !known && live >= self.config.max_sessions {
             3

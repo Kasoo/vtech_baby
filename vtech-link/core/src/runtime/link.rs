@@ -129,6 +129,8 @@ pub struct LinkInfo {
     pub proto_version: u8,
     pub iotc_version: u32,
     pub dtls_suite: Option<u16>,
+    /// The camera was connected in plain mode (no authKey, no DTLS).
+    pub plain: bool,
     pub partial_encryption: bool,
 }
 

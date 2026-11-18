@@ -1,5 +1,6 @@
-//! One client's session with the camera: the DTLS server on channel 0, the camera's side of the AV
-//! channel inside it (login, control stream, IOCtrl handling, media), and the talk-back client.
+//! One client's session with the camera: the DTLS server on channel 0 (none for a plain-mode camera),
+//! the camera's side of the AV channel inside it (login, control stream, IOCtrl handling, media), and
+//! the talk-back client.
 
 use std::net::SocketAddrV4;
 use std::sync::Arc;
@@ -28,6 +29,7 @@ const OP_RESET: u32 = 0x24;
 const OP_RESET_ACK: u32 = 0x25;
 const CTRL_RETRANSMIT: Duration = Duration::from_millis(60);
 const LOGIN_REPLY_LEN: usize = 0x3c;
+const DATATYPE_PLAIN: u8 = 0;
 const DATATYPE_DTLS: u8 = 1;
 const CONTENT_CCS: u8 = 20;
 /// A plaintext fatal `decrypt_error` alert, epoch 0, for the alert flavour of a wrong password.
@@ -46,6 +48,8 @@ pub(crate) struct Session {
     pub token: [u8; 8],
     /// The client closed, or the camera did.
     pub ended: bool,
+    /// No DTLS: AV packets are IOTC datatype 0 on channel 0.
+    plain: bool,
     seq: [u16; 32],
     dtls: Dtls,
     dtls_timeout: Option<Instant>,
@@ -90,10 +94,15 @@ impl Session {
             addr,
             token,
             ended: false,
+            plain: config.plain,
             seq: [0; 32],
             dtls,
             dtls_timeout: None,
-            phase: Phase::Handshake,
+            phase: if config.plain {
+                Phase::Connected
+            } else {
+                Phase::Handshake
+            },
             buf: vec![0; 4096],
             hs_in: 0,
             hs_out: 0,
@@ -144,6 +153,16 @@ impl Session {
         config: &CameraConfig,
         stats: &mut SimStats,
     ) {
+        if channel == 0 && self.plain {
+            if datatype == DATATYPE_PLAIN {
+                self.on_av_packet(now, payload, config, stats);
+                self.flush_av();
+            } else {
+                // A plain camera doesn't do DTLS.
+                stats.dtls_refused += 1;
+            }
+            return;
+        }
         if channel == 0 {
             if datatype == DATATYPE_DTLS && config.answer_dtls {
                 self.on_dtls(now, payload, config, stats);
@@ -210,12 +229,15 @@ impl Session {
         }
     }
 
-    /// Send one AV packet through DTLS, stamping the counter where its class carries one.
+    /// Send one AV packet through DTLS (as datatype 0 when plain), stamping the counter where its class
+    /// carries one.
     fn send_av(&mut self, mut pkt: Vec<u8>) {
         if packet::stamp(&mut pkt, self.av.counter) {
             self.av.counter = self.av.counter.wrapping_add(1);
         }
-        if self.phase == Phase::Connected && self.dtls.send_application_data(&pkt).is_ok() {
+        if self.plain {
+            self.out.push((0, DATATYPE_PLAIN, pkt));
+        } else if self.phase == Phase::Connected && self.dtls.send_application_data(&pkt).is_ok() {
             // One record per datagram, as each must fit one IOTC payload.
             self.pump_dtls();
         }
@@ -275,10 +297,17 @@ impl Session {
         reply[2..4].copy_from_slice(&packet::VERSION.to_le_bytes());
         reply[0x10..0x12].copy_from_slice(&0x24u16.to_le_bytes());
         reply[0x14..0x18].copy_from_slice(&pkt[0x14..0x18]);
-        reply[0x18] = config.login_state;
+        // Through DTLS the PSK has checked the password; in plain mode the login carries it in clear.
+        let wrong = self.plain && login_password(pkt) != Some(config.password.as_bytes());
+        let state = if wrong && config.login_state == 0 {
+            1
+        } else {
+            config.login_state
+        };
+        reply[0x18] = state;
         reply[0x24..0x38].copy_from_slice(&packet::OPCODE_SUPPORT);
         self.send_av(reply.to_vec());
-        if !self.av.logged_in && config.login_state == 0 {
+        if !self.av.logged_in && state == 0 {
             self.av.logged_in = true;
             stats.logins += 1;
         }
@@ -376,7 +405,7 @@ impl Session {
         if self.ended || self.phase == Phase::Refused {
             return;
         }
-        if self.dtls_timeout.is_none_or(|t| now >= t) {
+        if !self.plain && self.dtls_timeout.is_none_or(|t| now >= t) {
             let _ = self.dtls.handle_timeout(now);
             self.pump_dtls();
         }
@@ -440,6 +469,12 @@ fn key_exchange(hello: &[u8]) -> Option<(Vec<u8>, MasterKey)> {
 
 /// Whether a DTLS datagram carries a ChangeCipherSpec and an epoch-1 record after it: the client's
 /// whole final flight.
+/// The password field of a login packet, up to its NUL.
+fn login_password(pkt: &[u8]) -> Option<&[u8]> {
+    let field = pkt.get(0x18 + packet::LOGIN_WIDTH..0x18 + 2 * packet::LOGIN_WIDTH)?;
+    Some(field.split(|&b| b == 0).next().unwrap_or_default())
+}
+
 fn has_ccs_and_finished(datagram: &[u8]) -> bool {
     let mut rest = datagram;
     let mut ccs = false;

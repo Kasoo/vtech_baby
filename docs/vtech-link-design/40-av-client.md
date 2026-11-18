@@ -216,6 +216,10 @@ media reset, both confirmed and timed out.
 One change from the table above: a camera report is answered with an RTT packet at once, not on the
 next tick.
 
+**Plain mode (2026-11)**: with `LinkConfig.plain` the client starts as soon as the IOTC session is up,
+with no DTLS below it, and its packets travel as IOTC datatype 0 on channel 0 in both directions
+(`runtime/driver.rs`). The login is the same packet; the password was always in clear inside it.
+
 ## Size estimate
 
 About 800 lines including tests: packet codecs 300, client 250, control stream 250.

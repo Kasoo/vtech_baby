@@ -1,6 +1,6 @@
 //! A simulated camera on loopback, driven over stdin, for testing the Python module end to end.
 //!
-//!   sim-camera [--wrong-password-alert] [--refuse-authkey]
+//!   sim-camera [--wrong-password-alert] [--refuse-authkey] [--plain]
 //!
 //! Prints the camera's UDP port on the first line, then reads commands, one per line:
 //!
@@ -10,7 +10,8 @@
 //!   stats             print `key=value` counters on one line
 //!   (end of input)    stop
 //!
-//! Credentials are fixed: UID `SIMCAM0123456789ABCD`, authKey `k3yAuth8`, password `simpass`. Replies:
+//! Credentials are fixed: UID `SIMCAM0123456789ABCD`, authKey `k3yAuth8`, password `simpass`. `--plain`
+//! makes it a plain-mode camera: no authKey, no DTLS. Replies:
 //! the default script (DEVINFO, GET_PARAMS); `0x5000..=0x50ff` echoed as type + 1; `0x788` answered
 //! with four `0x789` pages, page `i` being `i` repeated `100 + i` times.
 
@@ -45,6 +46,10 @@ fn main() {
         match a.as_str() {
             "--wrong-password-alert" => config.wrong_password = WrongPassword::Alert,
             "--refuse-authkey" => config.iotc_result = 5,
+            "--plain" => {
+                config.plain = true;
+                config.iotc_result = 7;
+            }
             other => {
                 eprintln!("unknown option {other}");
                 std::process::exit(2);

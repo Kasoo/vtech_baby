@@ -131,6 +131,7 @@ class ConnectTest(SimTest):
         self.assertEqual(info["peer"], f"127.0.0.1:{self.sim.port}")
         self.assertEqual(info["mode"], "lan")
         self.assertEqual(info["dtls_suite"], 0xCCAC)
+        self.assertFalse(info["plain"])
         self.assertIsNone(info["close_reason"])
         self.assertLessEqual(info["up_since"], time.monotonic())
         self.assertIn(info["local_port"], [i["local_port"] for i in vl.links()])
@@ -285,6 +286,28 @@ class WrongPasswordTest(SimTest):
         with self.assertRaises(vl.LinkError) as ctx:
             self.sim.connect(password="wrong")
         self.assertLinkError(ctx, "av_auth_failed", "dtls_alert:51", -20009)
+
+
+class PlainTest(SimTest):
+    args = ("--plain",)
+
+    def test_plain_connect(self):
+        link = self.link(authkey="", plain=True)
+        info = link.info()
+        self.assertTrue(info["plain"])
+        self.assertIsNone(info["dtls_suite"])
+        devinfo = link.request(OP_DEVINFO, bytes(4), OP_DEVINFO_REPLY)
+        self.assertEqual(devinfo[:6], b"RM5754")
+
+    def test_authkey_to_a_plain_camera(self):
+        with self.assertRaises(vl.LinkError) as ctx:
+            self.sim.connect()
+        self.assertLinkError(ctx, "iotc_rejected", "no_key_auth", -69)
+
+    def test_wrong_password(self):
+        with self.assertRaises(vl.LinkError) as ctx:
+            self.sim.connect(authkey="", plain=True, password="wrong")
+        self.assertLinkError(ctx, "av_auth_failed", "login_rejected:1", -20009)
 
 
 class UnreachableTest(SimTest):

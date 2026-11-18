@@ -895,3 +895,115 @@ fn commands_queued_behind_a_reactor_panic_fail_promptly() {
     });
     assert!(t0.elapsed() < 2 * SEC, "{:?}", t0.elapsed());
 }
+
+// ---- plain security mode: no authKey, no DTLS ----
+
+fn plain_camera() -> CameraConfig {
+    CameraConfig {
+        plain: true,
+        iotc_result: 7,
+        ..camera()
+    }
+}
+
+fn plain_config(cam: &Camera) -> LinkConfig {
+    LinkConfig {
+        plain: true,
+        authkey: String::new(),
+        ..link_config(cam)
+    }
+}
+
+#[test]
+fn plain_connect_requests_media_talkback() {
+    let cam = Camera::start(CameraConfig {
+        media: vtech_link_sim::MediaSpec {
+            video_fps: 25,
+            video_bytes: 20_000,
+            ..Default::default()
+        },
+        ..plain_camera()
+    });
+    let link = Link::connect(plain_config(&cam)).unwrap();
+    let info = link.info().unwrap();
+    assert!(info.plain);
+    assert_eq!(info.dtls_suite, None);
+    assert!(!info.partial_encryption);
+    let sim = cam.stats();
+    assert_eq!(sim.records, 0, "no key-authentication record");
+    assert_eq!(sim.dtls_refused, 0, "no DTLS");
+    assert_eq!(sim.logins, 1);
+    prep(&link);
+    assert_eq!(
+        link.request(OP_GET_PARAMS, &[0; 4], OP_GET_PARAMS_REPLY, SEC)
+            .unwrap()
+            .len(),
+        64
+    );
+
+    // The live-view key exchange and media ride the same channel.
+    let mut media = link.media();
+    media.start(SEC).unwrap();
+    link.send(OP_START, &[0; 8], SEC).unwrap();
+    let (video, audio) = collect(&mut media, 30, 5 * SEC);
+    assert_eq!(video.len(), 30);
+    assert!(!audio.is_empty());
+    assert!(video[0].key);
+    assert_eq!(check_order(&video, true), Order::default());
+    let stats = link.stats(SEC).unwrap();
+    assert_eq!(stats.decrypt_failed_video + stats.decrypt_failed_audio, 0);
+    link.send(OP_STOP, &[0; 8], SEC).unwrap();
+    media.close();
+
+    // Talk-back is plain in both modes.
+    let talk = link.talkback(2 * SEC).unwrap();
+    link.send(OP_SPEAKER_START, &u32::from(talk.channel).to_le_bytes(), SEC)
+        .unwrap();
+    talk.accept(3 * SEC).unwrap();
+    for i in 0u8..10 {
+        talk.send(&[i; 160], 2 * SEC).unwrap();
+    }
+    talk.close(true, 3 * SEC).unwrap();
+    assert!(cam.wait_for(SEC, |s| s.talk_frames.len() == 10));
+    link.send(OP_SPEAKER_STOP, &[0; 4], SEC).unwrap();
+    link.close();
+    assert!(cam.wait_for(SEC, |s| s.close_datagrams == 3));
+}
+
+#[test]
+fn plain_wrong_password_is_rejected() {
+    let cam = Camera::start(plain_camera());
+    let config = LinkConfig {
+        password: "wrongpw".to_string(),
+        ..plain_config(&cam)
+    };
+    let (err, took) = connect_err(config);
+    assert_eq!(err, LinkError::AvAuthFailed(AvAuthStage::LoginRejected(1)));
+    assert!(took < SEC, "{took:?}");
+}
+
+#[test]
+fn plain_camera_refuses_an_authkey() {
+    let cam = Camera::start(plain_camera());
+    let (err, took) = connect_err(link_config(&cam));
+    assert_eq!(err, LinkError::IotcRejected(IotcReject::NoKeyAuth));
+    assert!(took < 500 * MS, "{took:?}");
+    assert_eq!(cam.stats().sessions, 0);
+}
+
+#[test]
+fn enhanced_camera_refuses_a_plain_connect() {
+    let cam = Camera::start(camera());
+    let (err, _) = connect_err(plain_config(&cam));
+    assert_eq!(err, LinkError::IotcRejected(IotcReject::AuthKey));
+}
+
+#[test]
+fn plain_link_ignores_the_key_authentication_version() {
+    // An older camera without key authentication is still reachable in plain mode.
+    let cam = Camera::start(CameraConfig {
+        proto_version: 0x16,
+        ..plain_camera()
+    });
+    Link::connect(plain_config(&cam)).unwrap().close();
+}

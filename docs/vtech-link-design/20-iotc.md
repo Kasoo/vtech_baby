@@ -227,6 +227,12 @@ unit tests in `scramble.rs`). Every outbound datagram is byte-identical to `tutk
 fixtures in `core/tests/fixtures/tutk_host.txt` (`tools/fixtures/gen.sh`), apart from the ack bytes
 above.
 
+**Plain mode (2026-11)**: `IotcConfig.plain` (from `LinkConfig.plain`) sends the search probes with an
+all-zero authKey and no `0xcc51` record, accepts a camera below `KEY_AUTH_MIN_VERSION`, and ignores a
+short LAN reply instead of ending the search with `NoKeyAuth`. Results 1 and 7 establish
+as before; result 6 still ends the search with `NoKeyAuth`, which tells an enhanced link it has a plain
+camera.
+
 ## Size estimate
 
 About 600 lines including tests: scramble 150, codec 250, session 200.

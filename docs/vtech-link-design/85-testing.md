@@ -52,6 +52,7 @@ Scenarios (each also runs with 2% loss, 1% duplication and 5 ms of jitter-induce
 | S10 | Concurrent requests: 8 threads × 50 requests, mixed reply opcodes | no "busy", one user frame in flight, replies matched |
 | S11 | A multi-page `0x788` exchange | pages in order; the exchange ends on `end` |
 | S12 | DTLS flight loss: drop each flight once | the handshake completes through retransmission |
+| S13 | Plain-mode camera (`CameraConfig.plain`): connect, requests, live view, talk-back; a wrong password; an authKey sent to it; a plain connect to an enhanced camera | no `0xcc51` record and no DTLS; `LoginRejected(1)`; `IotcRejected(NoKeyAuth)`; `IotcRejected(AuthKey)` |
 
 ## T3 — Interoperability
 

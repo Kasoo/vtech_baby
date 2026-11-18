@@ -18,6 +18,7 @@ def connect(uid: str, authkey: str, password: str, account: str = "admin", *,
             peer_hint: str | None = None,          # last known IPv4 address, unicast discovery too
             interface: str | None = None,          # restrict discovery to one interface
             trace: str | None = None,              # packet-trace file (70-runtime.md)
+            plain: bool = False,                   # plain-mode camera: no authKey (authkey may be ""), no DTLS
             ) -> Link: ...                         # blocks until up; raises LinkError
 
 def lan_only_stats() -> dict[str, int]             # {"refused_sends": n, "refused_lookups": 0}
@@ -98,7 +99,13 @@ Differences from the API above:
 - `LinkError` has `kind`, `detail` and `code` as in the table below. A DTLS handshake that goes silent
   (the real camera's answer to a wrong password) has the detail `dtls_silent`. A refused login has
   `login_rejected:N`.
-- `Link.info()` adds `local_port`, `proto_version`, `iotc_version` and `partial_encryption`.
+- `Link.info()` adds `local_port`, `proto_version`, `iotc_version`, `partial_encryption` and `plain`
+  (`dtls_suite` is None for a plain link).
+- `connect(..., plain=True)` connects a plain-mode camera (`vtech-lan-kit/docs/10-transport-session.md`,
+  "Security modes"): the probe's authKey field is all zero and no `0xcc51` record goes out, the
+  camera's key-authentication version isn't required, and the AV packets travel as IOTC datatype 0
+  on channel 0 with no DTLS and no partial encryption. The login, IOCtrl, the live-view key exchange,
+  media and talk-back are unchanged.
   `close_reason` is the error's detail (`"remote_close"`), or its kind when there is no detail.
 - `Link.stats()` returns `iotc`, `control` (with `ack_latency` counts per `ack_latency_buckets_ms`,
   plus one bucket above), `media` (the same as `MediaReceiver.stats()`), `talk`, `rtt_ms`, `resets`
@@ -120,7 +127,8 @@ Differences from the API above:
 | `unreachable` | `Unreachable` | `-13` |
 | `iotc_rejected` / `auth_key` | `AuthFailed` | `-68` |
 | `iotc_rejected` / `max_sessions` | `CapacityExceeded` | `-48` |
-| `iotc_rejected` / `no_key_auth`, `port`, `other:N` | `VtechError` | `-69`, `-67`, None |
+| `iotc_rejected` / `no_key_auth` | `LinkSession` connects again once with `plain=True`; `VtechError` if already plain | `-69` |
+| `iotc_rejected` / `port`, `other:N` | `VtechError` | `-67`, None |
 | `av_auth_failed` / `dtls_alert:N`, `login_rejected:N` | `AuthFailed` | `-20009` |
 | `av_auth_failed` / `dtls_silent` | `AuthUnanswered` (an `AuthFailed`; retried before reauth) | `-20009` |
 | `closed` / `remote_close` | `SessionGone` | `-22` |

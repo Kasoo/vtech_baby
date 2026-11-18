@@ -190,7 +190,11 @@ impl Reactor {
             ..IotcConfig::default()
         };
         // A plain camera takes an all-zero authKey in the probe.
-        let authkey: &[u8] = if config.plain { &[0; 8] } else { config.authkey.as_bytes() };
+        let authkey: &[u8] = if config.plain {
+            &[0; 8]
+        } else {
+            config.authkey.as_bytes()
+        };
         let iotc = IotcSession::new(iotc_config, &config.uid, authkey, token)?;
         Ok(Self {
             requests: Requests::new(usize::MAX),
@@ -550,7 +554,8 @@ impl Reactor {
                     proto_version: peer.proto_version,
                     iotc_version: peer.iotc_version,
                     dtls_suite: self.dtls.as_ref().and_then(DtlsClient::negotiated_suite),
-                    partial_encryption: peer.pe_capable,
+                    partial_encryption: peer.pe_capable && !self.config.plain,
+                    plain: self.config.plain,
                 };
                 log::info!("link up: {} via local port {}", info.peer, info.local_port);
                 if let Some(done) = self.connect_done.take() {
