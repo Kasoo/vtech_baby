@@ -28,6 +28,11 @@ class AuthFailed(VtechError):
     """Wrong authKey or AV credentials. Do not retry in a loop — ask the user for new credentials."""
 
 
+class AuthUnanswered(AuthFailed):
+    """The camera went silent where it checks the AV password. That is how it answers a wrong password,
+    but a lost reply looks the same: try again a few times before asking for new credentials."""
+
+
 class CapacityExceeded(VtechError):
     """Session or channel capacity exhausted, locally or on the camera."""
 
@@ -65,7 +70,7 @@ def from_link(err: Exception, call: str) -> VtechError:
     elif kind == "iotc_rejected":
         cls = {"auth_key": AuthFailed, "max_sessions": CapacityExceeded}.get(detail, VtechError)
     elif kind == "av_auth_failed":
-        cls = AuthFailed
+        cls = AuthUnanswered if detail == "dtls_silent" else AuthFailed
     elif kind == "closed":
         cls = SessionGone
     elif kind == "timeout":

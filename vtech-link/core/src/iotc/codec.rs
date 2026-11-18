@@ -1,6 +1,5 @@
 //! IOTC datagram builders and the inbound decoder. Layouts: `docs/vtech-link-design/20-iotc.md`
-//! ("Outbound datagrams, byte by byte", "The `0x602` reply"); reference `tutk-host/iotc/handshake.c`,
-//! `wire.c`, `inbound.c`.
+//! ("Outbound datagrams, byte by byte", "The `0x602` reply").
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
@@ -87,7 +86,7 @@ fn get8(buf: &[u8], at: usize) -> Option<[u8; 8]> {
     buf.get(at..at + 8)?.try_into().ok()
 }
 
-/// The 16-byte header with our version (`wire.c:134` `iotc_put_header`).
+/// The 16-byte header with our version.
 fn put_header(pkt: &mut [u8], flags: u8, length: u16, opcode: u16, field_a: u16) {
     put16(pkt, 0, MAGIC);
     put(pkt, 2, &[OUR_VERSION, flags]);
@@ -97,7 +96,7 @@ fn put_header(pkt: &mut [u8], flags: u8, length: u16, opcode: u16, field_a: u16)
 }
 
 /// Mark a built datagram scrambled and scramble it: the first `PE_PREFIX` bytes when its PE flag is
-/// set, else all of it (`handshake.c:43`).
+/// set, else all of it.
 pub fn seal(pkt: &mut [u8]) {
     let Some(flags) = pkt.get_mut(3) else { return };
     *flags |= FLAG_SCRAMBLED;
@@ -267,7 +266,7 @@ fn lan_reply(pkt: &[u8]) -> Option<LanReply> {
     }
 }
 
-/// Unscramble a received datagram in place and decode it (`inbound.c` `iotc_on_datagram`).
+/// Unscramble a received datagram in place and decode it.
 pub fn decode(pkt: &mut [u8]) -> Result<Inbound<'_>, Drop> {
     if pkt.len() < HEADER_LEN || pkt.len() > MAX_DATAGRAM {
         return Err(Drop::Size);

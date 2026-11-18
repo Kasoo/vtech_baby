@@ -1,4 +1,4 @@
-//! Loads `fixtures/tutk_host.txt`: known-answer bytes generated from tutk-host.
+//! Loads `fixtures/tutk_host.txt`: known-answer bytes.
 
 // Each test crate uses a different part of this module.
 #![allow(dead_code)]

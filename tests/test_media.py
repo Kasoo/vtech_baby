@@ -13,6 +13,7 @@ from vtech_lan.media import LiveStream, has_nal, is_keyframe  # noqa: E402
 from vtech_lan.session import LinkSession  # noqa: E402
 
 import fake_camera  # noqa: E402
+import fake_link  # noqa: E402
 from fake_camera import clip, enable_live_view  # noqa: E402
 from fake_link import FakeLinkModule  # noqa: E402
 
@@ -275,3 +276,85 @@ def test_empty_video_frames_are_dropped(cam, monkeypatch):
 
 def test_grace_default():
     assert media.GRACE_S >= 2
+
+
+def test_failed_start_is_stopped(cam):
+    """START times out after AUDIOSTART went through: the camera is still told to stop."""
+    link, _, ls, _ = cam
+    send = link.send
+
+    def failing(type, payload=b"", timeout=5.0):  # noqa: A002
+        if type == ops.START.code:
+            raise fake_link.LinkError("timeout", code=-20011)
+        send(type, payload, timeout)
+    link.send = failing
+    sink = Sink()
+    ls.subscribe(sink)
+    assert sink.ended.wait(3)
+    assert wait_for(lambda: ls._thread is None)
+    assert link.sent_codes()[-2:] == [ops.STOP.code, ops.AUDIO_STOP.code]
+    assert not ls.running and ls.stats["starts"] == 0
+
+
+def test_no_video_ends_the_stream_and_the_next_subscriber_restarts_it(cam):
+    link, _, ls, _ = cam
+    ls._no_video_s = 0.3
+    sink = Sink()
+    ls.subscribe(sink)
+    assert wait_for(lambda: sink.chunks)
+    link.camera.fps = 0.01                        # the camera stops sending video; the session stays up
+    link.camera.next_video = time.monotonic() + 100
+    assert sink.ended.wait(3)
+    assert "no video" in ls.stats["last_error"]
+    assert wait_for(lambda: ls._thread is None)
+    link.camera.fps = 25
+    again = Sink()
+    ls.subscribe(again)
+    assert wait_for(lambda: starts(link) == 2)
+
+
+def test_a_finishing_thread_leaves_its_successor_registered(cam):
+    """A thread that exits after a newer one has started must not clear the newer one's record."""
+    _, _, ls, _ = cam
+    other = threading.Thread(target=lambda: None)
+    with ls._lock:
+        ls._thread = other                        # as if started between this thread's idle exit and its end
+    ls._run()                                     # no subscribers: exits at once
+    assert ls._thread is None                     # the idle exit clears it for the caller ...
+    with ls._lock:
+        ls._closed = True
+        ls._thread = other
+    try:
+        raise_in_run(ls)
+    finally:
+        assert ls._thread is other                # ... the final cleanup doesn't
+        ls._thread = None
+
+
+def raise_in_run(ls):
+    """Run `_run` on this thread with a lock check that fails, so only its cleanup runs."""
+    class Boom(BaseException):
+        pass
+    real = ls._lock
+
+    class Lock:
+        first = True
+
+        def __enter__(self):
+            if Lock.first:
+                Lock.first = False
+                raise Boom
+            return real.__enter__()
+
+        def __exit__(self, *a):
+            return real.__exit__(*a)
+
+        def notify_all(self):
+            real.notify_all()
+    ls._lock = Lock()
+    try:
+        ls._run()
+    except Boom:
+        pass
+    finally:
+        ls._lock = real

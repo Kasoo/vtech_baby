@@ -1,6 +1,5 @@
 //! `MediaRx`: media receive. The packet window behind the ACK and NAK fields, frame assembly in frame
-//! order, parity recovery, and the reset. Design: `docs/vtech-link-design/45-media-receive.md`;
-//! reference `tutk-host/av/media_recv.c`, `av/ioctrl.c:156` (`av_media_reset`).
+//! order, parity recovery, and the reset. Design: `docs/vtech-link-design/45-media-receive.md`.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -37,7 +36,7 @@ pub struct MediaConfig {
     /// The least time between two NAK lists.
     pub nak_repeat: Duration,
     /// Drop every Nth media or parity packet on arrival (0: none), to exercise recovery on a clean
-    /// network, as `tutk-host`'s `TK_DROP` does. Tests and live probes only.
+    /// network. Tests and live probes only.
     pub drop_every: u32,
 }
 
@@ -60,8 +59,7 @@ pub enum StreamKind {
 }
 
 impl StreamKind {
-    /// The kit's fold: 3 and 4 are audio, 5 to 8 video; anything else isn't media
-    /// (`tutk-kit/docs/av/90-fifos.md`).
+    /// The kit's fold: 3 and 4 are audio, 5 to 8 video; anything else isn't media.
     fn of(kind: u8) -> Option<Self> {
         match kind {
             3 | 4 => Some(Self::Audio),
@@ -122,7 +120,7 @@ pub struct AckFields {
     pub naks: Vec<u16>,
 }
 
-/// Received packet numbers ahead of `cum` (`media_recv.c:24–107`).
+/// Received packet numbers ahead of `cum`.
 struct PacketWindow {
     cum: u16,
     high: u16,
@@ -362,7 +360,7 @@ impl MediaRx {
         }
     }
 
-    /// One media fragment (`media_recv.c` `av_media_on_packet`).
+    /// One media fragment.
     pub fn on_fragment(&mut self, now: Instant, f: &[u8]) {
         let Some(frag) = Fragment::parse(f) else {
             return self.stats.fragments_dropped += 1;
@@ -429,10 +427,10 @@ impl MediaRx {
     }
 
     /// Move frames out in frame order: the oldest once complete, or given up once it has waited
-    /// `partial_wait` after a packet gap was skipped, `incomplete_wait` otherwise (`media_recv.c`
-    /// `release` gives up after 500 ms either way). A frame that follows a gap in the per-stream count
-    /// waits `partial_wait` for the missing frames, whose packets may all have been lost and be on their
-    /// way again; `tutk-host` releases it at once, and the resent frame then comes out after it.
+    /// `partial_wait` after a packet gap was skipped, `incomplete_wait` otherwise. A frame that follows
+    /// a gap in the per-stream count waits `partial_wait` for the missing frames, whose packets may all
+    /// have been lost and be on their way again; releasing it at once would send the resent frame out
+    /// after it.
     fn release(&mut self, now: Instant, stream: StreamKind) {
         let asm = match stream {
             StreamKind::Video => &mut self.video,
@@ -536,7 +534,7 @@ impl MediaRx {
     }
 
     /// The media fields for an ACK going out now. The NAK list is included only when `nak_repeat` has
-    /// passed since the last one (`av/transport.c:114`).
+    /// passed since the last one.
     pub fn ack_fields(&mut self, now: Instant) -> AckFields {
         let mut naks = Vec::new();
         if self
@@ -565,7 +563,7 @@ impl MediaRx {
 
     /// Drop everything received and in progress, and move the packet numbering on, so that what the
     /// camera already has in flight is ignored. Returns the payload of the internal `0x24` frame that
-    /// tells the camera (`av/ioctrl.c:156`): u16 reset sequence, u16 the new `pn_cum`, 4 zero bytes.
+    /// tells the camera: u16 reset sequence, u16 the new `pn_cum`, 4 zero bytes.
     pub fn reset(&mut self) -> (u16, [u8; 8]) {
         self.video.partial.clear();
         self.audio.partial.clear();
@@ -592,7 +590,7 @@ impl MediaRx {
     }
 }
 
-/// A parsed media sub-header (`media_recv.c:174`).
+/// A parsed media sub-header.
 struct Fragment<'a> {
     kind: u8,
     stream: StreamKind,

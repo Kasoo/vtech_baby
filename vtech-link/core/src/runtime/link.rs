@@ -181,7 +181,7 @@ impl MediaQueue {
         }
     }
 
-    /// Add a frame; when its stream is full, drop that stream's oldest (`media_recv.c:160`).
+    /// Add a frame; when its stream is full, drop that stream's oldest.
     pub(crate) fn push(&self, frame: EncryptedFrame) {
         let mut s = lock(&self.state);
         let i = slot(frame.stream);

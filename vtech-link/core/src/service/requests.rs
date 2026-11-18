@@ -1,5 +1,5 @@
 //! Request/reply matching and the push queue. The camera's replies carry no request id, so one
-//! request per reply type is active at a time and later ones wait their turn, as `session.py` does with
+//! request per reply type is active at a time and later ones wait their turn,
 //! one lock per reply opcode. Design: `docs/vtech-link-design/60-application.md`.
 
 use std::collections::{HashMap, VecDeque};

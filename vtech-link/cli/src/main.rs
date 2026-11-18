@@ -755,7 +755,7 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
-    /// G.711 A-law decoding (the reference `alaw2linear`).
+    /// G.711 A-law decoding (ITU-T G.711).
     fn alaw_decode(a: u8) -> i32 {
         let a = a ^ 0x55;
         let seg = i32::from((a & 0x70) >> 4);

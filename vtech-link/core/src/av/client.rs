@@ -1,7 +1,6 @@
 //! `AvClient`: the AV client on channel 0, over DTLS. It logs in, then dispatches inbound packets to
 //! the control stream and media receive, and keeps the camera's sender going with ACKs, reports and
-//! RTT answers on deadlines instead of a 10 ms tick. Design: `docs/vtech-link-design/40-av-client.md`;
-//! reference `tutk-host/av/session.c` (login), `av/transport.c` (dispatch and the transmit task).
+//! RTT answers on deadlines instead of a 10 ms tick. Design: `docs/vtech-link-design/40-av-client.md`.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -18,7 +17,7 @@ const OP_RESET: u32 = 0x24;
 const OP_RESET_ACK: u32 = 0x25;
 /// The handshake variant every login carries.
 const LOGIN_HS: u16 = 1;
-/// RTT samples above this are discarded (`av/transport.c:21`).
+/// RTT samples above this are discarded.
 const RTT_LIMIT_MS: u16 = 5000;
 
 #[derive(Debug, Clone)]
@@ -245,14 +244,14 @@ impl AvClient {
         }
     }
 
-    /// One AV packet from DTLS (`av/transport.c` `av_on_packet`).
+    /// One AV packet from DTLS.
     pub fn handle_packet(&mut self, now: Instant, pkt: &[u8]) {
         if let State::Login { .. } = self.state {
             match packet::login_reply(pkt, self.nonce) {
                 Some(0) => {
                     self.state = State::Ready;
                     self.events.push_back(AvEvent::Ready);
-                    // Start the schedule with an immediate report (`av/transport.c:164`).
+                    // Start the schedule with an immediate report.
                     self.next_report = now;
                     self.last_ack = now;
                     self.handle_timeout(now);
@@ -292,7 +291,7 @@ impl AvClient {
         }
     }
 
-    /// A class-0x0c packet: a control frame, a media fragment or parity (`av/transport.c:60`).
+    /// A class-0x0c packet: a control frame, a media fragment or parity.
     fn on_data(&mut self, now: Instant, pkt: &[u8]) {
         let Some(env) = packet::envelope(pkt) else {
             return self.packets_ignored += 1;
@@ -362,7 +361,7 @@ impl AvClient {
                     return self.end(LinkError::Unreachable);
                 }
                 if now >= next_resend {
-                    // Both login packets, every `login_resend` until the reply (`av/session.c:229`).
+                    // Both login packets, every `login_resend` until the reply.
                     for n in 0..2 {
                         let pkt = packet::login(
                             n,

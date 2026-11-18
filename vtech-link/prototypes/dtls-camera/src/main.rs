@@ -26,7 +26,7 @@ const KEY: &[u8; 16] = b"Charlie is the d";
 const SEARCH_PORT: u16 = 32762;
 const ROT: [u32; 4] = [1, 5, 9, 13];
 
-// ---- the scramble (tutk-host/iotc/wire.c) ----
+// ---- the scramble ----
 
 fn permute(b: [u32; 4]) -> [u32; 4] {
     let (b0, b1, b2, b3) = (b[0], b[1], b[2], b[3]);
@@ -117,7 +117,7 @@ fn unscramble(buf: &mut [u8], prefix: usize, inv: &[u8; 128]) {
     }
 }
 
-// ---- IOTC datagrams (tutk-host/iotc/handshake.c, data.c) ----
+// ---- IOTC datagrams ----
 
 fn header(pkt: &mut [u8], flags: u8, length: u16, opcode: u16, field_a: u16) {
     pkt[..16].fill(0);
@@ -260,7 +260,7 @@ fn parse(iotc: &Iotc, raw: &[u8], from: SocketAddr) -> Option<Inbound> {
     }
 }
 
-// ---- AV (tutk-host/av/session.c, ioctrl.c, transport.c) ----
+// ---- AV ----
 
 const OPCODE_SUPPORT: [u8; 20] = [
     0x04, 0, 0, 0, 0xfb, 0x07, 0x1f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0,
@@ -730,7 +730,7 @@ mod tests {
 
     #[test]
     fn kit_worked_example() {
-        // tutk-kit/docs/iotc/15-wire-format.md: one block under a test key.
+        // One block under a test key.
         let key: [u8; 16] = [0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55, 0xcc, 0xbb, 0xaa, 0x99, 0x00, 0xff, 0xee, 0xdd];
         let plain: [u8; 16] = [4, 3, 2, 1, 8, 7, 6, 5, 0xc, 0xb, 0xa, 9, 0x10, 0xf, 0xe, 0xd];
         let mut b = [0u32; 4];

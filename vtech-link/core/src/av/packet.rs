@@ -1,6 +1,5 @@
 //! AV packet codecs: the 8-byte header and the per-class bodies (login, login reply, ACK, report, RTT,
-//! the FEC envelope and the control frame). Layouts: `docs/vtech-link-design/40-av-client.md`;
-//! reference `tutk-host/av/session.c` (`build_login`), `av/transport.c`, `av/ioctrl.c`.
+//! the FEC envelope and the control frame). Layouts: `docs/vtech-link-design/40-av-client.md`.
 
 pub const CLASS_LOGIN: u8 = 0x00;
 pub const CLASS_ACK: u8 = 0x09;
@@ -13,7 +12,7 @@ pub const VERSION: u16 = 0x000c;
 pub const FLAG_STATS: u8 = 0x08;
 
 pub const LOGIN_REPLY: u8 = 0x21;
-/// The login width for a camera protocol version of 9 or more (`av/session.c:229`).
+/// The login width for a camera protocol version of 9 or more.
 pub const LOGIN_WIDTH: usize = 0x101;
 
 /// Control classes at frame `+0x01`.
@@ -30,7 +29,7 @@ pub const SUBHEADER: usize = 0x14;
 /// The most NAK entries in one ACK.
 pub const MAX_NAKS: usize = 32;
 
-/// The opcode-support block every login advertises (`av/session.c` `av_opcode_support`).
+/// The opcode-support block every login advertises.
 pub const OPCODE_SUPPORT: [u8; 20] = [
     0x04, 0, 0, 0, 0xfb, 0x07, 0x1f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0,
 ];
@@ -66,8 +65,7 @@ fn header(pkt: &mut [u8], class: u8, flags: u8) {
     put16(pkt, 2, VERSION);
 }
 
-/// Write the sender's running packet count, which goes on classes 0x09, 0x0a and 0x0c only
-/// (`av/session.c:37`).
+/// Write the sender's running packet count, which goes on classes 0x09, 0x0a and 0x0c only.
 pub fn stamp(pkt: &mut [u8], counter: u16) -> bool {
     if matches!(pkt.first(), Some(&(CLASS_ACK | CLASS_REPORT | CLASS_DATA))) {
         put16(pkt, 4, counter);
@@ -77,8 +75,8 @@ pub fn stamp(pkt: &mut [u8], counter: u16) -> bool {
     }
 }
 
-/// Login packet `n` (0 or 1) with credential mode 0: the password goes in clear inside DTLS
-/// (`av/session.c` `build_login`). `account` and `password` are truncated to `LOGIN_WIDTH - 1` bytes.
+/// Login packet `n` (0 or 1) with credential mode 0: the password goes in clear inside DTLS.
+/// `account` and `password` are truncated to `LOGIN_WIDTH - 1` bytes.
 pub fn login(n: u8, nonce: u32, account: &str, password: &str, hs: u16) -> Vec<u8> {
     let w = LOGIN_WIDTH;
     let extra = 2 * usize::from(n.min(1));
@@ -130,7 +128,7 @@ pub struct Ack<'a> {
     pub naks: &'a [u16],
 }
 
-/// An ACK (class 0x09): 24 bytes, or `0x16 + 2n` with `n` NAKs (`av/transport.c:114`).
+/// An ACK (class 0x09): 24 bytes, or `0x16 + 2n` with `n` NAKs.
 pub fn ack(a: &Ack<'_>) -> Vec<u8> {
     let naks = a.naks.get(..a.naks.len().min(MAX_NAKS)).unwrap_or_default();
     let mut p = vec![0u8; (0x16 + 2 * naks.len()).max(24)];
@@ -148,7 +146,7 @@ pub fn ack(a: &Ack<'_>) -> Vec<u8> {
     p
 }
 
-/// A report (class 0x0a, flags 0x08), 16 bytes (`av/transport.c:141`).
+/// A report (class 0x0a, flags 0x08), 16 bytes.
 pub fn report(clock: u16, rtt_ms: u16) -> [u8; 16] {
     let mut p = [0u8; 16];
     header(&mut p, CLASS_REPORT, FLAG_STATS);
@@ -157,7 +155,7 @@ pub fn report(clock: u16, rtt_ms: u16) -> [u8; 16] {
     p
 }
 
-/// The answer to a report (class 0x0b), 20 bytes, echoing its timestamp (`av/transport.c:152`).
+/// The answer to a report (class 0x0b), 20 bytes, echoing its timestamp.
 pub fn rtt(echo: u16, rtt_ms: u16) -> [u8; 20] {
     let mut p = [0u8; 20];
     header(&mut p, CLASS_RTT, 0);
@@ -194,7 +192,7 @@ pub fn body_offset(pkt: &[u8]) -> Option<usize> {
     (pkt.len() >= b).then_some(b)
 }
 
-/// A class-0x0c packet split into its FEC group header and its frame (`av/transport.c:60`).
+/// A class-0x0c packet split into its FEC group header and its frame.
 pub struct Envelope<'a> {
     pub group: &'a [u8],
     pub frame: &'a [u8],

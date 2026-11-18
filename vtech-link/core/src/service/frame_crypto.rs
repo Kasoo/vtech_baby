@@ -1,4 +1,4 @@
-//! Per-frame media crypto. Port of `vtech_lan/crypto.py`:
+//! Per-frame media crypto:
 //!
 //! ```text
 //! frame     = wrapped_key[32] || nonce[12] || tag[16] || body

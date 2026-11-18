@@ -1,13 +1,13 @@
 //! The LAN-only rule: every datagram goes to the limited broadcast address or into a directly attached
-//! IPv4 subnet, or not at all. Port of `tutk-host/global/egress.c`. The same interface list gives the
-//! discovery broadcast targets.
+//! IPv4 subnet, or not at all. The same interface list gives the discovery
+//! broadcast targets.
 
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-/// How long the interface list is reused before it is read again (`egress.c:25`).
+/// How long the interface list is reused before it is read again.
 const REFRESH: Duration = Duration::from_secs(1);
 const WARN_EVERY: Duration = Duration::from_secs(60);
 

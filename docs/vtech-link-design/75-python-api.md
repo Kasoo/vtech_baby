@@ -121,7 +121,8 @@ Differences from the API above:
 | `iotc_rejected` / `auth_key` | `AuthFailed` | `-68` |
 | `iotc_rejected` / `max_sessions` | `CapacityExceeded` | `-48` |
 | `iotc_rejected` / `no_key_auth`, `port`, `other:N` | `VtechError` | `-69`, `-67`, None |
-| `av_auth_failed` | `AuthFailed` | `-20009` |
+| `av_auth_failed` / `dtls_alert:N`, `login_rejected:N` | `AuthFailed` | `-20009` |
+| `av_auth_failed` / `dtls_silent` | `AuthUnanswered` (an `AuthFailed`; retried before reauth) | `-20009` |
 | `closed` / `remote_close` | `SessionGone` | `-22` |
 | `closed` / `remote_timeout` | `SessionGone` | `-23` |
 | `closed` / `local`, `dtls_alert:N`, `thread_failed` | `SessionGone` | None |

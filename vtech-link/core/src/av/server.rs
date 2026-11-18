@@ -1,7 +1,6 @@
 //! `AvServer`: the talk-back channel. We serve a plain (not DTLS) AV channel on a free IOTC channel; the
 //! camera logs in as a client and receives our audio, paced one frame per 20 ms. Design:
-//! `docs/vtech-link-design/50-talkback.md`; reference `tutk-host/av/talkback.c`, `av/media_send.c`,
-//! `vtech_lan/talkback.py`.
+//! `docs/vtech-link-design/50-talkback.md`.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -13,7 +12,7 @@ use crate::error::LinkError;
 /// IOTC datatypes on the talk-back channel.
 pub const DATATYPE_PLAIN: u8 = 0;
 pub const DATATYPE_DTLS: u8 = 1;
-/// Our answer to the camera's DTLS ClientHello, which makes it log in plainly (`av/talkback.c:22`).
+/// Our answer to the camera's DTLS ClientHello, which makes it log in plainly.
 pub const REFUSE_DTLS: &[u8] = b"recv dtls data!";
 
 const OP_HELLO: u32 = 0x40;
@@ -106,15 +105,14 @@ pub struct AvServer {
     stats: ServerStats,
 }
 
-/// The media sub-header checksum: a u16 sum of the sub-header (checksum field zero) and the payload
-/// (`av/media_send.c:18`).
+/// The media sub-header checksum: a u16 sum of the sub-header (checksum field zero) and the payload.
 fn checksum(sub: &[u8], payload: &[u8]) -> u16 {
     sub.iter()
         .chain(payload)
         .fold(0u16, |s, &b| s.wrapping_add(u16::from(b)))
 }
 
-/// The frame info `talkback.py` sends: u16 codec, u8 flags 2, 9 zero bytes, u32 ms timestamp.
+/// The talk-back frame info: u16 codec, u8 flags 2, 9 zero bytes, u32 ms timestamp.
 pub fn frame_info(wall_ms: u32) -> [u8; 16] {
     let mut info = [0u8; 16];
     info[..2].copy_from_slice(&CODEC_ALAW.to_le_bytes());
@@ -194,7 +192,7 @@ impl AvServer {
         }
     }
 
-    /// The camera's login (`av/talkback.c:30`). Any credentials are accepted; every login packet is
+    /// The camera's login. Any credentials are accepted; every login packet is
     /// answered, and the first moves us on.
     fn on_login(&mut self, now: Instant, pkt: &[u8]) {
         let sub = pkt.get(1).copied();
@@ -359,7 +357,7 @@ impl AvServer {
     }
 
     /// One frame as fragments of 1024 bytes with the frame info at the end of the last, each with the
-    /// error-correction group header (`av/media_send.c` `send_frame`).
+    /// error-correction group header.
     fn send_frame(&mut self, data: &[u8], info: &[u8; 16]) {
         let chunks: Vec<&[u8]> = if data.is_empty() {
             vec![&[]]

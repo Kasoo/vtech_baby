@@ -11,6 +11,8 @@ Protocol: docs/vtech-lan-kit/docs/40, 50.
   The control session is untouched; its reader thread keeps taking IOCtrls while this thread reads
   frames.
 - The source (`LinkMediaSource`) yields `MediaFrame`s that `_vtech_link` has already decrypted.
+- A stream that brings no first keyframe, or stops bringing video, is ended: its subscribers get end
+  of stream, and the next one starts the camera's stream again.
 - Subscribers get MPEG-TS bytes (`avmux`) through a callback run on the media thread, which must not
   block. A new subscriber starts at the next keyframe. `None` means end of stream: the session went
   away or the stream is shut down; reconnecting is the subscriber's business.
@@ -32,6 +34,7 @@ _LOG = logging.getLogger(__name__)
 
 GRACE_S = 5.0                 # keep streaming this long after the last subscriber leaves
 FIRST_KEYFRAME_S = 10.0       # give up a start that produces no keyframe in this time
+NO_VIDEO_S = 15.0             # once streaming, end a stream that brings no video for this long
 SNAPSHOT_MAX_AGE_S = 60.0     # when idle, reuse a snapshot this recent instead of starting the stream
 RECV_STATS_S = 30.0           # how often the receive counters are refreshed while streaming
 LINK_WAIT_S = 0.2             # how long one `LinkMediaSource.poll` waits for a frame
@@ -120,12 +123,13 @@ class LiveStream:
 
     def __init__(self, get_session: Callable[[], Any], name: str = "",
                  grace_s: float = GRACE_S, first_keyframe_s: float = FIRST_KEYFRAME_S,
+                 no_video_s: float = NO_VIDEO_S,
                  on_running: Callable[[bool], None] | None = None,
                  audio_held: Callable[[], bool] = lambda: False):
         """`on_running(bool)` is called on the media thread when the camera's stream starts and stops."""
         self._get_session, self.name = get_session, name
         self._on_running, self._audio_held = on_running, audio_held
-        self._grace_s, self._first_keyframe_s = grace_s, first_keyframe_s
+        self._grace_s, self._first_keyframe_s, self._no_video_s = grace_s, first_keyframe_s, no_video_s
         self._lock = threading.Condition()
         self._subs: list[Subscription] = []
         self._thread: threading.Thread | None = None
@@ -243,28 +247,18 @@ class LiveStream:
                     self._end_all()                             # subscribers reconnect on their own
         finally:
             with self._lock:
-                self._thread = None
+                if self._thread is threading.current_thread():   # not a thread started since the idle exit
+                    self._thread = None
                 self._lock.notify_all()
 
     def _stream(self, session: Any) -> None:
         from .avmux import AvTsMuxer, join_offset               # noqa: PLC0415
 
         source = session.media_source()
-        source.start()
-        if not self._audio_held():
-            session.send(ops.AUDIO_START)
-        for op in (ops.VIDEO_FULLRATE, ops.START):
-            session.send(op)
         st = self.stats
-        # The receive counters run for the life of the channel, so losses are counted from here.
-        st.update(starts=st["starts"] + 1, video=0, audio=0, bad=0, keyframes=0, bytes=0,
-                  receive=source.stats())
-        self._set_running(True)
-        started = t0 = time.monotonic()
-        idle_since: float | None = None
+        running = False
+        t0 = last_video = 0.0
         mux: AvTsMuxer | None = None
-        recv_at = started
-        _LOG.debug("%s: live view started", self.name)
 
         def update_receive() -> None:
             """Refresh the receive counters, logging frames given up on or dropped since the last."""
@@ -300,6 +294,20 @@ class LiveStream:
                 self._call(s, data)
 
         try:
+            # Inside the try, so a start that fails part-way is stopped like a running stream.
+            source.start()
+            if not self._audio_held():
+                session.send(ops.AUDIO_START)
+            for op in (ops.VIDEO_FULLRATE, ops.START):
+                session.send(op)
+            # The receive counters run for the life of the channel, so losses are counted from here.
+            st.update(starts=st["starts"] + 1, video=0, audio=0, bad=0, keyframes=0, bytes=0,
+                      receive=source.stats())
+            running = True
+            self._set_running(True)
+            started = t0 = last_video = recv_at = time.monotonic()
+            idle_since: float | None = None
+            _LOG.debug("%s: live view started", self.name)
             while True:
                 with self._lock:
                     if self._closed:
@@ -316,6 +324,8 @@ class LiveStream:
                 if mux is None and time.monotonic() - started > self._first_keyframe_s:
                     raise VtechError(f"no keyframe within {self._first_keyframe_s:.0f} s of START",
                                      call="live view")
+                if mux is not None and time.monotonic() - last_video > self._no_video_s:
+                    raise VtechError(f"no video for {self._no_video_s:.0f} s", call="live view")
                 for f in source.poll():
                     st["bad"] += f.lost_before
                     if f.data is None:
@@ -332,6 +342,7 @@ class LiveStream:
                         _LOG.debug("%s: dropped an empty video frame (%d bytes)", self.name, len(au))
                         continue
                     st["video"] += 1
+                    last_video = time.monotonic()
                     key = is_keyframe(au)
                     if key:
                         st["keyframes"] += 1
@@ -343,7 +354,8 @@ class LiveStream:
                     if mux is not None:
                         emit(mux.video(au, pts(f.arrived), key))
         finally:
-            update_receive()
+            if running:
+                update_receive()
             for op in (ops.STOP, ops.AUDIO_STOP):
                 try:
                     session.send(op)
@@ -352,6 +364,7 @@ class LiveStream:
             source.close()
             if mux is not None:
                 mux.close()
-            self._set_running(False)
-            _LOG.debug("%s: live view stopped (%s)", self.name,
-                       {k: st[k] for k in ("video", "audio", "keyframes", "bad", "bytes", "receive")})
+            if running:
+                self._set_running(False)
+                _LOG.debug("%s: live view stopped (%s)", self.name,
+                           {k: st[k] for k in ("video", "audio", "keyframes", "bad", "bytes", "receive")})

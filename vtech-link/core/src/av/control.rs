@@ -1,8 +1,7 @@
 //! `ControlStream`: the reliable, ordered control channel inside the AV stream. Outbound user frames go
 //! through a window of unacknowledged frames and are resent until the camera's ACK covers them; inbound
 //! fragments are reassembled by frame number and delivered in order. Design:
-//! `docs/vtech-link-design/40-av-client.md` ("The control stream"); reference `tutk-host/av/ioctrl.c`,
-//! with inbound keyed as the kit has it (`tutk-kit/docs/av/40-ioctrl.md`), not as `tutk-host` does.
+//! `docs/vtech-link-design/40-av-client.md` ("The control stream").
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -175,7 +174,7 @@ impl ControlStream {
         });
     }
 
-    /// The camera's ACK `+0x0c`: it has every frame of ours up to `acked` (`av/ioctrl.c:77`).
+    /// The camera's ACK `+0x0c`: it has every frame of ours up to `acked`.
     pub fn on_ack(&mut self, now: Instant, acked: u16) {
         if acked == 0xffff {
             return;
@@ -307,7 +306,7 @@ impl ControlStream {
         self.inflight.iter().map(|f| f.last_sent + self.retransmit).min()
     }
 
-    /// Resend every frame whose last send is `retransmit` old (`av/ioctrl.c:55`).
+    /// Resend every frame whose last send is `retransmit` old.
     pub fn handle_timeout(&mut self, now: Instant) {
         for f in self.inflight.iter_mut() {
             if now >= f.last_sent + self.retransmit {

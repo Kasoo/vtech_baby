@@ -463,7 +463,7 @@ fn no_media_before_devinfo() {
     let link = connect(&cam);
     let mut media = link.media();
     media.start(SEC).unwrap();
-    // START is acknowledged, but the camera sends nothing until DEVINFO (seen live 2026-10-22).
+    // START is acknowledged, but the camera sends nothing until DEVINFO.
     link.send(OP_START, &[0; 8], SEC).unwrap();
     let (video, audio) = collect(&mut media, 1, 500 * MS);
     assert!(video.is_empty() && audio.is_empty());

@@ -41,7 +41,7 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._hub: Hub | None = None
         self._model: str | None = None                    # from the connection test
-        self._pending: tuple[str, dict[str, str]] | None = None   # entry awaiting the model warning
+        self._pending: tuple[str, dict[str, Any]] | None = None   # entry awaiting the model warning
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self.async_step_camera()

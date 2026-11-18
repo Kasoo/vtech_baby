@@ -58,7 +58,10 @@ class Hub:
     def module_info(self) -> dict[str, Any] | None:
         if self.link is None:
             return None
-        return {"link": link.info(self.link)}
+        try:
+            return {"link": link.info(self.link)}
+        except VtechError as err:
+            return {"link": {"error": str(err)}}
 
     # ── Sessions ─────────────────────────────────────────────────────────────
     def session(self, uid: str, authkey: str, password: str, account: str = "admin", *,

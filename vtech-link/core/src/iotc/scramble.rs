@@ -1,7 +1,6 @@
 //! The keyed whitening applied to every IOTC datagram except the connect record: 16-byte blocks are
 //! rotated, XORed with the key and bit-permuted; a 2, 4 or 8-byte tail is XORed and reordered, and any
-//! other tail is only XORed. Port of `tutk-host/iotc/wire.c:33–121`; wire authority
-//! `tutk-kit/docs/iotc/15-wire-format.md` ("The scramble transform").
+//! other tail is only XORed.
 
 /// The fixed key: the first 16 bytes of "Charlie is the designer of P2P!!". Our licence has no
 /// `keyMask`, so nothing is mixed in.
@@ -9,7 +8,7 @@ pub const KEY: [u8; 16] = *b"Charlie is the d";
 
 const ROT: [u32; 4] = [1, 5, 9, 13];
 
-/// The block bit permutation (`wire.c:33`).
+/// The block bit permutation.
 const fn permute(b: [u32; 4]) -> [u32; 4] {
     let [b0, b1, b2, b3] = b;
     let t = (b0 >> 16 & 0xff) | (b0 & 0xff00) | b0 << 24;
@@ -162,7 +161,7 @@ mod tests {
 
     #[test]
     fn kit_worked_example() {
-        // T-IOTC-1: tutk-kit/docs/iotc/15-wire-format.md, one block under a test key.
+        // T-IOTC-1: one block under a test key.
         let key: [u8; 16] = [
             0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55, 0xcc, 0xbb, 0xaa, 0x99, 0x00, 0xff, 0xee, 0xdd,
         ];

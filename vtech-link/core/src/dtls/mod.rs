@@ -1,5 +1,5 @@
 //! `DtlsClient`: the DTLS 1.2 PSK client on the AV channel, a sans-IO wrapper around `dimpl`.
-//! Design: `docs/vtech-link-design/30-dtls.md`; reference `tutk-host/iotc/dtls.c`, `av/init.c:112–150`.
+//! Design: `docs/vtech-link-design/30-dtls.md`.
 //!
 //! Records travel as IOTC data with datatype 1. The PSK identity is `"AUTHPWD_" + account` and the key
 //! `SHA-256(password)`.
@@ -45,7 +45,7 @@ impl Suite {
 #[derive(Debug, Clone)]
 pub struct DtlsConfig {
     pub suite: Suite,
-    /// The first handshake retransmission; it doubles each time (`iotc/dtls.c:97`).
+    /// The first handshake retransmission; it doubles each time.
     pub flight_start_rto: Duration,
     /// The whole handshake, the link's `av_timeout`.
     pub handshake_timeout: Duration,
@@ -119,7 +119,7 @@ impl DtlsClient {
     /// A client for `account` and `password`; its ClientHello is ready to poll at once.
     pub fn new(config: DtlsConfig, account: &str, password: &str, now: Instant) -> Result<Self, LinkError> {
         let identity = format!("{IDENTITY_PREFIX}{account}").into_bytes();
-        // The identity goes in a u16-length field; the SDK caps it at 0x77 bytes (`av/init.c:124`).
+        // The identity goes in a u16-length field; the SDK caps it at 0x77 bytes.
         if identity.len() > 0x77 {
             return Err(LinkError::InvalidArgument("account name too long"));
         }
@@ -245,7 +245,7 @@ impl DtlsClient {
         Ok(())
     }
 
-    /// Stop without sending an alert, as today's client does (quiet shutdown, `iotc/dtls.c`).
+    /// Stop without sending an alert (quiet shutdown).
     pub fn close(&mut self) {
         if !self.is_ended() {
             self.end(LinkError::Closed(CloseReason::Local));

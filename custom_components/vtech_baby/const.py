@@ -39,3 +39,5 @@ SELF_TRIGGER_S = 10.0                  # sound events this long after a lullaby 
 # The parent handset caps the camera to 720p and lifts the cap within seconds, live, but resolution
 # isn't pushed (kit 40): re-read it this long after each parent-unit change (cumulative waits).
 QUALITY_REREAD_S = (3.0, 7.0)
+UNREAD_REREAD_S = (30.0, 60.0, 120.0)   # when to GET again what a full read timed out on
+AUTH_UNANSWERED_TRIES = 3               # unanswered password checks in a row before re-authentication

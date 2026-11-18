@@ -1,7 +1,6 @@
 //! Parity recovery for class-0x0c media packets: the camera follows each group of `k` data packets
 //! with one Reed-Solomon parity packet over GF(256), and with the parity and `k - 1` data packets the
-//! missing one is rebuilt. Port of `tutk-host/av/fec.c`; wire authority `tutk-kit/docs/av/80-fec.md`
-//! and `av/90-fifos.md` ("FEC envelope").
+//! missing one is rebuilt.
 
 /// A shard: the media sub-header and payload, zero-padded to this length.
 pub const BLOCK: usize = 1044;
@@ -13,12 +12,12 @@ const SLOTS: usize = 4;
 /// The first byte of a parity packet's sub-header (the data class).
 const CLASS_DATA: u8 = 0x0c;
 
-/// Generator row for `k = 20` (`fec.c:18`).
+/// Generator row for `k = 20`.
 const ROW_20: [u8; 20] = [
     0x8f, 0xae, 0x5b, 0x70, 0xd0, 0xcd, 0x54, 0x43, 0x39, 0xa3, 0xc9, 0x58, 0x1b, 0xbb, 0xb3, 0x18, 0x1b,
     0x1c, 0x12, 0x14,
 ];
-/// Generator row for `k = 25` (`fec.c:21`).
+/// Generator row for `k = 25`.
 const ROW_25: [u8; 25] = [
     0x19, 0x19, 0x6f, 0x6f, 0x53, 0x53, 0x24, 0x24, 0xb0, 0xb0, 0xd0, 0xd0, 0x92, 0x92, 0xf3, 0xf3, 0x9e,
     0x9e, 0x89, 0x89, 0xf7, 0xf7, 0xe1, 0xe1, 0x01,

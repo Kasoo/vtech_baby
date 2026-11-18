@@ -78,6 +78,16 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   unknown and a standalone repro (`tests/live/probe_stall.py`) hasn't triggered it. It happened in HA
   with a speaker volume write (`0x731` word2) about 25 s after the connect: for the next ~30 s,
   `0x32b` (talk-back's audio format) and `0x736` (lullaby) got no reply. Re-reads keep their
-  previous values and stop after two timeouts, and a write during the stall fails cleanly.
+  previous values and stop after two timeouts, and a write during the stall fails cleanly. What a full
+  read timed out on or skipped is read again 30, 60 and 120 s later (`UNREAD_REREAD_S`); a read at
+  reconnect keeps those fields' values from before the session was lost until then.
+- **An unanswered password check is ambiguous.** The camera answers a wrong AV password with silence in
+  the DTLS handshake (`av_auth_failed`/`dtls_silent`, `AuthUnanswered`), and a lost reply looks the
+  same. The manager starts reauth only after three in a row (`AUTH_UNANSWERED_TRIES`): at setup they
+  are tried back to back, on reconnect with the usual backoff. An explicit rejection (a DTLS alert, a
+  refused login, a wrong authKey) starts reauth at once. The config flow's probe isn't retried.
+- **A live view that stops bringing video is ended** after 15 s (`NO_VIDEO_S`), like one that brings no
+  first keyframe within 10 s: subscribers get end of stream, and the next one sends STOP and START
+  again. The loopback HTTP handler doesn't watch its client; it relies on the stream ending.
 - **A native crash in the module kills Home Assistant** (see "Decisions" for what can still cause
   one). A Rust panic doesn't: it loses that camera's session, which reconnects.

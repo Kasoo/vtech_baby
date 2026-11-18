@@ -40,8 +40,8 @@ fn sealed(mut pkt: Vec<u8>) -> Vec<u8> {
     pkt
 }
 
-/// The connect ack as the kit specifies it. tutk-host leaves `+0x2c..0x30` uninitialised
-/// (`handshake.c:57`), so its fixture carries 4 bytes of stack there; the kit has them zero.
+/// The connect ack as the kit specifies it. The fixture's `+0x2c..0x30` carries 4 bytes
+/// of stack garbage; the kit has them zero.
 fn ack_wire(f: &Fixtures) -> Vec<u8> {
     let mut p = f.get("iotc.connect_ack.plain").to_vec();
     p[0x2c..0x30].fill(0);
@@ -49,7 +49,7 @@ fn ack_wire(f: &Fixtures) -> Vec<u8> {
     sealed(p)
 }
 
-// ---- codec against tutk-host ----
+// ---- codec known answers ----
 
 #[test]
 fn key_is_the_licence_key() {

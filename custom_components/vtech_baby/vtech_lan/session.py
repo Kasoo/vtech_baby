@@ -92,7 +92,12 @@ class SessionBase:
                 raise RuntimeError("Session objects are single-use; build a new one to reconnect")
             self._used = True
         self._open()
-        self._open_ok = True
+        with self._lock:
+            self._open_ok = True
+            closed = self._closed
+        if closed:                              # close() ran during the open and left the transport to us
+            self._close_transport()
+            raise SessionGone("connect: closed while connecting", call="connect")
         self._start_thread("reader", self._read_loop)
         try:
             self._after_open()
@@ -120,12 +125,13 @@ class SessionBase:
             if self._closed:
                 return
             self._closed = True
+            opened = self._open_ok              # False during an open: connect() then closes the transport
         self._stop.set()
         me = threading.current_thread()
         for t in self._threads:
             if t is not me:
                 t.join(timeout=self.recv_timeout_ms / 1000 + self.request_timeout_s + 1)
-        if self._open_ok:
+        if opened:
             self._close_transport()
         _LOG.debug("%s: closed", self.name)
 
@@ -436,7 +442,10 @@ class LinkSession(SessionBase):
                 if done(page):
                     return out
         finally:
-            ex.close()
+            try:
+                self._call(op.name, ex.close)
+            except VtechError:
+                pass
 
     def _read_loop(self) -> None:
         while not self._stop.is_set():

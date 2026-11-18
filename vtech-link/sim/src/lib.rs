@@ -44,7 +44,7 @@ pub const OP_GET_AUDIO_OUT_FORMAT: u32 = 0x32a;
 pub const OP_GET_AUDIO_OUT_FORMAT_REPLY: u32 = 0x32b;
 pub const MODEL: &str = "RM5754";
 pub const VENDOR: &str = "vtech";
-/// The firmware version in `DEVINFO`, as its bytes read most significant first (`ops.py`).
+/// The firmware version in `DEVINFO`, as its bytes read most significant first.
 pub const FIRMWARE: [u8; 4] = [1, 2, 3, 4];
 
 /// How long the camera's loop waits for a datagram before running its timers.
@@ -70,7 +70,7 @@ pub enum WrongPassword {
     Alert,
 }
 
-/// The `0x331` DEVINFO body as `ops.py` `dec_devinfo` reads it: model at 0, vendor at 16, firmware
+/// The `0x331` DEVINFO body as the integration reads it: model at 0, vendor at 16, firmware
 /// bytes at 32.
 pub fn devinfo() -> Vec<u8> {
     let mut r = vec![0u8; 36];

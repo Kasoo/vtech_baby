@@ -1,4 +1,4 @@
-//! The FEC rebuild checked against what tutk-host's `av_fec_on_packet` hands to reassembly.
+//! The FEC rebuild checked against known-answer reassembly input.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

@@ -5,7 +5,8 @@ Runtime rules: docs/vtech-lan-kit/docs/90-ha-runtime.md.
   sessions and runs each camera's live view and talk-back.
 - Every session call runs in the executor; pushes arrive on the session's reader thread and are
   marshalled to the event loop with `call_soon_threadsafe`.
-- Pushes drive state (`local_push`); a full re-read happens on every (re)connect.
+- Pushes drive state (`local_push`); a full re-read happens on every (re)connect, and what it times
+  out on is read again later.
 - After a lost session or a failed connect, reconnect with backoff 10 s → 5 min.
 """
 from __future__ import annotations
@@ -14,6 +15,7 @@ import asyncio
 import dataclasses
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, Callable
@@ -27,6 +29,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    AUTH_UNANSWERED_TRIES,
     CONF_ACCOUNT,
     CONF_AUTHKEY,
     CONF_AV_PASSWORD,
@@ -40,11 +43,13 @@ from .const import (
     RECONNECT_MIN_S,
     SELF_TRIGGER_S,
     SIGNAL_EVENT,
+    UNREAD_REREAD_S,
 )
 from .vtech_lan import ops
 from .vtech_lan.audio import LiveAudio
 from .vtech_lan.errors import (
     AuthFailed,
+    AuthUnanswered,
     MediaError,
     ProtocolError,
     RequestTimeout,
@@ -158,35 +163,59 @@ _READS: tuple[tuple[str, str], ...] = (
 )
 
 
-def read_state(session: LinkSession, previous: CameraState | None = None) -> CameraState:
-    """All GETs. A failed read keeps the previous value (None on a first read); a lost session raises.
+def read_fields(session: LinkSession, fields: Sequence[str]) -> tuple[dict[str, Any], list[str]]:
+    """GET each of `fields`. Returns the values read, and the fields a timeout left unread. A lost
+    session raises.
 
-    After two timeouts in a row the rest is skipped: the camera has stopped answering for now (seen live
-    for ~35 s, cause unknown; AGENTS.md, "Known issues"), and the keepalive decides whether the session is lost.
+    After two timeouts in a row the rest is skipped: the camera has stopped answering for now, and the
+    keepalive decides whether the session is lost.
     """
-    st = dataclasses.replace(previous) if previous is not None else CameraState()
-    st.devinfo, st.connection_mode = session.devinfo, session.connection_mode()
+    getters = dict(_READS)
+    values: dict[str, Any] = {}
+    unread: list[str] = []
     timeouts = 0
-    for field, getter in _READS:
+    for i, field in enumerate(fields):
+        getter = getters[field]
         try:
-            setattr(st, field, getattr(session, getter)())
+            values[field] = getattr(session, getter)()
             timeouts = 0
         except RequestTimeout as err:
             timeouts += 1
+            unread.append(field)
             _LOG.warning("%s: %s failed: %s", session.name, getter, err)
             if timeouts >= 2:
                 _LOG.warning("%s: camera not answering; skipping the rest of this re-read", session.name)
+                unread.extend(fields[i + 1:])
                 break
         except ProtocolError as err:
             _LOG.warning("%s: %s failed: %s", session.name, getter, err)
+    return values, unread
+
+
+def read_state(session: LinkSession, previous: CameraState | None = None) -> tuple[CameraState, list[str]]:
+    """All GETs. Returns the state, and the fields a timeout left unread (`read_fields`). A failed read
+    keeps the previous value (None on a first read)."""
+    st = dataclasses.replace(previous) if previous is not None else CameraState()
+    st.devinfo, st.connection_mode = session.devinfo, session.connection_mode()
+    values, unread = read_fields(session, [field for field, _ in _READS])
+    for field, value in values.items():
+        setattr(st, field, value)
     if st.params is not None and st.temp_alert is not None:
         st.temp_state = derive_temp_state(st.params.temp_c, st.temp_alert)
-    return st
+    return st, unread
 
 
-def _connect_and_read(session: LinkSession) -> CameraState:
+def _connect_and_read(session: LinkSession, previous: CameraState | None) -> tuple[CameraState, list[str]]:
+    """Connect and read everything. What a timeout left unread keeps its value from `previous`, the
+    state before the session was lost; what only pushes report starts unknown."""
     session.connect()
-    return read_state(session)
+    st, unread = read_state(session)
+    if previous is not None:
+        for field in unread:
+            setattr(st, field, getattr(previous, field))
+        if st.temp_state is None and st.params is not None and st.temp_alert is not None:
+            st.temp_state = derive_temp_state(st.params.temp_c, st.temp_alert)
+    return st, unread
 
 
 def apply_push(st: CameraState, push: Push) -> bool:
@@ -241,6 +270,8 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
         self.last_error: str | None = None
         self._reconnect: asyncio.Task | None = None
         self._quality_reread: asyncio.Task | None = None
+        self._unread_reread: asyncio.Task | None = None
+        self._auth_unanswered = 0               # consecutive connects the password check went unanswered
         self._closing = False
         self._lullaby_stopped = float("-inf")
         self.talking = False
@@ -264,38 +295,85 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
     async def _async_connect(self) -> None:
         session = self._new_session()
         try:
-            state = await self.hass.async_add_executor_job(_connect_and_read, session)
+            state, unread = await self.hass.async_add_executor_job(_connect_and_read, session, self.data)
         except BaseException:
             await self.hass.async_add_executor_job(session.close)
             raise
         if self._closing:
             await self.hass.async_add_executor_job(session.close)
             return
-        self.session, self.failures, self.last_error = session, 0, None
+        if not session.connected:
+            # Lost during the read: `_on_lost` ignores a session that isn't the current one yet.
+            await self.hass.async_add_executor_job(session.close)
+            raise SessionGone("session lost while reading the camera's state", call="connect")
+        self.session, self.failures, self.last_error, self._auth_unanswered = session, 0, None, 0
         _LOG.info("%s: connected via %s (%s)", self.name, state.connection_mode, state.devinfo)
         # The credentials work: withdraw any reauth prompt still open.
         for flow in self.config_entry.async_get_active_flows(self.hass, {SOURCE_REAUTH}):
             self.hass.config_entries.flow.async_abort(flow["flow_id"])
         self.async_set_updated_data(state)
+        self._schedule_unread_reread(unread)
 
     async def async_first_connect(self) -> None:
-        """Setup-time connect: maps failures to HA's setup exceptions."""
-        try:
-            await self._async_connect()
-        except AuthFailed as err:
-            raise ConfigEntryAuthFailed(f"camera rejected the credentials: {err}") from err
-        except VtechError as err:
-            self.last_error = str(err)
-            raise ConfigEntryNotReady(f"cannot connect to the camera: {err}") from err
+        """Setup-time connect: maps failures to HA's setup exceptions. An unanswered password check is
+        tried again here, since each setup attempt starts a new manager with no count."""
+        while True:
+            try:
+                await self._async_connect()
+                return
+            except AuthUnanswered as err:
+                self._auth_unanswered += 1
+                if self._auth_unanswered >= AUTH_UNANSWERED_TRIES:
+                    raise ConfigEntryAuthFailed(f"camera rejected the credentials: {err}") from err
+                _LOG.debug("%s: password check unanswered (%d/%d); trying again", self.name,
+                           self._auth_unanswered, AUTH_UNANSWERED_TRIES)
+            except AuthFailed as err:
+                raise ConfigEntryAuthFailed(f"camera rejected the credentials: {err}") from err
+            except VtechError as err:
+                self.last_error = str(err)
+                raise ConfigEntryNotReady(f"cannot connect to the camera: {err}") from err
 
     async def _async_update_data(self) -> CameraState:
         """A full re-read (homeassistant.update_entity). Never polled: update_interval is None."""
         if self.session is None:
             raise HomeAssistantError("camera not connected")
         try:
-            return await self.hass.async_add_executor_job(read_state, self.session, self.data)
+            state, unread = await self.hass.async_add_executor_job(read_state, self.session, self.data)
         except VtechError as err:
             raise HomeAssistantError(str(err)) from err
+        self._schedule_unread_reread(unread)
+        return state
+
+    @callback
+    def _schedule_unread_reread(self, unread: Sequence[str]) -> None:
+        """Read `unread` again later; nothing else would, short of the next reconnect."""
+        if self._unread_reread is not None:
+            self._unread_reread.cancel()            # the full read just done replaces it
+            self._unread_reread = None
+        if unread and not self._closing:
+            self._unread_reread = self.config_entry.async_create_background_task(
+                self.hass, self._async_reread_unread(self.session, list(unread)),
+                f"{DOMAIN} re-read {self.uid[-4:]}")
+
+    async def _async_reread_unread(self, session: LinkSession | None, unread: list[str]) -> None:
+        for delay in UNREAD_REREAD_S:
+            await asyncio.sleep(delay)
+            if session is None or session is not self.session or self._closing or self.data is None:
+                return                              # a reconnect reads everything again
+            try:
+                values, unread = await self.hass.async_add_executor_job(read_fields, session, unread)
+            except VtechError as err:
+                _LOG.debug("%s: re-read failed: %s", self.name, err)
+                return
+            if values and session is self.session and self.data is not None:
+                st = self.data
+                if st.temp_state is None and (params := values.get("params", st.params)) is not None \
+                        and (alert := values.get("temp_alert", st.temp_alert)) is not None:
+                    values["temp_state"] = derive_temp_state(params.temp_c, alert)
+                self.async_patch_state(**values)
+            if not unread:
+                return
+        _LOG.warning("%s: still unread after %d tries: %s", self.name, len(UNREAD_REREAD_S), ", ".join(unread))
 
     @callback
     def _on_push(self, session: LinkSession, push: Push) -> None:
@@ -416,10 +494,17 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
                 return
             except AuthFailed as err:
                 self.last_error = str(err)
-                _LOG.warning("%s: credentials rejected (%s); starting re-authentication", self.name, err)
-                self.config_entry.async_start_reauth(self.hass)
-                return
+                if isinstance(err, AuthUnanswered):
+                    self._auth_unanswered += 1
+                if not isinstance(err, AuthUnanswered) or self._auth_unanswered >= AUTH_UNANSWERED_TRIES:
+                    _LOG.warning("%s: credentials rejected (%s); starting re-authentication", self.name, err)
+                    self.config_entry.async_start_reauth(self.hass)
+                    return
+                self.failures += 1
+                _LOG.debug("%s: password check unanswered (%d/%d); trying again", self.name,
+                           self._auth_unanswered, AUTH_UNANSWERED_TRIES)
             except VtechError as err:
+                self._auth_unanswered = 0
                 self.failures += 1
                 self.last_error = str(err)
                 _LOG.debug("%s: reconnect failed: %s", self.name, err)
@@ -428,7 +513,7 @@ class CameraManager(DataUpdateCoordinator[CameraState]):
     async def async_close(self) -> None:
         """Unload: close this entry's talk-back, live view and session. The hub stays for other entries."""
         self._closing = True
-        for task in (self._reconnect, self._quality_reread):
+        for task in (self._reconnect, self._quality_reread, self._unread_reread):
             if task is not None:
                 task.cancel()
         session, self.session = self.session, None

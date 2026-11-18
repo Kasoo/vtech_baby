@@ -3,6 +3,7 @@
 The real `LinkSession` runs over `FakeLinkModule`; only module preparation (`_prepare_and_load`) is patched out.
 """
 import asyncio
+import time
 from unittest.mock import patch
 
 import pytest
@@ -813,4 +814,74 @@ async def test_choosing_a_lullaby_stops_media(hass: HomeAssistant, fake):
         await asyncio.wait_for(task, 10)
     st = hass.states.get(SPEAKER)
     assert st.attributes["source"] == "Birds" and fake.camera.speaker_ch is None and not entry.runtime_data.talking
+    await unload(hass, entry)
+
+
+# ── Review fixes: unanswered password checks, a session lost during the read, unread fields ──
+SILENT = LinkError("av_auth_failed", "dtls_silent", -20009)
+
+
+async def test_setup_unanswered_password_check_is_retried_before_reauth(hass: HomeAssistant, fake):
+    fake.connect_error = SILENT
+    entry = await setup_entry(hass)
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert len(fake.connects) == 3
+    assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+
+
+async def test_one_unanswered_password_check_on_reconnect_is_not_reauth(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    connect = fake.connect
+
+    def once(*a, **k):
+        fake.connect = connect
+        raise SILENT
+    fake.connect = once
+    fake.kill()
+    await wait_until(lambda: entry.runtime_data.failures == 1)
+    await wait_until(lambda: hass.states.get(TEMP).state == "21")
+    assert not any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+    await unload(hass, entry)
+
+
+async def test_repeated_unanswered_password_checks_on_reconnect_start_reauth(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    before = len(fake.connects)
+    fake.connect_error = SILENT
+    fake.kill()
+    await wait_until(lambda: any(f["context"]["source"] == "reauth"
+                                 for f in hass.config_entries.flow.async_progress()))
+    assert len(fake.connects) - before == 3
+    await unload(hass, entry)
+
+
+async def test_session_lost_during_the_first_read_is_a_failed_connect(hass: HomeAssistant, fake):
+    real = mgr._connect_and_read
+
+    def lost_after_read(session, previous):
+        out = real(session, previous)
+        fake.kill()
+        while session.connected:
+            time.sleep(0.01)
+        return out
+    with patch.object(mgr, "_connect_and_read", lost_after_read):
+        entry = await setup_entry(hass)
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    await wait_until(lambda: fake.link.closed is not None and fake.link.close_calls == 1)
+    await unload(hass, entry)
+
+
+async def test_fields_a_read_timed_out_on_are_read_again(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    m = entry.runtime_data
+    m.session.request_timeout_s = 0.2
+    fake.camera.silent |= {0x733, 0x7A0}                              # camera stops answering
+    with patch.object(mgr, "UNREAD_REREAD_S", (0.3,)):
+        await m.async_refresh()
+        assert 0x709 not in fake.sent_codes()[-2:]                    # skipped
+        before = fake.sent_codes().count(0x709)
+        fake.camera.silent.clear()
+        await wait_until(lambda: fake.sent_codes().count(0x709) == before + 1)
+        await wait_until(lambda: m._unread_reread.done())
+    assert hass.states.get(TEMP).state == "21"
     await unload(hass, entry)

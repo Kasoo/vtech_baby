@@ -1,6 +1,6 @@
 //! `IotcSession`: the sans-IO state machine for one LAN-direct IOTC session (search, connect,
 //! channel data, keepalive, close). Design: `docs/vtech-link-design/20-iotc.md`, "The session state
-//! machine"; reference `tutk-host/iotc/inbound.c`, `discovery.c`, `init.c`, `handshake.c`.
+//! machine".
 
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -247,7 +247,7 @@ impl IotcSession {
                         self.end(LinkError::Closed(CloseReason::RemoteTimeout));
                         return;
                     }
-                    // Every tick once the camera has been quiet, else every other tick (`init.c:89`).
+                    // Every tick once the camera has been quiet, else every other tick.
                     if *silence >= self.config.quiet_ticks || {
                         *alive_ticks = alive_ticks.wrapping_add(1);
                         *alive_ticks % 2 == 0
@@ -347,7 +347,7 @@ impl IotcSession {
         if peer.proto_version < codec::KEY_AUTH_MIN_VERSION {
             return self.end(LinkError::IotcRejected(IotcReject::NoKeyAuth));
         }
-        // Answer with the connect-path probe and then the ack, both unicast (`handshake.c:54`).
+        // Answer with the connect-path probe and then the ack, both unicast.
         self.push_sealed(peer.addr, codec::probe(&self.ids).to_vec());
         self.push_sealed(peer.addr, codec::connect_ack(&self.ids).to_vec());
         self.state = State::Established {

@@ -14,6 +14,7 @@ import pytest
 from vtech_lan import ops
 from vtech_lan.errors import (
     AuthFailed,
+    AuthUnanswered,
     CapacityExceeded,
     ProtocolError,
     RequestTimeout,
@@ -70,7 +71,7 @@ def conn(mod):
     ("iotc_rejected", "max_sessions", -48, CapacityExceeded),
     ("iotc_rejected", "port", -67, VtechError),
     ("av_auth_failed", "dtls_alert:51", -20009, AuthFailed),
-    ("av_auth_failed", "dtls_silent", -20009, AuthFailed),
+    ("av_auth_failed", "dtls_silent", -20009, AuthUnanswered),
     ("closed", "remote_close", -22, SessionGone),
     ("closed", "remote_timeout", -23, SessionGone),
     ("closed", "local", None, SessionGone),
@@ -569,3 +570,95 @@ print("OK", m.__version__)
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     assert out.stdout.startswith("OK 0.")
+
+
+def test_close_during_connect_closes_the_link_once():
+    module = FakeLinkModule()
+    entered, release = threading.Event(), threading.Event()
+    connect = module.connect
+
+    def slow(*a, **k):
+        entered.set()
+        assert release.wait(5)
+        return connect(*a, **k)
+    module.connect = slow
+    s = LinkSession(module, "UID", "k3yAuth8", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
+    errors = []
+
+    def run():
+        try:
+            s.connect()
+        except VtechError as e:
+            errors.append(e)
+    t = threading.Thread(target=run)
+    t.start()
+    assert entered.wait(5)
+    s.close()                                     # while the open is in progress
+    release.set()
+    t.join(5)
+    assert [type(e) for e in errors] == [SessionGone]
+    assert module.opened[0].close_calls == 1
+    assert not s._threads
+
+
+def test_exchange_close_panic_is_a_lost_session():
+    module = FakeLinkModule()
+    s = LinkSession(module, "UID", "k3yAuth8", "pw", recv_timeout_ms=20, request_timeout_s=1, keepalive_s=0)
+    s.connect()
+    link = module.opened[0]
+    exchange = link.exchange
+
+    def panicking(*a, **k):
+        ex = exchange(*a, **k)
+
+        def close():
+            raise PanicException("test panic")
+        ex.close = close
+        return ex
+    link.exchange = panicking
+    assert s.get_params() is not None             # the reply was read; the panic doesn't escape
+    assert not s.connected
+    s.close()
+
+
+def test_log_level_follows_the_logger_and_a_panic_ends_forwarding(caplog):
+    import logging
+
+    from vtech_lan import link
+    module = FakeLinkModule()
+    stop = threading.Event()
+
+    def next_logs(_timeout):
+        if stop.is_set():
+            raise PanicException("test panic")
+        time.sleep(0.01)
+        return [(logging.INFO, "vtech_link_core::runtime", "hello")]
+    module.next_logs = next_logs
+    logger = logging.getLogger(link.__name__)
+    before = logger.level
+    logger.setLevel(logging.INFO)
+    t = threading.Thread(target=link._forward_logs, args=(module,), daemon=True)
+    try:
+        t.start()
+        assert wait_for(lambda: module.log_level == logging.INFO)
+        logger.setLevel(logging.DEBUG)
+        assert wait_for(lambda: module.log_level == logging.DEBUG)
+        stop.set()
+        t.join(5)
+        assert not t.is_alive()
+        assert "no more of them are forwarded" in caplog.text
+    finally:
+        stop.set()
+        logger.setLevel(before)
+
+
+def test_module_info_reports_a_panic(socket_enabled):
+    from fake_link import fake_hub
+    hub = fake_hub(FakeLinkModule())
+    hub.load()
+
+    def panic():
+        raise PanicException("test panic")
+    hub.link.links = panic
+    assert "panicked" in hub.module_info()["link"]["error"]
+    hub.stop()

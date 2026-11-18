@@ -1,4 +1,4 @@
-//! AV tests: the codecs against tutk-host (T-AV-1, T-AV-2), the control stream, media receive and the
+//! AV tests: the codec known answers (T-AV-1, T-AV-2), the control stream, media receive and the
 //! client's login and schedule (`docs/vtech-link-design/85-testing.md`), on a virtual clock.
 
 #![allow(
@@ -28,7 +28,7 @@ fn stamped(mut pkt: Vec<u8>, counter: u16) -> Vec<u8> {
     pkt
 }
 
-// ---- codecs against tutk-host ----
+// ---- codec known answers ----
 
 #[test]
 fn codecs_match_tutk_host() {
@@ -68,7 +68,7 @@ fn codecs_match_tutk_host() {
         stamped(packet::rtt(0xbeef, 0x2a).to_vec(), 0x9999),
         f.get("av.rtt")
     );
-    // tutk-host writes the frame number's low 16 bits as the packet number; we pass the same.
+    // The packet number is the frame number's low 16 bits.
     let user = packet::ctrl_frame(
         packet::CTRL_USER,
         5,
@@ -209,7 +209,7 @@ fn inbound_in_order_with_duplicates_and_reordering() {
 
 #[test]
 fn multi_fragment_then_singles() {
-    // The case tutk-host gets wrong: after a multi-fragment message, packet numbers run ahead of
+    // After a multi-fragment message, packet numbers run ahead of
     // frame numbers, and the stream must keep going.
     let mut cs = ControlStream::new(8, 60 * MS);
     let big: Vec<u8> = (0..2500u32).map(|i| i as u8).collect();

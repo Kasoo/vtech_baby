@@ -68,7 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: VtechConfigEntry) -> boo
     # The worker process is gone, and with it the issue that reported its crashes.
     ir.async_delete_issue(hass, DOMAIN, ISSUE_WORKER_CRASHED)
 
-    # The night-light moved from a select to a light (2026-10-06); drop the stale select entry.
+    # The night-light is a light now; drop the select entry an earlier version registered.
     reg = er.async_get(hass)
     if old := reg.async_get_entity_id("select", DOMAIN, f"{entry.data[CONF_UID]}_night_light"):
         reg.async_remove(old)

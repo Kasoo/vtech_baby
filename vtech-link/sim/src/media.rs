@@ -17,7 +17,7 @@ const INFO_LEN: usize = 16;
 const K: u16 = 20;
 /// An FEC shard: sub-header and payload, zero-padded.
 const BLOCK: usize = SUBHEADER + FRAGMENT;
-/// The generator row for k = 20 (`tutk-host/av/fec.c:18`).
+/// The generator row for k = 20.
 const ROW_20: [u8; 20] = [
     0x8f, 0xae, 0x5b, 0x70, 0xd0, 0xcd, 0x54, 0x43, 0x39, 0xa3, 0xc9, 0x58, 0x1b, 0xbb, 0xb3, 0x18, 0x1b,
     0x1c, 0x12, 0x14,

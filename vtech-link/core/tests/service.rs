@@ -1,5 +1,5 @@
-//! Services: the key exchange and frame crypto against `vtech_lan/crypto.py` (vectors generated from
-//! it), and request/reply matching (`docs/vtech-link-design/60-application.md`).
+//! Services: the key exchange and frame crypto against reference vectors, and request/reply matching
+//! (`docs/vtech-link-design/60-application.md`).
 
 #![allow(
     clippy::unwrap_used,
@@ -18,7 +18,7 @@ use vtech_link_core::service::frame_crypto;
 use vtech_link_core::service::media_key::{KeyExchange, MasterKey};
 use vtech_link_core::service::requests::{RequestEvent, Requests};
 
-// From crypto.py: our secret 01..20, the camera's secret 65..84, salt c8..e7.
+// Reference vectors: our secret 01..20, the camera's secret 65..84, salt c8..e7.
 const OUR_SECRET: &str = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
 const HELLO: &str = "0100000007a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c";
 const REPLY: &str = "0000000000000000000000005714769d116bf76436ae74bc793d2c30ad1903c59ac5273805c7e2698b410c36c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7";
@@ -35,7 +35,7 @@ fn master() -> MasterKey {
 fn key_exchange_matches_crypto_py() {
     let secret: [u8; 32] = unhex(OUR_SECRET).try_into().unwrap();
     assert_eq!(KeyExchange::new(secret).hello().to_vec(), unhex(HELLO));
-    // The master itself never leaves the core; decrypting crypto.py's frame proves it is the same.
+    // The master itself never leaves the core; decrypting the reference frame proves it is the same.
     assert_eq!(
         frame_crypto::decrypt(&master(), &unhex(FRAME)),
         Some(unhex(PLAIN))
@@ -171,7 +171,7 @@ fn timeouts_and_late_replies() {
             payload: b"for b".to_vec()
         }]
     );
-    // A reply nobody waits for any more is a push, as session.py logs it today.
+    // A reply nobody waits for any more is a push.
     r.on_control(t0, 0x331, b"late".to_vec());
     assert_eq!(r.poll_push().unwrap().payload, b"late");
 }
