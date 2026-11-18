@@ -36,6 +36,10 @@ and the known issues.
   cameras that aren't configured yet and offers a picker when more than one is left; the same QR adds
   the next. Cameras are matched by UID, never by the QR's camera index, and reauth takes the record with
   the entry's UID.
+- **Credentials from a QR or typed** (2026-11). Setup, reauth and reconfigure each offer the pairing QR
+  or a typed UID and AV password. Typed credentials are tried as an enhanced camera and fall back to plain
+  on `-69`, so the user never chooses a mode. The cloud route stays outside the integration, as a helper
+  the user runs by hand (`tools/vtech_cloud_credentials.py`, `CREDENTIALS.md`).
 - **Version 2 config entries** (2026-10): version 1 ran on the vendor's SDK and stored its directory;
   `async_migrate_entry` drops it and deletes the extracted and patched libraries under the HA config
   directory.

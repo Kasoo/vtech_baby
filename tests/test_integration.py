@@ -126,9 +126,22 @@ async def wait_until(cond, timeout=5.0):
             await asyncio.sleep(0.05)
 
 
+async def start(hass, how="camera"):
+    """A user flow, past the menu: "camera" (pairing QR) or "manual" (typed credentials)."""
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert r["type"] is FlowResultType.MENU and r["menu_options"] == ["camera", "manual"]
+    return await hass.config_entries.flow.async_configure(r["flow_id"], {"next_step_id": how})
+
+
+async def update_flow(hass, r, how="update_qr"):
+    """A reauth or reconfigure flow, past its menu."""
+    assert r["type"] is FlowResultType.MENU and r["step_id"] == "update"
+    return await hass.config_entries.flow.async_configure(r["flow_id"], {"next_step_id": how})
+
+
 # ── Config flow ──────────────────────────────────────────────────────────────
 async def test_user_flow_creates_entry(hass: HomeAssistant, fake):
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await start(hass)
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"      # straight to the pairing QR
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: "garbage"})
     assert r["errors"] == {CONF_QR: "invalid_qr"}
@@ -145,7 +158,7 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, fake):
 
 async def test_untested_model_warns_then_adds(hass: HomeAssistant, fake):
     fake.camera.model = b"BM9999"
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await start(hass)
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "untested_model"
     assert r["description_placeholders"] == {"model": "BM9999", "tested": "VTech RM5754HD"}
@@ -160,7 +173,7 @@ async def test_module_load_failure_is_reported(hass: HomeAssistant):
     def broken(client):
         raise mgr.SetupError("can't load the module")
     with patch.object(mgr, "_load_module", broken):
-        r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+        r = await start(hass)
         r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"
     assert r["errors"] == {"base": "module_unavailable"}
@@ -170,14 +183,14 @@ async def test_module_load_failure_is_reported(hass: HomeAssistant):
 @pytest.mark.parametrize(("rc", "error"), [(-13, "cannot_connect"), (-68, "invalid_auth")])
 async def test_flow_connect_errors(hass: HomeAssistant, fake, rc, error):
     fake.fail_connect(rc)
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await start(hass)
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["errors"] == {"base": error}
 
 
 async def test_second_camera_dedupes(hass: HomeAssistant):
     entry = await setup_entry(hass)
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await start(hass)
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
     assert r["type"] is FlowResultType.ABORT and r["reason"] == "already_configured"
     await unload(hass, entry)
@@ -188,8 +201,8 @@ async def test_reauth(hass: HomeAssistant, fake):
     entry = await setup_entry(hass)
     assert entry.state is ConfigEntryState.SETUP_ERROR
     fake.heal()
-    r = await entry.start_reauth_flow(hass)
-    assert r["step_id"] == "reauth_confirm"
+    r = await update_flow(hass, await entry.start_reauth_flow(hass))
+    assert r["step_id"] == "update_qr"
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR_OTHER})
     assert r["errors"] == {CONF_QR: "wrong_camera"}
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR_ROTATED})
@@ -207,7 +220,7 @@ QR_TWO = make_qr_cameras(V5_CAMERAS)
 
 
 async def add(hass, qr):
-    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await start(hass)
     return await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: qr})
 
 
@@ -271,7 +284,7 @@ async def test_reauth_matches_the_camera_in_a_qr_with_several(hass: HomeAssistan
     assert entry.state is ConfigEntryState.SETUP_ERROR
     fake.heal()
     fake.plain_camera = True
-    r = await entry.start_reauth_flow(hass)
+    r = await update_flow(hass, await entry.start_reauth_flow(hass))
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: make_v1_qr(V1_CAMERAS[1:])})
     assert r["errors"] == {CONF_QR: "wrong_camera"}
     r = await hass.config_entries.flow.async_configure(
@@ -302,6 +315,76 @@ async def test_flow_probe_falls_back_to_plain(hass: HomeAssistant, fake):
     assert r["type"] is FlowResultType.CREATE_ENTRY and r["data"][CONF_PLAIN] is True
     await hass.async_block_till_done()
     await unload(hass, r["result"])
+
+
+# ── Typed credentials and reconfigure ───────────────────────────────────────
+async def test_typed_credentials_add_an_enhanced_camera(hass: HomeAssistant, fake):
+    r = await start(hass, "manual")
+    assert r["step_id"] == "manual"
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: "short", CONF_AV_PASSWORD: "x"})
+    assert r["errors"] == {CONF_UID: "invalid_uid"}
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: f" {UID} ", CONF_AV_PASSWORD: "Pw0rdXyz"})
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["result"].unique_id == UID
+    assert r["title"] == f"VTech {UID[-4:]}"
+    assert r["data"][CONF_AUTHKEY] == provision.derive_authkey("Pw0rdXyz") and r["data"][CONF_PLAIN] is False
+    await hass.async_block_till_done()
+    await unload(hass, r["result"])
+
+
+async def test_typed_credentials_find_a_plain_camera(hass: HomeAssistant, fake):
+    fake.plain_camera = True
+    r = await start(hass, "manual")
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: UID, CONF_AV_PASSWORD: "Tok3nAB1"})
+    assert r["type"] is FlowResultType.CREATE_ENTRY and r["data"][CONF_PLAIN] is True
+    await hass.async_block_till_done()
+    await unload(hass, r["result"])
+
+
+async def test_typed_credentials_wrong_password(hass: HomeAssistant, fake):
+    fake.fail_connect(-68)
+    r = await start(hass, "manual")
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: UID, CONF_AV_PASSWORD: "nope"})
+    assert r["type"] is FlowResultType.FORM and r["errors"] == {"base": "invalid_auth"}
+
+
+async def test_reconfigure_with_a_qr(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    r = await update_flow(hass, await entry.start_reconfigure_flow(hass))
+    assert r["step_id"] == "update_qr"
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR_OTHER})
+    assert r["errors"] == {CONF_QR: "wrong_camera"}
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR_ROTATED})
+    assert r["type"] is FlowResultType.ABORT and r["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert entry.data[CONF_AV_PASSWORD] == "NewPw123" and entry.state is ConfigEntryState.LOADED
+    await unload(hass, entry)
+
+
+async def test_reconfigure_typed_password_to_a_plain_camera(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    fake.plain_camera = True
+    r = await update_flow(hass, await entry.start_reconfigure_flow(hass), "update_manual")
+    assert r["step_id"] == "update_manual" and r["description_placeholders"]["uid"] == UID
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_AV_PASSWORD: "Tok3nZZ9"})
+    assert r["type"] is FlowResultType.ABORT and r["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert (entry.data[CONF_AV_PASSWORD], entry.data[CONF_PLAIN]) == ("Tok3nZZ9", True)
+    assert entry.state is ConfigEntryState.LOADED
+    await unload(hass, entry)
+
+
+async def test_reauth_typed_password(hass: HomeAssistant, fake):
+    fake.fail_connect(-68)
+    entry = await setup_entry(hass)
+    r = await update_flow(hass, await entry.start_reauth_flow(hass), "update_manual")
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_AV_PASSWORD: "NewPw123"})
+    assert r["errors"] == {"base": "invalid_auth"}                    # still rejected
+    fake.heal()
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_AV_PASSWORD: "NewPw123"})
+    assert r["type"] is FlowResultType.ABORT and r["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
+    assert entry.data[CONF_AUTHKEY] == provision.derive_authkey("NewPw123")
+    await unload(hass, entry)
 
 
 # ── Setup and runtime ────────────────────────────────────────────────────────

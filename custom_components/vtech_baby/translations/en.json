@@ -1,6 +1,14 @@
 {
   "config": {
     "step": {
+      "user": {
+        "title": "Add a VTech camera",
+        "description": "How do you want to give the camera's credentials?",
+        "menu_options": {
+          "camera": "Paste the pairing QR text (recommended)",
+          "manual": "Type the camera's UID and password"
+        }
+      },
       "camera": {
         "title": "Camera pairing QR",
         "description": "On the parent unit, open the camera's \"Connect Mobile Phone\" pairing QR code. Scan it with any phone QR-code reader and paste the text it shows (a long base64 string) here.",
@@ -15,21 +23,45 @@
           "uid": "Camera"
         }
       },
+      "manual": {
+        "title": "Camera UID and password",
+        "description": "The camera's 20-character UID and its AV password, for example as printed by the cloud credentials helper (see CREDENTIALS.md in the repository). The integration works out the security mode itself.",
+        "data": {
+          "uid": "Camera UID",
+          "av_password": "AV password"
+        }
+      },
       "untested_model": {
         "title": "Untested camera model",
         "description": "This camera reports its model as {model}. This integration has only been tested with the {tested}, so with this camera some features may not work or may behave unexpectedly, and some may not appear at all. Submit to add it anyway, or close this dialog to cancel. If you do add it, please report how well it works, with the integration's diagnostics attached."
       },
-      "reauth_confirm": {
+      "update": {
+        "title": "New credentials for {name}",
+        "description": "The camera's credentials change whenever its Wi-Fi changes or its security key is updated. How do you want to give the new ones?",
+        "menu_options": {
+          "update_qr": "Paste the current pairing QR text (recommended)",
+          "update_manual": "Type the camera's AV password"
+        }
+      },
+      "update_qr": {
         "title": "Re-pair {name}",
-        "description": "The camera is not accepting the stored credentials. They change whenever the camera's Wi-Fi changes or its security key is updated. Scan the current pairing QR code on the parent unit and paste its text here.",
+        "description": "Scan the camera's current pairing QR code on the parent unit (\"Connect Mobile Phone\") and paste its text here. It may hold several cameras; the one for {name} is used.",
         "data": {
           "qr": "Pairing QR text"
+        }
+      },
+      "update_manual": {
+        "title": "Re-pair {name}",
+        "description": "The current AV password of camera {uid}.",
+        "data": {
+          "av_password": "AV password"
         }
       }
     },
     "error": {
       "invalid_qr": "This isn’t a pairing QR this integration recognises. Paste the full text the QR reader shows.",
       "unsupported_model": "The pairing QR marks this camera as a model it doesn’t support.",
+      "invalid_uid": "A camera UID is 20 letters and digits.",
       "wrong_camera": "This QR code belongs to a different camera.",
       "invalid_auth": "The camera rejected the credentials from this QR code. Scan the QR again; it changes after a Wi-Fi change.",
       "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant. If its Wi-Fi changed recently, scan a fresh QR code.",
@@ -38,7 +70,8 @@
     },
     "abort": {
       "already_configured": "Every camera in this QR is already configured. If a camera’s credentials changed (for example after a Wi-Fi change), Home Assistant will ask you to re-pair it (see Settings → Repairs).",
-      "reauth_successful": "The camera was re-paired."
+      "reauth_successful": "The camera was re-paired.",
+      "reconfigure_successful": "The camera's credentials were updated."
     }
   },
   "entity": {
