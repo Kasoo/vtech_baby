@@ -42,19 +42,28 @@ The QR encodes an ASCII **base64** string. Decoded:
 The decrypted plaintext is a sequence of **TLV** records, each:
 
 ```
-00  <type:1>  <len:1>  <value:len>
+<camera-index:1>  <type:1>  <len:1>  <value:len>
 ```
 
-(each record begins with a `0x00` lead byte). The types that appear:
+The record's **leading byte is a camera index** (not a constant), and records are grouped by it, so a version-5
+QR can carry **several cameras**. The types that appear:
 
 | Type | Field |
 |---|---|
-| `2` | device name (e.g. `VTECH_5754_xxxx`) |
+| `2` | device name (e.g. `VTECH_5754_xxxx`); a name marking an unsupported model flags the camera invalid |
 | `3` | **UID** (the Kalay device identifier, `VTECH_UID`) |
-| `5` | **AV password** (`VTECH_PWD`) |
+| `4` | **AV password**, for a **plain**-mode camera (no authKey) |
+| `5` | **AV password**, for an **enhanced**-mode camera (authKey + DTLS) |
 | `7` | MAC address (6 bytes) |
+| `8` | marks the camera as an unsupported model |
+| `1`, `6` | ignored |
 
-The UID (type 3) and AV password (type 5) are the two credentials carried by the QR.
+The UID (type 3) and the AV password (type 4 or 5) are the credentials carried by the QR.
+
+**The credential type encodes the per-camera security mode.** A password under **type 5** means the camera is
+enhanced (connect with the derived authKey, DTLS AV login); a password under **type 4** means it is plain
+(connect with no authKey, plain AV login). A version-1 QR is always plain. So a client can select the connect
+mode (`10-transport-session.md`) from the QR directly, per camera, with no probing.
 
 ## Other QR formats
 
@@ -62,13 +71,31 @@ The format above (version byte `0x05`) is the one this specification provisions 
 RM5754HD emits. Other models in the family emit other formats under the same base64 + AES-128-CBC
 envelope (same app-wide key and IV), differing in the header and the payload shape:
 
-- **Version `0x01`** — a 2-byte header `[0x01][plaintext_len:1]`, then the AES-128-CBC ciphertext. The
-  plaintext is **ASCII, comma-separated**, four fields per camera and one or more cameras per code:
-  `idx,name,uid,token[,idx,name,uid,token …]`. The per-camera `name` contains `VTECH_`, the `uid` is the
-  20-character Kalay identifier, and the 8-character `token` is a **registration token, not the AV
-  password**. A camera that emits this format **does not carry its AV password in the QR**: the AV
-  password is held in the owner's account and is not recoverable from the QR, so the offline route above
-  cannot produce a full credential set for it. The UID is still valid. (Seen on the RM5764HD / RM7766.)
+- **Version `0x01`** — base64 decodes to a 2-byte header `[0x01][plaintext_len:1]` followed by the
+  AES-128-CBC ciphertext, which uses the **same app-wide key and IV as the version-5 QR**. To decode:
+  base64-decode, read `plaintext_len` from byte 1, AES-128-CBC-decrypt from byte 2 to the end, and keep the
+  first `plaintext_len` bytes (the plaintext is NUL-padded up to the AES block boundary). The result is
+  **ASCII, comma-separated**, four fields per camera and one or more cameras per code:
+  `idx,name,uid,token[,idx,name,uid,token …]` (so the field count is a multiple of 4). The per-camera `name`
+  contains `VTECH_`, the `uid` is the 20-character Kalay identifier, and the 8-character `token` has the same
+  character set and length as the version-5 AV password. The role of the `token` depends on the camera's
+  security mode (`10-transport-session.md`):
+  - On a **plain** camera, the `token` **is the AV password**. Such a camera is fully provisionable offline
+    from the QR alone: UID (field 3) plus AV password (field 4), account `admin`, and **no authKey** (plain
+    mode uses none). Connect per `10-transport-session.md`'s plain path. Each time the camera's security key
+    is regenerated, a new QR is issued and the previous `token` stops working.
+  - Whether a camera with a **version-1 QR can instead be in enhanced mode** (so the `token` is not the working
+    AV password and the real credentials come from the cloud device list, `06-cloud-credentials.md`) is
+    **unconfirmed**: a single external report of a key rejection on a version-1 QR exists, but it has not been
+    reproduced. Until it is, treat a version-1 QR as a plain camera. The UID is valid either way.
+  Multiple cameras: a version-1 QR holds one or more 4-field records (field count a multiple of 4); a QR with
+  two records, each a different UID, has been seen, as has a single-record QR. The leading `idx` field's meaning
+  is **unknown** — a single-camera QR has carried `idx = 1` regardless of the camera's slot on the parent — so a
+  client should match cameras by `uid`, not by `idx`. Whether regenerating the security key rotates the token of
+  every camera in the QR or only one is **unknown**. The pairing device offers the QR two ways: showing it for a
+  phone to scan does **not** change the token, while an explicit "update/regenerate security key" action issues a
+  new QR and invalidates the previous token.
+
 - **Other version bytes** have not been characterised. The envelope is likely the same; the header and
   payload shape are unknown until one is seen.
 

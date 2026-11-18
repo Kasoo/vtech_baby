@@ -39,22 +39,28 @@ it, and the authKey is derived from the AV password. The client consumes them as
 | **UID** | `VTECH_UID` | QR (TLV type 3) | The Kalay device identifier; the connect target. |
 | **AV account** | `VTECH_ACCOUNT` (default `admin`) | fixed (`admin`) | AV-layer authentication. |
 | **AV password** | `VTECH_PWD` | QR (TLV type 5) | AV-layer authentication. |
-| **IOTC authKey** | `VTECH_AUTHKEY` | **derived** from the AV password (`05-provisioning.md`) | Required because this camera runs in enhanced-security mode (see below). |
+| **IOTC authKey** | `VTECH_AUTHKEY` | **derived** from the AV password (`05-provisioning.md`) | Required only for an **enhanced**-mode camera; a **plain**-mode camera uses none (see below). |
 
 Produce these from a pairing QR with `../client/vtech_provision.py` (e.g. `--image photo.jpg --env`),
 which prints the `VTECH_*` exports directly.
 
 ### Fixed connection parameters (not secret)
 
-| Parameter | Value |
-|---|---|
-| security mode | **DTLS (1)** |
-| auth type (both layers) | **PASSWORD (0)** |
-| channel | **0** |
+| Parameter | Value (enhanced) | Value (plain) |
+|---|---|---|
+| security mode | **DTLS (1)** | **plain (0)** |
+| auth type (both layers) | **PASSWORD (0)** | **PASSWORD (0)** |
+| channel | **0** | **0** |
 
-The RM5754HD runs in **enhanced-security mode**: it must be connected with `IOTC_Connect_ByUIDEx` plus a
-valid **authKey**. A keyless connect is rejected with `-68` (`IOTC_ER_DEVICE_REJECT_BY_WRONG_AUTH_KEY`).
-The AV session is started with DTLS (`security_mode = 1`).
+A camera is in one of two security modes (`10-transport-session.md`):
+
+- **Enhanced** — connected with `IOTC_Connect_ByUIDEx` plus a valid **authKey** (a keyless connect is rejected
+  with `-68`, `IOTC_ER_DEVICE_REJECT_BY_WRONG_AUTH_KEY`); the AV session uses DTLS (`security_mode = 1`). The
+  authKey and the DTLS PSK both derive from the AV password.
+- **Plain** — connected with `IOTC_Connect_ByUID` and **no authKey**; the AV session is started in plain mode
+  (`security_mode = 0`), with no DTLS. The only per-camera secret needed is the AV password (account `admin`).
+
+The key material above is the full set for an enhanced camera; a plain camera needs only the AV password.
 
 ## Native libraries
 

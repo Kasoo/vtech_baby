@@ -74,14 +74,29 @@ blocked in the SDK doesn't stall other Python threads. SDK calls must still neve
 | Code(s) | Meaning | What an integration should do |
 |---|---|---|
 | `IOTC_ER_DEVICE_OFFLINE` (`-90`), `IOTC_ER_TIMEOUT` (`-13`), `IOTC_ER_CAN_NOT_FIND_DEVICE` (`-19`), `IOTC_ER_NETWORK_UNREACHABLE` (`-41`), `IOTC_ER_DEVICE_NOT_LISTENING` (`-24`) | Camera not reachable (powered off, off the network, still booting, not on the same L2 segment) | Mark entities unavailable; retry with backoff (e.g. 10 s growing to 5 min). During setup, raise `ConfigEntryNotReady`. Don't read it as stale credentials: a wrong authKey is rejected with `-68`. After rejoining Wi-Fi the camera can take about two minutes to answer the LAN search. |
-| `IOTC_ER_DEVICE_REJECT_BY_WRONG_AUTH_KEY` (`-68`), `AV_ER_WRONG_VIEWACCorPWD` (`-20009`) | Credentials wrong, or rotated on the camera side (a Wi-Fi change or "update security key" rotates the AV password, and the authKey co-rotates) | **Don't retry in a loop.** Start re-authentication (`ConfigEntryAuthFailed`): ask for a fresh pairing QR and re-provision (`05-provisioning.md`) rather than for typed credentials — the new AV password and authKey fall out of it. |
+| `IOTC_ER_DEVICE_REJECT_BY_WRONG_AUTH_KEY` (`-68`), `AV_ER_WRONG_VIEWACCorPWD` (`-20009`) | Credentials wrong, or rotated on the camera side (a Wi-Fi change or "update security key" rotates the AV password, and the authKey co-rotates) | **Don't retry in a loop.** Start re-authentication (`ConfigEntryAuthFailed`): ask for a fresh pairing QR and re-provide credentials (`05-provisioning.md`). |
 | `IOTC_ER_UNLICENSE` (`-10`) | License key missing or invalid | Setup error, surfaced to the user. |
 | `IOTC_ER_EXCEED_MAX_SESSION` (`-18`), `IOTC_ER_DEVICE_EXCEED_MAX_SESSION` (`-48`), `AV_ER_EXCEED_MAX_CHANNEL` (`-20002`) | Session or channel capacity exhausted (local or camera side) | Close stale sessions; raise `max_channels`; retry later. |
 | `AV_ER_SESSION_CLOSE_BY_REMOTE` (`-20015`), `AV_ER_REMOTE_TIMEOUT_DISCONNECT` (`-20016`), `IOTC_ER_SESSION_CLOSE_BY_REMOTE` (`-22`), `IOTC_ER_REMOTE_TIMEOUT_DISCONNECT` (`-23`), `AV_ER_INVALID_SID` (`-20010`), `IOTC_ER_INVALID_SID` (`-14`) | An established session is gone | Tear down (section 5), mark entities unavailable, and reconnect with backoff. |
 | `AV_ER_TIMEOUT` (`-20011`), `AV_ER_DATA_NOREADY` (`-20012`) | No data within the timeout | Normal; keep looping. |
 | `AV_ER_INVALID_ARG` (`-20000`) on a receive | The channel index is no longer valid (the channel was stopped) | Treat as session gone; reconnect. |
 
+For a **plain**-mode camera (no key authentication, no DTLS; `10-transport-session.md`), connect **without** an
+authKey — a plain camera is identified by its pairing QR (`05-provisioning.md`), so this is known in advance.
+Presenting an authKey to a plain camera returns `IOTC_ER_DEVICE_NOT_USE_KEY_AUTHENTICATION` (`-69`) persistently;
+if that happens, drop the authKey and reconnect keyless rather than retrying with the key. Start the AV channel
+in plain mode (`security_mode = 0`); the AV password comes from the QR, and a wrong AV password is an explicit
+`AV_ER_WRONG_VIEWACCorPWD` (`-20009`).
+
 Other points:
+- **A handshake that goes silent at the password check is ambiguous (enhanced/DTLS mode only).** In DTLS mode
+  the camera answers a wrong AV password by not answering, and a lost reply looks the same. Try the connect
+  again a few times before starting re-authentication; an explicit rejection needs no retry. In plain mode a
+  wrong password is explicit (`-20009`), so this ambiguity does not arise.
+- **Follow up a read that timed out.** If the GETs after a connect time out and nothing polls, read the
+  missing values again later: pushes cover only part of the state.
+- **Watch a running stream for silence.** If video stops arriving while the control session stays up,
+  end the stream so the next viewer sends `STOP` and `START` again.
 - **Liveness:** an idle session stays up, and the camera sends unsolicited `0x738` temperature pushes on
   it. Because a dropped camera may simply fall silent, also send a periodic cheap GET (e.g. `0x733` every
   60 s). A request that gets no reply after a few attempts is a dead session: tear down and reconnect.
