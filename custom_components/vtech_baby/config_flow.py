@@ -40,7 +40,7 @@ QR_SCHEMA = vol.Schema({vol.Required(CONF_QR): TextSelector(TextSelectorConfig(m
 _PASSWORD = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 MANUAL_SCHEMA = vol.Schema({vol.Required(CONF_UID): str, vol.Required(CONF_AV_PASSWORD): _PASSWORD})
 PASSWORD_SCHEMA = vol.Schema({vol.Required(CONF_AV_PASSWORD): _PASSWORD})
-_UID_RE = re.compile(r"[A-Za-z0-9]{20}")       # the 20-character Kalay UID
+_UID_RE = re.compile(r"[A-Z0-9]{20}")          # the 20-character Kalay UID, upper case
 
 
 class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -87,15 +87,16 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            uid = user_input[CONF_UID].strip()
+            uid = user_input[CONF_UID].strip().upper()
             if not _UID_RE.fullmatch(uid):
                 errors = {CONF_UID: "invalid_uid"}
             else:
                 result, errors = await self._async_add(_typed(uid, user_input[CONF_AV_PASSWORD]))
                 if result is not None:
                     return result
-        return self.async_show_form(step_id="manual", errors=errors, data_schema=self.add_suggested_values_to_schema(
-            MANUAL_SCHEMA, user_input or {}))
+        suggested = {CONF_UID: user_input[CONF_UID]} if user_input else {}
+        return self.async_show_form(step_id="manual", errors=errors,
+                                    data_schema=self.add_suggested_values_to_schema(MANUAL_SCHEMA, suggested))
 
     async def _async_add(self, creds: provision.Credentials
                          ) -> tuple[ConfigFlowResult | None, dict[str, str]]:
@@ -168,7 +169,10 @@ class VtechBabyConfigFlow(ConfigFlow, domain=DOMAIN):
         creds, errors = await self._async_test(creds)
         if errors:
             return None, errors
-        return self.async_update_reload_and_abort(entry, data_updates=_entry_creds(creds)), {}
+        updates = _entry_creds(creds)
+        if not creds.mac:
+            del updates[CONF_MAC]                   # typed credentials carry none; keep the stored one
+        return self.async_update_reload_and_abort(entry, data_updates=updates), {}
 
     @staticmethod
     def _decode(text: str) -> tuple[list[provision.Credentials], dict[str, str]]:

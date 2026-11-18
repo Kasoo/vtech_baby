@@ -142,7 +142,7 @@ async def update_flow(hass, r, how="update_qr"):
 # ── Config flow ──────────────────────────────────────────────────────────────
 async def test_user_flow_creates_entry(hass: HomeAssistant, fake):
     r = await start(hass)
-    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"      # straight to the pairing QR
+    assert r["type"] is FlowResultType.FORM and r["step_id"] == "camera"      # the QR form, after the menu
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: "garbage"})
     assert r["errors"] == {CONF_QR: "invalid_qr"}
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_QR: QR})
@@ -331,6 +331,14 @@ async def test_typed_credentials_add_an_enhanced_camera(hass: HomeAssistant, fak
     await unload(hass, r["result"])
 
 
+async def test_typed_uid_is_upper_cased_and_deduped(hass: HomeAssistant, fake):
+    entry = await setup_entry(hass)
+    r = await start(hass, "manual")
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_UID: UID.lower(), CONF_AV_PASSWORD: "x"})
+    assert r["type"] is FlowResultType.ABORT and r["reason"] == "already_configured"
+    await unload(hass, entry)
+
+
 async def test_typed_credentials_find_a_plain_camera(hass: HomeAssistant, fake):
     fake.plain_camera = True
     r = await start(hass, "manual")
@@ -369,6 +377,7 @@ async def test_reconfigure_typed_password_to_a_plain_camera(hass: HomeAssistant,
     assert r["type"] is FlowResultType.ABORT and r["reason"] == "reconfigure_successful"
     await hass.async_block_till_done()
     assert (entry.data[CONF_AV_PASSWORD], entry.data[CONF_PLAIN]) == ("Tok3nZZ9", True)
+    assert entry.data[CONF_MAC] == "00:11:22:33:44:ff"               # kept: typed credentials carry none
     assert entry.state is ConfigEntryState.LOADED
     await unload(hass, entry)
 

@@ -1,13 +1,10 @@
 # 06 — Credential provisioning from the cloud account
 
-`05-provisioning.md` recovers the credential set offline from the pairing QR. That works for the
-**v5** pairing-QR format (RM5754HD), where the QR carries the AV password directly. It does **not** work
-for the **v1** format (RM5764HD, RM7766): there the QR's 8-char field is a per-camera *security key* used
-only to pair the camera over the vendor's P2P layer, **not** the AV password — so the offline derivation
-produces a wrong authKey and the camera rejects it (`IOTC_ER_DEVICE_REJECT_BY_WRONG_AUTH_KEY`, `-68`).
+`05-provisioning.md` recovers the credential set offline from the pairing QR, in both its formats. The
+cloud account is the other source: for any camera already paired to an account, the account's device list
+carries the same UID / AV account / AV password.
 
-For those cameras (and as a generic route for **any** camera already paired to an account), the credential
-set is pulled from the owner's **cloud account**: the same UID / AV account / AV password that
+The credential set pulled from the owner's **cloud account** is the same UID / AV account / AV password that
 `05-provisioning.md` yields from the QR, after which the **authKey derivation is identical**
 (`06` differs only in *where the AV password comes from*). A standalone "credentials helper" that logs in
 and prints the per-camera credential set is enough; the LAN protocol (`10`+) is unchanged.
@@ -16,8 +13,8 @@ and prints the per-camera credential set is enough; the LAN protocol (`10`+) is 
 > This spec covers *reading* the account's device list, not first-time pairing (which happens over the
 > vendor P2P layer, not an HTTPS endpoint — see *First-time pairing*, below).
 
-The reference implementation of this flow is `camera/cloud_creds/verify_cloud_login.py` (stdlib-only; it
-reproduces the exact sequence below and derives each authKey). Provenance: every step was captured live
+The reference implementation of this flow is `tools/vtech_cloud_credentials.py` at the repository root
+(stdlib-only; it runs the sequence below and derives each authKey). Provenance: every step was captured live
 from the official app (okhttp over TLS) and decoded; marked **[live]** below. The derivation is **[live]**
 + cross-checked byte-for-byte against the on-camera authKey.
 

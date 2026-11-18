@@ -63,13 +63,13 @@
       "unsupported_model": "The pairing QR marks this camera as a model it doesn’t support.",
       "invalid_uid": "A camera UID is 20 letters and digits.",
       "wrong_camera": "This QR code belongs to a different camera.",
-      "invalid_auth": "The camera rejected the credentials from this QR code. Scan the QR again; it changes after a Wi-Fi change.",
-      "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant. If its Wi-Fi changed recently, scan a fresh QR code.",
+      "invalid_auth": "The camera rejected these credentials. They change after a Wi-Fi change or a security key update: use the current pairing QR, or the current password.",
+      "cannot_connect": "Could not reach the camera. Make sure it is powered on and on the same network as Home Assistant.",
       "module_unavailable": "The integration's protocol module could not be loaded; see the logs.",
       "unknown": "Unexpected error; see the logs."
     },
     "abort": {
-      "already_configured": "Every camera in this QR is already configured. If a camera’s credentials changed (for example after a Wi-Fi change), Home Assistant will ask you to re-pair it (see Settings → Repairs).",
+      "already_configured": "This camera is already configured (every camera in a pasted QR, if it holds several). If its credentials changed, use Reconfigure, or wait for Home Assistant to ask you to re-pair it (Settings → Repairs).",
       "reauth_successful": "The camera was re-paired.",
       "reconfigure_successful": "The camera's credentials were updated."
     }
