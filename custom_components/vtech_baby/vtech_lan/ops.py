@@ -101,6 +101,19 @@ LULLABY_TIMERS_S = (900, 1800, 3600, 0)
 VOLUME_MIN, VOLUME_MAX = 0, 5
 
 
+class Move(enum.IntEnum):
+    """0x1001 control byte. The camera keeps moving in a direction until it gets STOP."""
+    STOP = 0
+    UP = 1
+    DOWN = 2
+    LEFT = 3
+    RIGHT = 6
+
+
+#: 0x1001 speed byte. The RM5764V2 moves at one speed whatever it holds.
+MOVE_SPEED = 4
+
+
 class EventCode(enum.IntEnum):
     """0x1fff event_code@16."""
     MOTION = 0x01
@@ -389,6 +402,8 @@ SPEAKER_START = Op(0x350, "IOTYPE_USER_IPCAM_SPEAKERSTART", enc_channel)
 SPEAKER_STOP = Op(0x351, "IOTYPE_USER_IPCAM_SPEAKERSTOP", enc_channel)
 GET_TIMEZONE = Op(0x3A0, "IOTYPE_USER_IPCAM_GET_TIMEZONE_REQ", lambda: bytes(268), reply=0x3A1,
                   dec=dec_timezone)
+PTZ_COMMAND = Op(0x1001, "IOTYPE_USER_IPCAM_PTZ_COMMAND",
+                 lambda control: bytes([int(control), MOVE_SPEED if control else 0]) + bytes(6))
 VIDEO_FULLRATE = Op(0x719, "VIDEO_FULLRATE", lambda: _i32(0, 0))       # send just before START
 LIVE_VIEW_KEY = Op(0x820, "LIVE_VIEW_KEY", lambda payload=b"": payload, reply=0x821)
 

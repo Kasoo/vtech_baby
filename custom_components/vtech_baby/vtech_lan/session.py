@@ -80,6 +80,7 @@ class SessionBase:
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._rmw_lock = threading.Lock()                   # serialises read-modify-write SETs
+        self._move_lock = threading.Lock()                  # one movement at a time: a STOP ends any of them
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
     def connect(self) -> ops.DevInfo:
@@ -339,6 +340,15 @@ class SessionBase:
                 cur.motion_sensitivity if motion_sensitivity is None else motion_sensitivity,
                 cur.p28,
             )
+
+    def move(self, direction: ops.Move, seconds: float) -> None:
+        """Pan or tilt for `seconds`, then stop. Neither command is acked."""
+        with self._move_lock:
+            self.send(ops.PTZ_COMMAND, ops.Move(direction))
+            try:
+                time.sleep(seconds)
+            finally:
+                self.send(ops.PTZ_COMMAND, ops.Move.STOP)
 
     def play_lullaby(self, track: ops.LullabyTrack) -> None:
         """Audible in the room: only with the owner present."""

@@ -194,6 +194,20 @@
         "name": "Sound"
       }
     },
+    "button": {
+      "pan_left": {
+        "name": "Pan left"
+      },
+      "pan_right": {
+        "name": "Pan right"
+      },
+      "tilt_up": {
+        "name": "Tilt up"
+      },
+      "tilt_down": {
+        "name": "Tilt down"
+      }
+    },
     "camera": {
       "live_view": {
         "name": "Live view"

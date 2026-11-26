@@ -1,5 +1,19 @@
 {
   "entity": {
+    "button": {
+      "pan_left": {
+        "default": "mdi:pan-left"
+      },
+      "pan_right": {
+        "default": "mdi:pan-right"
+      },
+      "tilt_up": {
+        "default": "mdi:pan-up"
+      },
+      "tilt_down": {
+        "default": "mdi:pan-down"
+      }
+    },
     "sensor": {
       "temperature_state": {
         "default": "mdi:thermometer-check",

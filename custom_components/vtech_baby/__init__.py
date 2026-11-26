@@ -28,7 +28,7 @@ from .manager import CameraManager, SetupError, async_load
 _LOG = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
-    Platform.BINARY_SENSOR, Platform.CAMERA, Platform.EVENT, Platform.LIGHT, Platform.MEDIA_PLAYER,
+    Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CAMERA, Platform.EVENT, Platform.LIGHT, Platform.MEDIA_PLAYER,
     Platform.NUMBER, Platform.SELECT,
     Platform.SENSOR, Platform.SWITCH,
 ]

@@ -63,6 +63,7 @@ and the known issues.
 | Sound sensitivity | `sensor`, read-only (set on the parent handset) | — | `0x734 @16`; re-read on `0x738` |
 | Notification interval | `select` Default / 1 / 3 / 5 / 10 / 30 min / Never | `0x790` | `0x792 → 0x793` |
 | Lullaby timer | `select` 15 / 30 / 60 min / Non-stop | `0x731` word1 | `0x734 @12`; push `0x7ac` sub 0x15 |
+| Pan left / right, Tilt up / down | 4 × `button`. A press moves for 0.5 s (`MOVE_STEP_S`), then stops; presses run one after another. Enabled on the models in `MOVEMENT_MODELS` (the RM5764V2), created disabled on every other model, since support can't be probed. | `0x1001` direction, then `0x1001` stop (neither acked) | — |
 | Alerts | `event` motion / sound / too_hot / too_cold | — | push `0x1fff` |
 | Motion, Sound | 2 × `binary_sensor`, auto-off after the notification interval + 15 s (min 30 s) | — | push `0x1fff` |
 | Speaker | `media_player`. Sources = the 10 lullabies; stop; volume 0–5 (5 = 1.0; the range is unconfirmed). Play / announce media (TTS, media sources, http(s) URLs) as talk-back, decoded as it plays (PyAV); `play_media` returns when the media has played, new media replaces old. Media stops a lullaby; an announcement restarts it afterwards. Sound alerts from either are tagged self-triggered. | Lullaby `0x735` (ack `0x736`); volume `0x731` word2; talk-back `0x32a`, `0x820`, `0x301`, `0x350`, AV server channel, stop `0x351` (`0x300` if the live view runs) | `0x734 @4`, `@20`; push `0x7ac` sub 1, `0x14` |
@@ -91,6 +92,13 @@ Deliberately not exposed: daylight saving (`0x727`/`0x729`), timezone (`0x3a0`),
   The manager assumes it does: only `AuthFailed` starts reauth, and an unreachable camera (no search
   reply) is retried forever. Stale credentials that went silent instead would show as a camera that
   never comes back.
+
+- Pan and tilt (`0x1001`) are confirmed on the RM5764V2 only. Whether the RM5754HD answers the opcode
+  is unknown, so its movement buttons are created disabled; add its model to `MOVEMENT_MODELS` once it
+  is confirmed. Also unknown: whether the motor stops by itself at the end of its travel or when a
+  session ends mid-movement, and whether a movement disturbs the live view. With one session streaming
+  and a second one moving the camera, the first stopped bringing video for 10–25 s after three of ten movements;
+  whether the cause is the movement or the second session hasn't been separated.
 
 ## Known issues
 - **Post-connect IOCtrl stall.** Occasionally, a `0x731` write within about a minute of (re)connecting is

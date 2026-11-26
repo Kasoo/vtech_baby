@@ -20,7 +20,7 @@ def test_codes_unique_and_replies_explicit():
     assert ops.GET_DST.reply == 0x730
     # Fire-and-forget ops.
     for op in (ops.SND_DATA_DELAY, ops.START, ops.VIDEO_FULLRATE, ops.SET_NOTIFY_INTERVAL,
-               ops.SPEAKER_START, ops.AUDIO_START):
+               ops.SPEAKER_START, ops.AUDIO_START, ops.PTZ_COMMAND):
         assert op.reply is None
 
 
@@ -41,6 +41,11 @@ def test_codes_unique_and_replies_explicit():
     (ops.SET_NOTIFY_INTERVAL, (ops.NotifyInterval.MIN_5,), i32(0, 3)),
     (ops.LULLABY, (ops.LullabyTrack.STOP,), i32(0, -1)),
     (ops.LULLABY, (ops.LullabyTrack.BIRDS,), i32(0, 9)),
+    (ops.PTZ_COMMAND, (ops.Move.LEFT,), bytes([3, 4, 0, 0, 0, 0, 0, 0])),
+    (ops.PTZ_COMMAND, (ops.Move.RIGHT,), bytes([6, 4, 0, 0, 0, 0, 0, 0])),
+    (ops.PTZ_COMMAND, (ops.Move.UP,), bytes([1, 4, 0, 0, 0, 0, 0, 0])),
+    (ops.PTZ_COMMAND, (ops.Move.DOWN,), bytes([2, 4, 0, 0, 0, 0, 0, 0])),
+    (ops.PTZ_COMMAND, (ops.Move.STOP,), bytes(8)),
     (ops.GET_PARAMS, (), i32(0)),
     (ops.GET_STATUS_LED, (), i32(0, 0)),
 ])

@@ -16,7 +16,8 @@ You get one device per camera with:
 - the night-light (red, orange or yellow) and the status LED;
 - night vision, resolution, motion sensitivity, sound detection, notification interval and lullaby timer;
 - a speaker for the camera's lullabies, its volume, and text-to-speech or other media;
-- a hold-to-talk dashboard card, to talk live through the camera.
+- a hold-to-talk dashboard card, to talk live through the camera;
+- pan and tilt buttons, on the RM5764V2 (on other models they are added disabled: enable them to try).
 
 ![The camera's device page in Home Assistant](https://raw.githubusercontent.com/Kasoo/vtech_baby/refs/heads/main/images/device.png)
 

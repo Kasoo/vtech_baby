@@ -107,6 +107,8 @@ new QR version to the kit spec only once it is actually characterised from a rea
 - **Anything that makes light or sound at the camera needs the owner present.** That covers the
   night-light, the status LED, lullabies, talk-back and night-vision mode. Never run it headless;
   ask first.
+- **Moving the camera** (pan, tilt) changes what the monitor shows. Only with the owner present, and
+  move it back afterwards.
 - **Restore every setting you change**: motion and sound detection, temperature alerts, notification
   interval, resolution, night-vision mode, volume and timer. Read the value first, then write it back.
 - The physical **parent handset** can change settings and caps video at 720p while it's on. Don't treat

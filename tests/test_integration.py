@@ -1078,3 +1078,31 @@ async def test_fields_a_read_timed_out_on_are_read_again(hass: HomeAssistant, fa
         await wait_until(lambda: m._unread_reread.done())
     assert hass.states.get(TEMP).state == "21"
     await unload(hass, entry)
+
+
+MOVE_BUTTONS = {"pan_left": 3, "pan_right": 6, "tilt_up": 1, "tilt_down": 2}
+
+
+async def test_movement_buttons_move_one_step_then_stop(hass: HomeAssistant, fake):
+    from custom_components.vtech_baby import button
+    fake.camera.model = b"RM5764V2"
+    entry = await setup_entry(hass)
+    with patch.object(button, "MOVE_STEP_S", 0.01):
+        for key, control in MOVE_BUTTONS.items():
+            fake.camera.moves.clear()
+            await call(hass, "button", "press", f"button.{P}_{key}")
+            assert fake.camera.moves == [(control, 4), (0, 0)]
+    await unload(hass, entry)
+
+
+async def test_movement_buttons_are_disabled_on_a_model_not_known_to_move(hass: HomeAssistant, fake):
+    from homeassistant.helpers import entity_registry as er
+    entry = await setup_entry(hass)
+    reg = er.async_get(hass)
+    for key in MOVE_BUTTONS:
+        entity_id = reg.async_get_entity_id("button", DOMAIN, f"{UID}_{key}")
+        assert reg.async_get(entity_id).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+        assert hass.states.get(entity_id) is None
+    assert fake.camera.moves == []
+    await unload(hass, entry)
+

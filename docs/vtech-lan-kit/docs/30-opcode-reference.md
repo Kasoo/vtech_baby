@@ -60,6 +60,23 @@ anyone in the room can see when the camera is being watched.
 | `0x713` → `0x714` | GET | 4B `0` | Reply `int@4` = current mode (same enum). |
 | `0x785` | push | 4B | **Current day/night STATE**: `int@0` = 1 (night/IR active) or 0 (day). Distinct from the mode setting: mode Auto resolves to a state based on ambient light. |
 
+### Pan / tilt
+
+| Opcode | Direction | Payload | Semantics |
+|---|---|---|---|
+| `0x1001` | SET | 8B: byte`@0` = control, byte`@1` = speed, rest `0` | `IOTYPE_USER_IPCAM_PTZ_COMMAND` (standard TUTK). Control: **0 = stop, 1 = up, 2 = down, 3 = left, 6 = right.** A direction starts the motor and it keeps running until a stop arrives, so every movement is a direction followed by a stop. No reply and no push, for a direction or for a stop. |
+
+Confirmed on the **RM5764V2** (firmware 2.1.1.7). Whether the RM5754HD answers it is unconfirmed. A
+camera sends nothing back either way, so a client cannot detect support: it has to know the model.
+
+- **The speed byte has no effect** on the RM5764V2: speeds 1, 4 and 8 move the camera equally far in
+  the same time. Distance is set by the time between the direction and the stop: 0.6 s of pan shifts
+  the picture by about a fifth of its width.
+- Works on a control-only session, and on a second session while another one streams.
+- Other control values (the standard TUTK diagonals, auto-pan and preset points) are untested.
+- Whether the motor stops by itself at the end of its travel, or when the session that started it
+  ends without a stop, is unknown.
+
 ### Video resolution
 
 `SETSTREAMCTRL` (`0x320`, above): quality byte `2` = 1080p, `1` = 720p. Persists across sessions. See
