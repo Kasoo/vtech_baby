@@ -45,6 +45,7 @@ class FakeCamera:
         self.notify = 1
         self.parent = 1
         self.model = b"RM5754"
+        self.moves: list[tuple[int, int]] = []   # 0x1001 (control, speed), in the order received
         self.silent: set[int] = set()        # request opcodes to ignore (no reply)
         self.fail_acks: set[int] = set()     # request opcodes to ack as failed
         self.event_pages: list[bytes] = []
@@ -139,6 +140,8 @@ class FakeCamera:
             self.audio_on = True
         elif code == 0x301:
             self.audio_on = False
+        elif code == 0x1001:
+            self.moves.append((p[0], p[1]))
         elif code == 0x350:
             self.speaker_ch = w(0)
         elif code == 0x351:

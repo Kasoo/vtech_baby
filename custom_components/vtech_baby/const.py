@@ -28,6 +28,12 @@ RECONNECT_MAX_S = 300.0
 TESTED_MODELS = frozenset({"RM5754"})
 TESTED_PRODUCT = "VTech RM5754HD"
 
+# DEVINFO models whose pan and tilt are confirmed to answer 0x1001. The camera acks neither a movement
+# nor an unsupported opcode, so support can't be probed: on any other model the movement buttons are
+# created disabled.
+MOVEMENT_MODELS = frozenset({"RM5764V2"})
+MOVE_STEP_S = 0.5                       # how long one button press moves the camera
+
 # Repair issue ids
 ISSUE_RESTART_REQUIRED = "restart_required"   # a new module is installed; the loaded one runs until a restart
 ISSUE_WORKER_CRASHED = "worker_crashed"       # no longer raised; deleted at setup

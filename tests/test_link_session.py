@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 
 import pytest
 
@@ -200,6 +201,35 @@ def test_set_emits_ack_and_push(conn):
     assert mod.camera.night_light == 2
     assert wait_for(lambda: any(p.code == 0x7AC for p in pushes))
     assert s.get_night_light() is ops.NightLight.ORANGE
+
+
+def test_move_sends_the_direction_then_stop(conn):
+    mod, s, _, _ = conn
+    s.move(ops.Move.LEFT, 0.01)
+    assert mod.camera.moves == [(3, 4), (0, 0)]
+
+
+def test_move_stops_the_camera_when_the_wait_is_interrupted(conn, monkeypatch):
+    mod, s, _, _ = conn
+
+    def interrupted(_seconds):
+        raise RuntimeError("interrupted")
+    # Only the session module's view of `time`: the fake link's threads keep the real sleep.
+    monkeypatch.setattr("vtech_lan.session.time", types.SimpleNamespace(**{**vars(time), "sleep": interrupted}))
+    with pytest.raises(RuntimeError, match="interrupted"):
+        s.move(ops.Move.UP, 5)
+    assert mod.camera.moves == [(1, 4), (0, 0)]
+
+
+def test_moves_run_one_after_another(conn):
+    mod, s, _, _ = conn
+    threads = [threading.Thread(target=s.move, args=(d, 0.05)) for d in (ops.Move.LEFT, ops.Move.RIGHT)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(mod.camera.moves[0::2]) == [(3, 4), (6, 4)]
+    assert mod.camera.moves[1::2] == [(0, 0), (0, 0)]
 
 
 def test_timeout_leaves_session_usable(conn):

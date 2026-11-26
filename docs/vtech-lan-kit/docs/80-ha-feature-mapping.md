@@ -13,6 +13,7 @@ the implementer can choose scope and structure.
 | Night-vision mode | SET `0x715` (Auto/On/Off), GET `0x713`, STATE push `0x785` | `select` (mode) + `binary_sensor` (night active) | Mode is the setting; `0x785` reports whether night/IR is currently active. |
 | Video resolution | SET `0x320` (1080p/720p), GET `0x322` | `select` | Persists camera-side; capped to 720p while a parent handset is active. |
 | Sound detection on/off | SET `0x7b2`, GET `0x7b0` | `switch` | |
+| Pan / tilt | SET `0x1001` (direction, then stop) | `button` ×4 (one step per press) | Not acked and not readable: there is no position, and support can't be probed, so gate it on the model. Confirmed on the RM5764V2 only. |
 | Motion detection sensitivity | SET `0x7a6`, GET `0x7a4` (off/low/med/high) | `select` | `0` = off. |
 | Temperature alert thresholds | SET `0x74d`, GET `0x74b` (enable + min/max) | `switch` + `number`×2 | Min/max in °C. |
 | Notification interval | SET `0x790`, GET `0x792` | `select` | Also governs event-push rate-limiting. |
